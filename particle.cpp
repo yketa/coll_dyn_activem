@@ -19,20 +19,26 @@
 // CONSTRUCTORS
 
 Particle::Particle(double d) :
-  r{0, 0}, theta(0), v{0, 0}, sigma(d), f{0, 0}, gamma (0) {}
-Particle::Particle(double x, double y, double ang, double d) :
-  r{x, y}, theta(ang), v{0, 0}, sigma(d), f{0, 0}, gamma (0) {}
+  r{0, 0}, theta(0), p{0, 0}, v{0, 0}, sigma(d),
+  f{0, 0}, fp{0, 0}, gamma(0) {}
+Particle::Particle(
+  double x, double y, double ang, double px, double py, double d) :
+  r{x, y}, theta(ang), p{px, py}, v{0, 0}, sigma(d),
+  f{0, 0}, fp{0, 0}, gamma(0) {}
 
 // METHODS
 
 double* Particle::position() { return &r[0]; } // returns pointer to position
 double* Particle::orientation() { return &theta; } // returns pointer to orientation
+double* Particle::propulsion() { return &p[0]; } // returns pointer to self-propulsion direction
 double* Particle::velocity() { return &v[0]; } // returns pointer to velocity
 
 double Particle::diameter() const { return sigma; } // returns pointer to diameter
 
 double* Particle::force() { return &f[0]; }; // returns pointer to force
-double* Particle::torque() { return &gamma; } // returns pointer to aligning torque
+
+double* Particle::forcep() { return &fp[0]; }; // returns pointer to force applied on self-propulsion (AOUP)
+double* Particle::torque() { return &gamma; } // returns pointer to aligning torque (ABP)
 
 
 /*************
@@ -757,6 +763,11 @@ System0::System0(
     particles[i].position()[1] = (i/gridSize)*gridSpacing;
     // random orientation
     particles[i].orientation()[0] = 2*M_PI*randomGenerator.random01();
+    // self-propulsion vector
+    particles[i].propulsion()[0] =
+      getPropulsionVelocity()*cos(particles[i].orientation()[0]);
+    particles[i].propulsion()[1] =
+      getPropulsionVelocity()*sin(particles[i].orientation()[0]);
   }
 
   // initialise cell list
@@ -814,6 +825,11 @@ System0::System0(
     particles[i].position()[1] = (i/gridSize)*gridSpacing;
     // random orientation
     particles[i].orientation()[0] = 2*M_PI*randomGenerator.random01();
+    // self-propulsion vector
+    particles[i].propulsion()[0] =
+      getPropulsionVelocity()*cos(particles[i].orientation()[0]);
+    particles[i].propulsion()[1] =
+      getPropulsionVelocity()*sin(particles[i].orientation()[0]);
   }
 
   // initialise cell list
@@ -867,7 +883,7 @@ System0::System0(
   // initialise cell list
   double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
   cellList.initialise<System0>(this, pow(2.0*maxDiameter, 1./6.));
-  // copy positions and orientations and update cell list
+  // copy positions, orientations, and self-propulsion vectors, and update cell list
   copyState(system);
   // copy dumps
   copyDump(system);
@@ -917,7 +933,7 @@ System0::System0(
   // initialise cell list
   double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
   cellList.initialise<System0>(this, pow(2.0*maxDiameter, 1./6.));
-  // copy positions and orientations and update cell list
+  // copy positions, orientations, and self-propulsion vectors, and update cell list
   copyState(system);
   // copy dumps
   copyDump(system);
@@ -973,6 +989,11 @@ System0::System0(
     }
     // orientations
     particles[i].orientation()[0] = inputDat.getOrientation(inputFrame, i);
+    // self-propulsion vector
+    for (int dim=0; dim < 2; dim++) {
+      particles[i].propulsion()[dim] =
+        inputDat.getPropulsion(inputFrame, i, dim);
+    }
   }
 
   // write header with system parameters to output file
@@ -1121,6 +1142,10 @@ void System0::copyState(std::vector<Particle>& newParticles) {
     }
     // ORIENTATIONS
     particles[i].orientation()[0] = newParticles[i].orientation()[0];
+    for (int dim=0; dim < 2; dim++) {
+      // SELF-PROPULSION VECTORS
+      particles[i].propulsion()[dim] = newParticles[i].propulsion()[dim];
+    }
   }
 
   // UPDATING CELL LIST
@@ -1137,6 +1162,11 @@ void System0::copyState(System0* system) {
     }
     // ORIENTATIONS
     particles[i].orientation()[0] = (system->getParticle(i))->orientation()[0];
+    for (int dim=0; dim < 2; dim++) {
+      // SELF-PROPULSION VECTORS
+      particles[i].propulsion()[dim] =
+        (system->getParticle(i))->propulsion()[dim];
+    }
   }
 
   // UPDATING CELL LIST
@@ -1156,6 +1186,10 @@ void System0::saveInitialState() {
       }
       // ORIENTATIONS
       output.write<double>(particles[i].orientation()[0]); // output orientation
+      // SELF-PROPULSION VECTORS
+      for (int dim=0; dim < 2; dim++) { // output position in each dimension
+        output.write<double>(particles[i].propulsion()[dim]);
+      }
       // VELOCITIES
       velocitiesDumps[i] = output.tellp(); // location to dump velocities at next time step
       for (int dim=0; dim < 2; dim++) { // output velocity in each dimension
@@ -1184,24 +1218,18 @@ void System0::saveNewState(std::vector<Particle>& newParticles) {
     for (int dim=0; dim < 2; dim++) {
       // active work
       workSum[0] +=
-        getPropulsionVelocity()*
-        (cos(newParticles[i].orientation()[0] - dim*M_PI/2)
-          + cos(particles[i].orientation()[0] - dim*M_PI/2))
+        (newParticles[i].propulsion()[dim] + particles[i].propulsion()[dim])
         *(newParticles[i].position()[dim] - particles[i].position()[dim]) // NOTE: at this stage, newParticles[i].position() are not rewrapped, so this difference is the actual displacement
         /2;
       // force part of the active work
       workForceSum[0] +=
-        getPropulsionVelocity()*
-        (cos(newParticles[i].orientation()[0] - dim*M_PI/2)
-          + cos(particles[i].orientation()[0] - dim*M_PI/2))
+        (newParticles[i].propulsion()[dim] + particles[i].propulsion()[dim])
         *getTimeStep()*getPotentialParameter()*particles[i].force()[dim]
         /2;
       // orientation part of the active work
       workOrientationSum[0] +=
-        pow(getPropulsionVelocity(), 2)*
-        (cos(newParticles[i].orientation()[0] - dim*M_PI/2)
-          + cos(particles[i].orientation()[0] - dim*M_PI/2))
-        *getTimeStep()*cos(particles[i].orientation()[0] - dim*M_PI/2)
+        (newParticles[i].propulsion()[dim] + particles[i].propulsion()[dim])
+        *getTimeStep()*particles[i].propulsion()[dim]
         /2;
     }
 
@@ -1230,6 +1258,11 @@ void System0::saveNewState(std::vector<Particle>& newParticles) {
 
       // ORIENTATION
       output.write<double>(newParticles[i].orientation()[0]);
+
+      // SELF-PROPULSION VECTORS
+      for (int dim=0; dim < 2; dim++) {
+        output.write<double>(newParticles[i].propulsion()[dim]);
+      }
 
       // VELOCITIES
       velocitiesDumps[i] = output.tellp(); // location to dump velocities at next time step

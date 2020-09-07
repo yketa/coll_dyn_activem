@@ -7,6 +7,7 @@ from coll_dyn_activem.init import get_env
 from coll_dyn_activem.read import _Dat0 as Dat
 
 from numpy.random import randint
+from numpy import sqrt, pi
 
 from os import path
 from subprocess import Popen, DEVNULL
@@ -43,6 +44,29 @@ def filename(N, epsilon, v0, D, Dr, phi, launch):
     return 'N%s_F%s_V%s_T%s_R%s_D%s_E%s.dat0' % tuple(map(float_to_letters,
         (N, epsilon, v0, D, Dr, phi, launch)))
 
+def v0_AOUP(D, Dr):
+    """
+    Returns default self-propulsion velocity for AOUPs, defined as the mean
+    self-propulsion vector norm for an OU process with rotational diffusivity
+    Dr and translational diffusivity D.
+
+    (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
+
+    Parameters
+    ----------
+    D : float
+        Translational diffusivity.
+    Dr : float
+        Rotational diffusivity.
+
+    Returns
+    -------
+    v0 : float
+        Default self-propulsion velocity.
+    """
+
+    return sqrt(pi*D*Dr/2.)
+
 # DEFAULT VARIABLES
 
 _N = 10                 # default number of particles in the system
@@ -66,7 +90,8 @@ _period = 1 # default period of dumping of positions and orientations in number 
 
 _N_cell = 100                                                           # number of particles above which simulations should be launched with a cell list
 _exec_dir = path.join(path.dirname(path.realpath(__file__)), 'build')   # default executable directory
-_exec_name = ['simulation0', 'simulation0_cell_list']                   # default executable name without and with a cell list
+_exec_name = ['simulation%s', 'simulation%s_cell_list']                 # default executable name without and with a cell list
+_exec_type = {'ABP': '0', 'AOUP': 'OU'}                                 # default suffixes associtated to active particles' types
 
 _out_dir = _exec_dir    # default simulation output directory
 
@@ -80,14 +105,19 @@ if __name__ == '__main__':
     inputFilename = get_env('INPUT_FILENAME', default='', vartype=str)  # input file from which to copy data
     inputFrame = get_env('INPUT_FRAME', default=0, vartype=int)         # frame to copy as initial frame
 
+    # TYPE
+    type = get_env('TYPE', default='ABP', vartype=str)  # type of active particles
+
     if inputFilename == '':
 
         # SYSTEM PARAMETERS
         N = get_env('N', default=_N, vartype=int)                       # number of particles in the system
         Dr = get_env('DR', default=_Dr, vartype=float)                  # rotational diffusivity
         epsilon = get_env('EPSILON', default=Dr/3., vartype=float)      # coefficient parameter of potential
-        v0 = get_env('V0', default=_v0, vartype=float)                  # self-propulsion velocity
         D = get_env('D', default=epsilon, vartype=float)                # translational diffusivity
+        v0 = get_env('V0',                                              # self-propulsion velocity
+            default=(v0_AOUP(D, Dr) if type == 'AOUP' else _v0),
+            vartype=float)
         phi = get_env('PHI', default=_phi, vartype=float)               # packing fraction
         I = get_env('I', default=_I, vartype=float)                     # polydispersity index
 
@@ -98,8 +128,8 @@ if __name__ == '__main__':
             N = dat.N                                   # number of particles in the system
             Dr = dat.Dr                                 # rotational diffusivity
             epsilon = dat.epsilon                       # coefficient parameter of potential
-            v0 = dat.v0                                 # self-propulsion velocity
             D = dat.D                                   # translational diffusivity
+            v0 = dat.v0                                 # self-propulsion velocity
             phi = dat.phi                               # packing fraction
             I = -1                                      # polydispersity index
             del dat
@@ -126,7 +156,8 @@ if __name__ == '__main__':
 
     # EXECUTABLE PARAMETERS
     exec_dir = get_env('EXEC_DIR', default=_exec_dir, vartype=str)      # executable directory
-    exec_name = get_env('EXEC_NAME', default=_exec_name[N >= _N_cell],  # executable name
+    exec_name = get_env('EXEC_NAME',                                    # executable name
+        default=(_exec_name[N >= _N_cell] % _exec_type[type]),
         vartype=str)
 
     # OUTPUT FILE PARAMETERS

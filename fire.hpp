@@ -69,7 +69,7 @@ template<class SystemClass> void FIRE_WCA(
         (system->getParticle(i))->force()[dim] = 0.0; // reset force
       }
     }
-    ABP_WCA<SystemClass>(system);
+    system_WCA<SystemClass>(system);
 
     // COMPUTE POWER
     power = 0;

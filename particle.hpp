@@ -32,19 +32,22 @@ class Particle {
     // CONSTRUCTORS
 
     Particle(double d = 1);
-    Particle(double x, double y, double ang, double d = 1);
+    Particle(
+      double x, double y, double ang, double px, double py, double d = 1);
 
     // METHODS
 
     double* position(); // returns pointer to position
     double* orientation(); // returns pointer to orientation
+    double* propulsion(); // returns pointer to self-propulsion direction
     double* velocity(); // returns pointer to velocity
 
     double diameter() const; // returns pointer to diameter
 
     double* force(); // returns pointer to force
 
-    double* torque(); // returns pointer to aligning torque
+    double* forcep(); // returns pointer to force applied on self-propulsion (AOUP)
+    double* torque(); // returns pointer to aligning torque (ABP)
 
   private:
 
@@ -52,12 +55,15 @@ class Particle {
 
     double r[2]; // position (2D)
     double theta; // orientation
+    double p[2]; // self-propulsion vector (2D)
     double v[2]; // velocity (2D)
 
     double const sigma; // diameter
 
     double f[2]; // force exerted on particle (2D)
-    double gamma; // aligning torque
+    double fp[2]; // force applied on self-propulsion (AOUP)
+
+    double gamma; // aligning torque (ABP)
 
 };
 
@@ -400,13 +406,13 @@ class System {
  *  Store physical and integration parameter.
  *  Access to distance and potentials.
  *  Save system state to output file.
- *  Using all free parameters in the ABP model.
+ *  Using all free parameters.
  */
 
 class System0 {
-  /*  Contains all the details to simulate a system of active Brownian
-   *  particles.
+  /*  Contains all the details to simulate a system of active particles.
    *  (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
+   *  (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
    *
    *  Parameters are stored in a binary file with the following structure:
    *
@@ -416,16 +422,16 @@ class System0 {
    *  ||  diameter  | ... |  diameter  ||
    *
    *  [INITIAL FRAME (see System0::saveInitialState)] (all double)
-   *  ||                    FRAME 0                     ||
-   *  ||          PARTICLE 1         | ... | PARTICLE N ||
-   *  ||   R   | ORIENTATION |   V   | ... |     ...    ||
-   *  || X | Y |    theta    | 0 | 0 | ... |     ...    ||
+   *  ||                          FRAME 0                           ||
+   *  ||                PARTICLE 1               | ... | PARTICLE N ||
+   *  ||   R   | ORIENTATION |     P     |   V   | ... |     ...    ||
+   *  || X | Y |    theta    | P_X | P_Y | 0 | 0 | ... |     ...    ||
    *
    *  [BODY (see System0::saveNewState)] (all double)
-   *  ||                    FRAME 1 + i*period                  || ... || FRAME 1 + (i + framesWork - 1)*period |~
-   *  ||              PARTICLE 1             | ... | PARTICLE N || ... ||                  ...                  |~
-   *  ||   R   | ORIENTATION |       V       | ... |     ...    || ... ||                  ...                  |~
-   *  || X | Y |    theta    |  V_X  |  V_Y  | ... |     ...    || ... ||                  ...                  |~
+   *  ||                          FRAME 1 + i*period                        || ... || FRAME 1 + (i + framesWork - 1)*period |~
+   *  ||                    PARTICLE 1                   | ... | PARTICLE N || ... ||                  ...                  |~
+   *  ||   R   | ORIENTATION |     P     |       V       | ... |     ...    || ... ||                  ...                  |~
+   *  || X | Y |    theta    | P_X | P_Y |  V_X  |  V_Y  | ... |     ...    || ... ||                  ...                  |~
    *
    *  ~|                                                                                 || ...
    *  ~|                                                                                 || ...
@@ -744,7 +750,7 @@ void _WCA_force(
 // FUNCTIONS //
 ///////////////
 
-template<class SystemClass, typename F> void pairs_ABP(
+template<class SystemClass, typename F> void pairs_system(
   SystemClass* system, F function) {
   // Given a function `function` with parameters (int index1, int index2),
   // call this function with every unique pair of interacting particles, using
@@ -836,7 +842,7 @@ template<class SystemClass> double WCA_potential(SystemClass* system) {
     }
   };
 
-  pairs_ABP<SystemClass>(system, addPotential);
+  pairs_system<SystemClass>(system, addPotential);
 
   return potential;
 }

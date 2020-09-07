@@ -893,7 +893,7 @@ class _Dat(_Read):
             self.headerLength                                           # header
             + time*self.frameLength                                     # other frames
             + particle*self.particleLength                              # other particles
-            + 3*self._bpe('d')                                          # positions and orientation
+            + (3 + 2*self._isDat0)*self._bpe('d')                       # positions and orientation (and self-propulsion vector)
             + (np.max([time - 1, 0])//self.framesWork)*self.workLength) # active work sums (taking into account the frame with index 0)
         return np.array([self._read('d'), self._read('d')])
 
@@ -996,7 +996,7 @@ class _Dat0(_Dat):
 
         # FILE PARTS LENGTHS
         self.headerLength = self.file.tell()                        # length of header in bytes
-        self.particleLength = 5*self._bpe('d')*self.dumpParticles   # length the data of a single particle takes in a frame
+        self.particleLength = 7*self._bpe('d')*self.dumpParticles   # length the data of a single particle takes in a frame
         self.frameLength = self.N*self.particleLength               # length the data of a single frame takes in a file
         self.workLength = 4*self._bpe('d')                          # length the data of a single work and order parameter dump takes in a file
 
@@ -1016,10 +1016,66 @@ class _Dat0(_Dat):
             self.headerLength                   # header
             + self.frames*self.frameLength      # frames
             + self.numberWork*self.workLength): # work sums
-            raise ValueError("Invalid data file size.")
+            raise ValueError("Invalid data file size ('%s')." % self.filename)
 
         # COMPUTED NORMALISED RATE OF ACTIVE WORK
         self._loadWork(load=loadWork)
+
+    def getPropulsions(self, time, *particle, norm=False):
+        """
+        Returns self-propulsion vectors of particles at time.
+
+        Parameters
+        ----------
+        time : int
+            Frame.
+        particle : int
+            Indexes of particles.
+            NOTE: if none is given, then all particles are returned.
+        norm : bool
+            Return norm of self-propulsion vectors rather than 2D
+            self-propulsion vectors.
+            (default: False)
+
+        Returns
+        -------
+        propulsions : [not(norm)] (*, 2) float Numpy array
+                      [norm] (*,) float Numpy array
+            Self-propulsion vectors at `time'.
+        """
+
+        if particle == (): particle = range(self.N)
+
+        propulsions = np.array(list(map(
+            lambda index: self._propulsion(time, index),
+            particle)))
+        if norm: return np.sqrt(np.sum(propulsions**2, axis=-1))
+        return propulsions
+
+    def _propulsion(self, time, particle):
+        """
+        Returns array of self-propulsion vector of particle at time.
+
+        Parameters
+        ----------
+        time : int
+            Frame.
+        particle : int
+            Index of particle.
+
+        Returns
+        -------
+        position : (2,) float Numpy array
+            Self-propulsion vector of `particle' at `time'.
+        """
+
+        self.file.seek(
+            self.headerLength                                           # header
+            + time*self.frameLength                                     # other frames
+            + particle*self.particleLength                              # other particles
+            + 3*self._bpe('d')                                          # positions and orientation
+            + (np.max([time - 1, 0])//self.framesWork)*self.workLength) # active work sums (taking into account the frame with index 0)
+        return np.array([self._read('d'), self._read('d')])
 
 class Dat(_Dat):
     """

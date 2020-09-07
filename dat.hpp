@@ -59,7 +59,7 @@ class Dat {
       int const& frame, int const& particle, int const& dimension);
       // Returns position of a given particle at a given frame.
     double getOrientation(int const& frame, int const& particle);
-      // Returns position of a given particle at a given frame.
+      // Returns orientation of a given particle at a given frame.
     double getVelocity(
       int const& frame, int const& particle, int const& dimension);
       // Returns velocity of a given particle at a given frame.
@@ -150,7 +150,10 @@ class Dat0 {
       int const& frame, int const& particle, int const& dimension);
       // Returns position of a given particle at a given frame.
     double getOrientation(int const& frame, int const& particle);
-      // Returns position of a given particle at a given frame.
+      // Returns orientation of a given particle at a given frame.
+    double getPropulsion(
+      int const& frame, int const& particle, int const& dimension);
+      // Returns self-propulsion vector of a given particle at a given frame.
     double getVelocity(
       int const& frame, int const& particle, int const& dimension);
       // Returns velocity of a given particle at a given frame.

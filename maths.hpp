@@ -78,6 +78,9 @@ class Random {
 double getAngle(double cosinus, double signSinus);
   // Returns angle in radians from its cosinus and sign of its sinus.
 
+double getAngleVector(double x, double y);
+  // Returns angle in radians from the coordinates of a vector.
+
 double algDistPeriod(double const& x1, double const& x2, double const& length);
   // Returns algebraic distance from `x1' to `x2' on a line of length `length'
   // taking into account periodic boundary condition.

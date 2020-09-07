@@ -80,11 +80,20 @@ ifeq ($(ROTORS),yes)
 	CPP=mainR.cpp
 else
 
-# ABPs
+# SIMULATIONS
 ifeq ($(SIM0),yes)
-	EXEC=$(BU)/simulation0
 	CPP=main0.cpp
+ifeq ($(TYPE),AOUP)
+# AOUPs
+	CFLAGS+=-DAOUP
+	EXEC=$(BU)/simulationOU
 else
+# ABPs
+	CFLAGS+=-DABP
+	EXEC=$(BU)/simulation0
+endif
+else
+	CFLAGS+=-DABP
 	EXEC=$(BU)/simulation
 	CPP=main.cpp
 endif

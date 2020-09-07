@@ -14,6 +14,12 @@ void iterate_ABP_WCA(System0* system, int Niter);
   // Updates system to next step according to the dynamics of active Brownian
   // particles with WCA potential.
 
+// AOUPs
+
+void iterate_AOUP_WCA(System0* system, int Niter);
+  // Updates system to next step according to the dynamics of active
+  // Ornstein-Uhlenbeck particles with WCA potential.
+
 // ROTORS
 
 void iterate_rotors(Rotors* rotors, int Niter);
@@ -22,11 +28,11 @@ void iterate_rotors(Rotors* rotors, int Niter);
 
 // FUNCTIONS
 
-template<class SystemClass> void ABP_WCA(SystemClass* system) {
+template<class SystemClass> void system_WCA(SystemClass* system) {
   // Compute interactions with WCA potentials between all particles of the
   // system.
 
-  pairs_ABP<SystemClass>(system,
+  pairs_system<SystemClass>(system,
     [&system](int index1, int index2) { system->WCA_force(index1, index2); });
 }
 

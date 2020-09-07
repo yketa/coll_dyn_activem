@@ -116,7 +116,7 @@ double Dat::getPosition(
 }
 
 double Dat::getOrientation(int const& frame, int const& particle){
-  // Returns position of a given particle at a given frame.
+  // Returns orientation of a given particle at a given frame.
 
   return input.read<double>(
     headerLength                                     // header
@@ -177,7 +177,7 @@ Dat0::Dat0(std::string filename, bool loadWork) :
 
   // FILE PARTS LENGTHS
   headerLength = input.tellg();
-  particleLength = 5*sizeof(double)*dumpParticles;
+  particleLength = 7*sizeof(double)*dumpParticles;
   frameLength = numberParticles*particleLength;
   workLength = 4*sizeof(double);
 
@@ -255,7 +255,7 @@ double Dat0::getPosition(
 }
 
 double Dat0::getOrientation(int const& frame, int const& particle){
-  // Returns position of a given particle at a given frame.
+  // Returns orientation of a given particle at a given frame.
 
   return input.read<double>(
     headerLength                                     // header
@@ -263,6 +263,19 @@ double Dat0::getOrientation(int const& frame, int const& particle){
     + particle*particleLength                        // other particles
     + (std::max(frame - 1, 0)/framesWork)*workLength // active work sums (taking into account the frame with index 0)
     + 2*sizeof(double));                             // positions
+}
+
+double Dat0::getPropulsion(
+  int const& frame, int const& particle, int const& dimension) {
+  // Returns self-propulsion vector of a given particle at a given frame.
+
+  return input.read<double>(
+    headerLength                                     // header
+    + frame*frameLength                              // other frames
+    + particle*particleLength                        // other particles
+    + (std::max(frame - 1, 0)/framesWork)*workLength // active work sums (taking into account the frame with index 0)
+    + 3*sizeof(double)                               // positions and orientation
+    + dimension*sizeof(double));                     // dimension
 }
 
 double Dat0::getVelocity(
@@ -274,7 +287,7 @@ double Dat0::getVelocity(
     + frame*frameLength                              // other frames
     + particle*particleLength                        // other particles
     + (std::max(frame - 1, 0)/framesWork)*workLength // active work sums (taking into account the frame with index 0)
-    + 3*sizeof(double)                               // positions and orientation
+    + 5*sizeof(double)                               // positions, orientation, and self-propulsion vector
     + dimension*sizeof(double));                     // dimension
 }
 

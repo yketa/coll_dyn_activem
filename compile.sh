@@ -18,9 +18,12 @@ make clean && CLONINGR=yes BIAS=1 CONTROLLED_DYNAMICS=yes HEUN=$USE_HEUN make;  
 
 for CL in yes no; do  # with and without cell lists
 
-  # SIMULATIONS
-  for S0 in yes no; do  # general ABPs and custom model
-    make clean && SIM0=$S0 CELLLIST=$CL HEUN=$USE_HEUN make;
+  # CUSTOM ABP MODEL SIMULATIONS
+  make clean && SIM0=no CELLLIST=$CL HEUN=$USE_HEUN make;
+
+  # GENERAL SIMULATIONS
+  for TY in ABP AOUP; do  # types of active particles
+    make clean && SIM0=yes TYPE=$TY CELLLIST=$CL HEUN=$USE_HEUN make;
   done
 
   # ABP CLONING

@@ -33,7 +33,11 @@ int main() {
     // INITIALISATION
     system->saveInitialState(); // save first frame
     // ITERATION
+    #if AOUP // simulation of AOUPs
+    iterate_AOUP_WCA(system, Niter); // run simulations
+    #else // simulation of ABPs (default)
     iterate_ABP_WCA(system, Niter); // run simulations
+    #endif
   };
 
   // definition
@@ -44,8 +48,14 @@ int main() {
     int N = getEnvInt("N", 1); // number of particles in the system
     double Dr = getEnvDouble("DR", 1.0/2.0); // rotational diffusivity
     double epsilon = getEnvDouble("EPSILON", Dr/3.0); // coefficient parameter of potential
-    double v0 = getEnvDouble("V0", 1); // self-propulsion velocity
     double D = getEnvDouble("D", epsilon); // translational diffusivity
+    double v0 = getEnvDouble("V0",
+      #if AOUP // simulation of AOUPs
+      sqrt(M_PI*D*Dr/2.0)
+      #else // simulation of ABPs (default)
+      1
+      #endif
+    ); // self-propulsion velocity
     double phi = getEnvDouble("PHI", 0.02); // packing fraction
 
     // diameters
