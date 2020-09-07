@@ -1,6 +1,7 @@
 """
 Module flow provides classes to compute and analyse displacements, velocities,
-and orientations in order to characterise the flow of systems of ABPs.
+and orientations in order to characterise the flow of systems of active
+particles.
 
 (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#ABP%20flow%20characteristics)
 """
@@ -9,16 +10,19 @@ import numpy as np
 from collections import OrderedDict
 from operator import itemgetter
 
-from coll_dyn_activem.read import Dat
-from coll_dyn_activem.maths import Distribution, wave_vectors_2D, g2Dto1D,\
-    g2Dto1Dgrid, mean_sterr, logspace
-from coll_dyn_activem.rotors import nu_pdf_th
+from coll_dyn_activem.read import Dat, _Dat0
+from coll_dyn_activem.maths import Distribution, JointDistribution,\
+    wave_vectors_2D, g2Dto1D, g2Dto1Dgrid, mean_sterr, logspace
+from coll_dyn_activem.rotors import nu_pdf_th as nu_pdf_th_ABP
+
+# CLASSES
 
 class Displacements(Dat):
     """
     Compute and analyse displacements from simulation data.
 
     (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
+    (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
     """
 
     def __init__(self, filename, skip=1):
@@ -250,7 +254,7 @@ class Displacements(Dat):
 
         return np.array(msd_sterr)
 
-    def msd_th(self, dt):
+    def msd_th_ABP(self, dt):
         """
         Returns value of theoretical mean squared displacement at lag time `dt'
         for a single ABP.
@@ -270,11 +274,30 @@ class Displacements(Dat):
         """
 
         if self._isDat0:    # general parameters
-            return 4*self.D*dt + (2*(self.v0**2)/self.Dr)*(
-                dt + (np.exp(-self.Dr*dt) - 1)/self.Dr)
+            return msd_th_ABP(self.v0, self.D, self.Dr, dt)
         else:               # custom relations between parameters
-            return 4/(3*self.lp)*dt + 2*self.lp*(
-                dt + self.lp*(np.exp(-dt/self.lp) - 1))
+            return msd_th_ABP(self.v0, 1./(3.*self.lp), 1./self.lp, dt)
+
+    def msd_th_AOUP(self, dt):
+        """
+        Returns value of theoretical mean squared displacement at lag time `dt'
+        for a single AOUP.
+
+        (see https://yketa.github.io/PhD_Wiki/#One%20AOUP)
+
+        Parameters
+        ----------
+        dt : float
+            Lag time at which to evaluate the theoretical mean squared
+            displacement.
+
+        Returns
+        -------
+        msd : float
+            Mean squared displacement.
+        """
+
+        return msd_th_AOUP(self.D, self.Dr, dt)
 
     def _time0(self, dt, int_max=None):
         """
@@ -308,6 +331,7 @@ class Velocities(Dat):
     Compute and analyse velocities from simulation data.
 
     (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
+    (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
     """
 
     def __init__(self, filename, skip=1):
@@ -478,6 +502,7 @@ class Orientations(Dat):
     Compute and analyse orientations from simulation data.
 
     (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
+    (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
     """
 
     def __init__(self, filename, skip=1):
@@ -648,7 +673,7 @@ class Orientations(Dat):
         Cuu : (*, 2) float Numpy array
             Array of (r, Cuu(r)) with Cuu(r) the cylindrically averaged spatial
             correlations of orientation.
-        Cdd : (*, *) float Numpy array
+        Cdd : (*, 2) float Numpy array
             Array of (r, Cdd(r)) with Cdd(r) the cylindrically averaged spatial
             correlations of density.
         [not(cylindrical)]
@@ -690,10 +715,10 @@ class Orientations(Dat):
                 else C2D/C2D[0, 0],                             # 2D grid
             (Cuu2D, Cdd2D)))
 
-    def nu_pdf_th(self, *nu):
+    def nu_pdf_th_ABP(self, *nu):
         """
         Returns value of theoretical probability density function of the order
-        parameter norm.
+        parameter norm for ABPs.
 
         (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#N-interacting%20Brownian%20rotors)
 
@@ -709,7 +734,7 @@ class Orientations(Dat):
             Probability density function.
         """
 
-        return nu_pdf_th(self.N, self.g, 1/self.lp, *nu)
+        return nu_pdf_th_ABP(self.N, self.g, 1/self.lp, *nu)
 
     def _time0(self, int_max=None):
         """
@@ -731,3 +756,358 @@ class Orientations(Dat):
         if int_max == None: return np.array(range(self.skip, self.frames - 1))
         return np.linspace(
             self.skip, self.frames - 1, int(int_max), endpoint=False, dtype=int)
+
+class Propulsions(_Dat0):
+    """
+    Compute and analyse self-propulsion vectors from simulation data.
+
+    (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
+    (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
+    """
+
+    def __init__(self, filename, skip=1):
+        """
+        Loads file.
+
+        Parameters
+        ----------
+        filename : string
+            Name of input data file.
+        skip : int
+            Skip the `skip' first computed frames in the following calculations.
+            (default: 1)
+            NOTE: This can be changed at any time by setting self.skip.
+        """
+
+        super().__init__(filename, loadWork=False)  # initialise with super class
+
+        self.skip = skip    # skip the `skip' first frames in the analysis
+
+    def nPropulsions(self, int_max=None, norm=False):
+        """
+        Returns array of self-propulsion vectors.
+
+        Parameters
+        ----------
+        int_max : int or None
+            Maximum number of frames to consider. (default: None)
+            NOTE: If int_max == None, then take the maximum number of frames.
+                  WARNING: This can be very big.
+        norm : bool
+            Consider norm of self-propulsion vectors rather than 2D
+            self-propulsion vectors. (default: False)
+
+        Returns
+        -------
+        propulsions : [not(norm)] (*, self.N, 2) float numpy array
+                      [norm] (*, self.N) float numpy array
+            Array of computed self-propulsion vectors.
+        """
+
+        return np.array(list(map(
+            lambda time0: self.getPropulsions(time0, norm=norm),
+            self._time0(int_max=int_max))))
+
+    def propulsionsPDF(self, int_max=None, norm=False, axis='x'):
+        """
+        Returns probability density function of self-propulsion vector.
+
+        PARAMETERS
+        ----------
+        int_max : int or None
+            Maximum number of frames to consider. (default: None)
+            NOTE: If int_max == None, then take the maximum number of frames.
+                  WARNING: This can be very big.
+        norm : bool
+            Consider norm of self-propulsion vectors rather than 2D
+            self-propulsion vectors. (default: False)
+        axis : str ('x', 'y', 'both')
+            Consider either x-axis, y-axis (1D PDF), or both axes (2D PDF).
+            (default: 'x')
+            NOTE: This is considered only if norm == False.
+
+        Returns
+        -------
+        [norm or (not(norm) and (axis == 'x' or axis == 'y'))]
+        axes : numpy array
+            Values at which the probability density function is evaluated.
+        pdf : float numpy array
+            Values of the probability density function.
+        [not(norm) and axis == 'both']
+        pdf3D : (*, 3) float Numpy array
+            (0) Value of the x-coordinate at which the PDF is evaluated.
+            (1) Value of the y-coordinate at which the PDF is evaluated.
+            (2) PDF.
+        """
+
+        if norm:
+            return Distribution(
+                self.nPropulsions(int_max=int_max, norm=True)).pdf()
+        else:
+            propulsions = self.nPropulsions(int_max=int_max, norm=False)
+            if axis == 'both':
+                return JointDistribution(
+                    propulsions[:, :, 0], propulsions[:, :, 1]).pdf()
+            elif axis == 'x':
+                return Distribution(propulsions[:, :, 0]).pdf()
+            elif axis == 'y':
+                return Distribution(propulsions[:, :, 1]).pdf()
+            else:
+                raise ValueError("Axis '%s' not in ('x', 'y', 'both').")
+
+    def propulsionsHist(self, nBins, int_max=None, vmin=None, vmax=None,
+        log=False, rescaled_to_max=False, norm=False, axis='x'):
+        """
+        Returns histogram with `nBins' bins of self-propulsion vectors.
+
+        Parameters
+        ----------
+        nBins : int
+            Number of bins of the histogram.
+        int_max : int or None
+            Maximum number of frames to consider. (default: None)
+            NOTE: If int_max == None, then take the maximum number of frames.
+                  WARNING: This can be very big.
+        vmin : float
+            Minimum value of the bins.
+            (default: minimum computed self-propulsion vector norm or
+            coordinate)
+        vmax : float
+            Maximum value of the bins.
+            (default: maximum computed self-propulsion vector norm or
+            coordinate)
+        log : bool
+            Consider the log of the occupancy of the bins. (default: False)
+            NOTE: This will be considered only if norm or (not(norm) and
+                  (axis == 'x' or axis == 'y')).
+        rescaled_to_max : bool
+            Rescale occupancy of the bins by its maximum over bins.
+            (default: False)
+            NOTE: This will be considered only if norm or (not(norm) and
+                  (axis == 'x' or axis == 'y')).
+        norm : bool
+            Consider norm of self-propulsion vectors rather than 2D
+            self-propulsion vectors. (default: False)
+        axis : str ('x', 'y', 'both')
+            Consider either x-axis, y-axis (1D histogram), or both axes
+            (2D histogram). (default: 'x')
+            NOTE: This is considered only if norm == False.
+
+        Returns
+        -------
+        [norm or (not(norm) and (axis == 'x' or axis == 'y'))]
+        bins : float numpy array
+            Values of the bins.
+        hist : float numpy array
+            Occupancy of the bins.
+        [not(norm) and axis == 'both']
+        hist : (nBins**2, 3) float Numpy array
+            Values of the histogram:
+                (0) Bin value of the x-coordinate.
+                (1) Bin value of the y-coordinate.
+                (2) Proportion.
+        """
+
+        if norm:
+            return Distribution(
+                self.nPropulsions(int_max=int_max, norm=True)).hist(
+                    nBins, vmin=vmin, vmax=vmax, log=log,
+                    rescaled_to_max=rescaled_to_max)
+        else:
+            propulsions = self.nPropulsions(int_max=int_max, norm=False)
+            if axis == 'both':
+                return JointDistribution(
+                    propulsions[:, :, 0], propulsions[:, :, 1]).hist(
+                        nBins, vmin1=vmin, vmax1=vmax, vmin2=vmin, vmax2=vmax)
+            elif axis == 'x':
+                return Distribution(propulsions[:, :, 0]).hist(
+                        nBins, vmin=vmin, vmax=vmax, log=log,
+                        rescaled_to_max=rescaled_to_max)
+            elif axis == 'y':
+                return Distribution(propulsions[:, :, 1]).hist(
+                        nBins, vmin=vmin, vmax=vmax, log=log,
+                        rescaled_to_max=rescaled_to_max)
+
+    def propulsions_dist_th_AOUP(self, *p):
+        """
+        Returns value of theoretical self-propulsion vector distribution for
+        AOUPs.
+
+        (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
+
+        Parameters
+        ----------
+        p : float 2-uple
+            Value of the self-propulsion vector.
+
+        Returns
+        -------
+        Pp : (*,) float numpy array
+            Probability density function.
+        """
+
+        return np.array(list(map(
+            lambda _: np.exp(-(_[0]**2 + _[1]**2)/(2.*self.D*self.Dr))/(
+                2*np.pi*self.D*self.Dr),
+            p)))
+
+    def propulsionsCor(self, n_max=100, int_max=100, min=None, max=None,
+        init_cor=True):
+        """
+        Compute time correlations of particles' self-propulsion vectors.
+
+        Parameters
+        ----------
+        n_max : int
+            Maximum number of times at which to compute the self-propulsion
+            vectors. (default: 100)
+        int_max : int or None
+            Maximum number of frames to consider. (default: 100)
+        min : int or None
+            Minimum time at which to compute the correlation. (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum time at which to compute the correlation. (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+        init_cor : bool
+            Remove from the propulsion at time t the propulsion at time 0
+            multiplied by \\exp(-D_r t). (default: True)
+
+        Returns
+        -------
+        Cpp : (*, 2) float Numpy array
+            Array of (t, Cpp(t)) with Cpp(t) the correlation function.
+        """
+
+        Cpp = []
+
+        min = 1 if min == None else int(min)
+        max = ((self.frames - self.skip - 1)//int_max if max == None
+            else int(max))
+        _dt = logspace(min, max, n_max) # array of lag times
+
+        propulsions0 = init_cor*self.getPropulsions(self.skip, norm=False)  # initial self-propulsion vectors
+
+        for dt in _dt:
+
+            time0 = np.linspace(
+                self.skip, self.frames - 1,
+                int((self.frames - 1 - self.skip)//dt),
+                endpoint=False, dtype=int)
+            if int_max != None:
+                indexes = list(OrderedDict.fromkeys(
+                    np.linspace(0, time0.size, int_max,
+                        endpoint=False, dtype=int)))
+                time0 = np.array(itemgetter(*indexes)(time0), ndmin=1)
+
+            Cpp += [[dt,
+                np.mean(list(map(
+                    lambda t: list(map(
+                        lambda x, y: np.dot(x, y), *(
+                            self.getPropulsions(t, norm=False)
+                                - propulsions0*np.exp(
+                                    -self.Dr*self.dt*(t - self.skip)),
+                            self.getPropulsions(int(t + dt), norm=False)
+                                - propulsions0*np.exp(
+                                    -self.Dr*self.dt*(t + dt - self.skip))))),
+                    time0)))]]
+
+        return np.array(Cpp)
+
+    def propulsions_cor_th_AOUP(self, *dt):
+        """
+        Returns value of theoretical self-propulsion vector time correlation for
+        AOUPs.
+
+        (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
+
+        Parameters
+        ----------
+        dt : float
+            Lag time.
+
+        Returns
+        -------
+        cpp : (*,) float numpy array
+            Time correlation.
+        """
+
+        return np.array(list(map(
+            lambda t: 2*self.D*self.Dr*np.exp(-self.Dr*t),
+            dt)))
+
+    def _time0(self, int_max=None):
+        """
+        Returns array of frames at which to compute self-propulsion vectors.
+
+        Parameters
+        ----------
+        int_max : int or None
+            Maximum number of frames to consider. (default: None)
+            NOTE: If int_max == None, then take the maximum number of frames.
+                  WARNING: This can be very big.
+
+        Returns
+        -------
+        time0 : (*,) float numpy array
+            Array of frames.
+        """
+
+        if int_max == None: return np.array(range(self.skip, self.frames - 1))
+        return np.linspace(
+            self.skip, self.frames - 1, int(int_max), endpoint=False, dtype=int)
+
+# FUNCTIONS
+
+def msd_th_ABP(v0, D, Dr, dt):
+    """
+    Returns value of theoretical mean squared displacement at lag time `dt'
+    for a single ABP.
+
+    (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#One%20ABP)
+
+    Parameters
+    ----------
+    v0 : float
+        Self-propulsion velocity.
+    D : float
+        Translational diffusion.
+    Dr : float
+        Rotational diffusion.
+    dt : float
+        Lag time at which to evaluate the theoretical mean squared
+        displacement.
+
+    Returns
+    -------
+    msd : float
+        Mean squared displacement.
+    """
+
+    return 4*D*dt + (2*(v0**2)/Dr)*(dt + (np.exp(-Dr*dt) - 1)/Dr)
+
+def msd_th_AOUP(D, Dr, dt):
+    """
+    Returns value of theoretical mean squared displacement at lag time `dt'
+    for a single AOUP.
+
+    (see https://yketa.github.io/PhD_Wiki/#One%20AOUP)
+
+    Parameters
+    ----------
+    D : float
+        Translational diffusion.
+    Dr : float
+        Rotational diffusion.
+    dt : float
+        Lag time at which to evaluate the theoretical mean squared
+        displacement.
+
+    Returns
+    -------
+    msd : float
+        Mean squared displacement.
+    """
+
+    return 4*D*(dt + (np.exp(-Dr*dt) - 1)/Dr)
