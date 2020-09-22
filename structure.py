@@ -5,10 +5,14 @@ the structure of systems of ABPs.
 (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#ABP%20structure%20characteristics)
 """
 
+from coll_dyn_activem.read import Dat
+from coll_dyn_activem.maths import g2Dto1D, g2Dto1Dgrid, wave_vectors_2D,\
+    DictList, angle
+
 import numpy as np
 
-from coll_dyn_activem.read import Dat
-from coll_dyn_activem.maths import g2Dto1D, g2Dto1Dgrid, wave_vectors_2D
+from freud.locality import Voronoi
+from freud.box import Box
 
 class Positions(Dat):
     """
@@ -63,6 +67,63 @@ class Positions(Dat):
         return self.toGrid(time,
             np.full((self.N,), fill_value=1),
             nBoxes=nBoxes, box_size=self.L, centre=(0, 0), average=False)
+
+    def getNeighbourList(self, time):
+        """
+        Get list of neighbours and bond length for particles in the system at
+        `time' from Voronoi tesselation.
+
+        (see self._voronoi)
+
+        Parameters
+        ----------
+        time : int
+            Frame index.
+
+        Returns
+        -------
+        neighbours : coll_dyn_activem.maths.DictList
+            Neighbour list :
+            (key) particle index,
+            (0)   neighbour index,
+            (1)   neighbour distance.
+        """
+
+        neighbours = DictList()
+        voro = self._voronoi(time)
+        for ((i, j), d) in zip(voro.nlist[:], voro.nlist.distances):
+            neighbours[i] += [[j, d]]
+
+        return neighbours
+
+    def getBondOrderParameter(self, time):
+        """
+        Get bond orientational order parameter at `time'.
+
+        (see https://yketa.github.io/PhD_Wiki/#Structure%20characteristics)
+
+        Parameters
+        ----------
+        time : int
+            Frame index.
+
+        Returns
+        -------
+        psi : (self.N,) float numpy array
+            Bond orientational order parameter.
+        """
+
+        neighbours = self.getNeighbourList(time)
+        positions = self.getPositions(time)
+        psi = np.zeros((self.N,), dtype=complex)
+        for i in range(self.N):
+            for j, _ in neighbours[i]:
+                psi[i] += np.exp(1j*6*angle(
+                    self._diffPeriodic(positions[i][0], positions[j][0]),
+                    self._diffPeriodic(positions[i][1], positions[j][1])))
+            psi[i] /= len(neighbours[i])
+
+        return psi
 
     def nPositions(self, int_max=None):
         """
@@ -204,3 +265,28 @@ class Positions(Dat):
         if int_max == None: return np.array(range(self.skip, self.frames - 1))
         return np.linspace(
             self.skip, self.frames - 1, int(int_max), endpoint=False, dtype=int)
+
+    def _voronoi(self, time):
+        """
+        Compute Voronoi tesselation of the system at `time'.
+
+        Parameters
+        ----------
+        time : int
+            Frame index.
+
+        Returns
+        -------
+        voro : freud.locality.Voronoi
+            Voronoi tesselation.
+        """
+
+        voro = Voronoi()
+        voro.compute((
+            Box.square(self.L),
+            np.concatenate(
+                (self.getPositions(time, centre=(self.L/2., self.L/2.)),
+                np.zeros((self.N, 1))),
+                axis=-1)))
+
+        return voro

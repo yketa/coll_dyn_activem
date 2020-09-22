@@ -20,10 +20,11 @@ from this directory, and rely on the following packages:
 - `matplotlib`: plotting,
 - `seaborn`: color palettes,
 - `numpy`: mathematical functions and array manipulation,
-- `scipy`: various optimisation methods and special functions,
+- `scipy`: various methods and special functions,
+- `freud-analysis`: analysis of MD simulations,
 - `fastkde`: kernel density estimation ([`scde.py`](https://github.com/yketa/coll_dyn_activem/blob/master/scde.py)),
 
-which can be installed by running [`pip.sh`](https://github.com/yketa/coll_dyn_activem/blob/master/pip.sh), provided that `pip` is installed.
+which can be installed by running [`pip.sh`](https://github.com/yketa/coll_dyn_activem/blob/master/pip.sh).
 
 Production of movies, via [`frame.py`](https://github.com/yketa/coll_dyn_activem/blob/master/frame.py), necessitates `ffmpeg` — though other functionalities of the former can be used without the latter.
 
