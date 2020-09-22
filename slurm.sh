@@ -12,9 +12,9 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # Mathematics at the University of Cambridge.
 # (see https://www.maths.cam.ac.uk/computing/faculty-hpc-system-fawcett)
 
-_SIM_DIR=${SCRIPT_DIR}/build        # default simulation directory
-_ERROR_DIR=${_SIM_DIR}/slurm_error  # default error output directory
-_OUT_FILE=/dev/null                 # standard output file
+_SIM_DIR=${SCRIPT_DIR}/build                  # default simulation directory
+_ERROR_DIR=${_SIM_DIR}/queueing_system_error  # default error output directory
+_OUT_FILE=/dev/null                           # standard output file
 
 _PARTITION=skylake  # default partition for the ressource allocation
 _GRES=              # default generic consumable ressources
@@ -109,7 +109,7 @@ while getopts "hwj:c:d:o:f:p:g:n:r:a:s:t:m:" OPTION; do
       GRES=$OPTARG;;
     n)  # nodes
       NODES=$OPTARG;;
-    r)  # taks
+    r)  # tasks
       NTASKS=$OPTARG;;
     a)  # array size
       ARRAY_SIZE=$OPTARG;;
@@ -152,11 +152,11 @@ MEMORY=${MEMORY-$_MEMORY}                 # real memory required per node
 # SUBMIT JOB
 
 sbatch ${WAIT:+-W} ${CHAIN:+-d afterok:$CHAIN} <<EOF
-#!/bin/bash
+#! /bin/bash
 #SBATCH --job-name='$JOB_NAME'
-#SBATCH --chdir=$SIM_DIR
-#SBATCH --error=${ERROR_DIR}/%j.out
-#SBATCH --output=$OUT_FILE
+#SBATCH --chdir='$SIM_DIR'
+#SBATCH --error='${ERROR_DIR}/%j.out'
+#SBATCH --output='$OUT_FILE'
 #SBATCH --partition=$PARTITION
 #SBATCH --gres=$GRES
 #SBATCH --nodes=$NODES
