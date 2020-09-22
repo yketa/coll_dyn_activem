@@ -34,30 +34,24 @@ template<> void CloningSerial<System>::
 	long int nRuns = (loadInput.getFileSize() - headerLength)/runLength;
 
 	if ( runIndex >= nRuns ) {
-		std::cerr << "Not enough runs in input file." << std::endl;
-    exit(1);
+		throw std::invalid_argument("Not enough runs in input file.");
 	}
 
 	// FILE CHECKS
 	if ( nc != loadInput.read<int>((long int) 0) ) {
-		std::cerr << "Invalid number of clones." << std::endl;
-    exit(1);
+		throw std::invalid_argument("Invalid number of clones.");
 	}
 	if ( cloneMethod != loadInput.read<int>() ) {
-		std::cerr << "Invalid cloning method." << std::endl;
-    exit(1);
+		throw std::invalid_argument("Invalid cloning method.");
 	}
 	if ( tau != loadInput.read<int>() ) {
-		std::cerr << "Invalid cloning step size." << std::endl;
-    exit(1);
+		throw std::invalid_argument("Invalid cloning step size.");
 	}
 	if ( sValue != loadInput.read<double>() ) {
-		std::cerr << "Invalid biasing parameter." << std::endl;
-    exit(1);
+		throw std::invalid_argument("Invalid biasing parameter.");
 	}
 	if ( loadInput.getFileSize() != headerLength + nRuns*runLength ) {
-		std::cerr << "Invalid file size." << std::endl;
-    exit(1);
+		throw std::invalid_argument("Invalid file size.");
 	}
 
 	// CLONING STATE
@@ -91,21 +85,17 @@ template<> void CloningSerial<System>::
 					+ headerRunLength                                                   // -- cloning output header
 					+ i*cloneLength)                                                    // -- other clones
 				!= systems[i]->getNumberParticles() ) {
-				std::cerr << "Invalid number of particles." << std::endl;
-		    exit(1);
+				throw std::invalid_argument("Invalid number of particles.");
 			}
 			if ( loadInput.read<double>() != systems[i]->getPersistenceLength() ) { // lp
-				std::cerr << "Invalid persistence length." << std::endl;
-		    exit(1);
+				throw std::invalid_argument("Invalid persistence length.");
 			}
 			if ( loadInput.read<double>() != systems[i]->getPackingFraction() ) {   // phi
-				std::cerr << "Invalid packing fraction." << std::endl;
-		    exit(1);
+				throw std::invalid_argument("Invalid packing fraction.");
 			}
 			double g = loadInput.read<double>(); systems[i]->setTorqueParameter(g); // g
 			if ( loadInput.read<double>() != systems[i]->getTimeStep() ) {          // dt
-				std::cerr << "Invalid time step." << std::endl;
-		    exit(1);
+				throw std::invalid_argument("Invalid time step.");
 			}
 		}
 
