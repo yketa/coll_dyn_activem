@@ -15,7 +15,7 @@ from subprocess import Popen, DEVNULL, PIPE
 
 import pickle
 
-from coll_dyn_activem.read import _Dat as Dat
+from coll_dyn_activem.read import Dat
 from coll_dyn_activem.init import get_env, get_env_list, mkdir
 from coll_dyn_activem.exponents import float_to_letters
 from coll_dyn_activem.maths import mean_sterr

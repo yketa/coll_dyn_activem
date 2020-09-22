@@ -17,6 +17,7 @@ class CellList;
 class Parameters;
 class System;
 class System0;
+class SystemN;
 class Rotors;
 
 
@@ -38,6 +39,7 @@ class Particle {
     // METHODS
 
     double* position(); // returns pointer to position
+    long int* cross(); // returns pointer to number of boundary crossings
     double* orientation(); // returns pointer to orientation
     double* propulsion(); // returns pointer to self-propulsion direction
     double* velocity(); // returns pointer to velocity
@@ -54,6 +56,7 @@ class Particle {
     // ATTRIBUTES
 
     double r[2]; // position (2D)
+    long int c[2]; // number of boundary crossings (2D)
     double theta; // orientation
     double p[2]; // self-propulsion vector (2D)
     double v[2]; // velocity (2D)
@@ -340,16 +343,6 @@ class System {
     // NOTE: All these quantities are updated every framesWork*dumpPeriod iterations.
     //       All these quantities are extensive in time since last reset.
 
-    double diffPeriodic(double const& x1, double const& x2);
-      // Returns distance between two pointson a line taking into account periodic
-      // boundary condition.
-    double getDistance(int const& index1, int const& index2);
-      // Returns distance between two particles in a given system.
-
-    void WCA_force(int const& index1, int const& index2);
-      // Compute WCA forces between particles[index1] and particles[index2],
-      // and add to particles[index1].force() and particles[index2].force().
-
     void copyState(std::vector<Particle>& newParticles);
       // Copy positions and orientations.
     void copyState(System* system);
@@ -418,20 +411,20 @@ class System0 {
    *
    *  [HEADER (see System::System)]
    *  | (int) N | (double) epsilon | (double) v0 | (double) D | (double) Dr | (double) lp | (double) phi | (double) L | (int) seed | (double) dt | (int) framesWork | (bool) dump | (int) period |
-   *  || PARTICLE 1 | ... | PARTICLE N ||
-   *  ||  diameter  | ... |  diameter  ||
+   *  ||    PARTICLE 1     | ... |     PARTICLE N    ||
+   *  || (double) diameter | ... | (double) diameter ||
    *
    *  [INITIAL FRAME (see System0::saveInitialState)] (all double)
-   *  ||                          FRAME 0                           ||
-   *  ||                PARTICLE 1               | ... | PARTICLE N ||
-   *  ||   R   | ORIENTATION |     P     |   V   | ... |     ...    ||
-   *  || X | Y |    theta    | P_X | P_Y | 0 | 0 | ... |     ...    ||
+   *  ||                                 FRAME 0                                 ||
+   *  ||                      PARTICLE 1                      | ... | PARTICLE N ||
+   *  ||   R   | ORIENTATION |   V   |     P     | UNFOLDED R | ... |     ...    ||
+   *  || X | Y |    theta    | 0 | 0 | P_X | P_Y |   X  |  Y  | ... |     ...    ||
    *
    *  [BODY (see System0::saveNewState)] (all double)
-   *  ||                          FRAME 1 + i*period                        || ... || FRAME 1 + (i + framesWork - 1)*period |~
-   *  ||                    PARTICLE 1                   | ... | PARTICLE N || ... ||                  ...                  |~
-   *  ||   R   | ORIENTATION |     P     |       V       | ... |     ...    || ... ||                  ...                  |~
-   *  || X | Y |    theta    | P_X | P_Y |  V_X  |  V_Y  | ... |     ...    || ... ||                  ...                  |~
+   *  ||                               FRAME 1 + i*period                                || ... || FRAME 1 + (i + framesWork - 1)*period |~
+   *  ||                          PARTICLE 1                          | ... | PARTICLE N || ... ||                  ...                  |~
+   *  ||   R   | ORIENTATION |       V       |     P     | UNFOLDED R | ... |     ...    || ... ||                  ...                  |~
+   *  || X | Y |    theta    |  V_X  |  V_Y  | P_X | P_Y |   X  |  Y  | ... |     ...    || ... ||                  ...                  |~
    *
    *  ~|                                                                                 || ...
    *  ~|                                                                                 || ...
@@ -512,16 +505,6 @@ class System0 {
     // NOTE: All these quantities are updated every framesWork*dumpPeriod iterations.
     //       All these quantities are extensive in time since last reset.
 
-    double diffPeriodic(double const& x1, double const& x2);
-      // Returns distance between two pointson a line taking into account periodic
-      // boundary condition.
-    double getDistance(int const& index1, int const& index2);
-      // Returns distance between two particles in a given system.
-
-    void WCA_force(int const& index1, int const& index2);
-      // Compute WCA forces between particles[index1] and particles[index2],
-      // and add to particles[index1].force() and particles[index2].force().
-
     void copyState(std::vector<Particle>& newParticles);
       // Copy positions and orientations.
     void copyState(System0* system);
@@ -561,6 +544,139 @@ class System0 {
     double workForceSum[3]; //force part of the active work
     double workOrientationSum[3]; // orientation part of the active work
     double orderSum[3]; // integrated order parameter norm (in units of the time step)
+
+};
+
+
+/*  SYSTEMN
+ *  -------
+ *  Store physical and integration parameter.
+ *  Access to distance and potentials.
+ *  Save system state to output file ONLY for pre-defined frames.
+ *  Using all free parameters.
+ */
+
+class SystemN {
+  /*  Contains all the details to simulate a system of active particles.
+   *  (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
+   *  (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
+   *
+   *  Parameters are stored in a binary file with the following structure:
+   *
+   *  [HEADER (see System::System)]
+   *  | (int) N | (double) epsilon | (double) v0 | (double) D | (double) Dr | (double) lp | (double) phi | (double) L | (int) seed | (double) dt | (int) init | (int) NLin | (int) NiterLin | (int) NLog | (int) nFrames |~
+   *  ~|| (int) frames[0] | ... | (int) frames[nFrames - 1] ||~~
+   *  ~~||    PARTICLE 1     | ... |     PARTICLE N    ||
+   *  ~~|| (double) diameter | ... | (double) diameter ||
+   *
+   *  [FRAMES (see SystemN::saveInitialState & SystemN::saveNewState)] (all double)
+   *  ||                                 FRAME I                                 ||
+   *  ||                      PARTICLE 1                      | ... | PARTICLE N ||
+   *  ||   R   | ORIENTATION |   V   |     P     | UNFOLDED R | ... |     ...    ||
+   *  || X | Y |    theta    | 0 | 0 | P_X | P_Y |   X  |  Y  | ... |     ...    ||
+   */
+
+  public:
+
+    // CONSTRUCTORS
+
+    SystemN();
+    SystemN(
+      int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+      Parameters* parameters, int seed = 0, std::string filename = "");
+    SystemN(
+      int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+      Parameters* parameters, std::vector<double>& diameters, int seed = 0,
+      std::string filename = "");
+    SystemN(
+      int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+      SystemN* system, int seed = 0, std::string filename = "");
+    SystemN(
+      int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+      SystemN* system, std::vector<double>& diameters, int seed = 0,
+      std::string filename = "");
+    SystemN(
+      int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+      std::string inputFilename, int inputFrame = 0, double dt = 0,
+      int seed = 0, std::string filename = "");
+
+    // DESTRUCTORS
+
+    ~SystemN();
+
+    // METHODS
+
+    int getInit() const; // returns initialisation number of iterations
+    int getNLin() const; // returns number of linearly splaced blocks of frames
+    int getNiterLin() const; // returns number of iterations in blocks
+    int getNLog() const; // returns number of logarithmically spaced frames in blocks
+    std::vector<int> const* getFrames(); // returns pointer to vector of indices of frames to save
+
+    Parameters* getParameters(); // returns pointer to class of parameters
+
+    int getNumberParticles() const; // returns number of particles
+    double getPotentialParameter() const; // returns coefficient parameter of potential
+    double getPropulsionVelocity() const; // returns self-propulsion velocity
+    double getTransDiffusivity() const; // returns translational diffusivity
+    double getRotDiffusivity() const; // returns rotational diffusivity
+    double getPersistenceLength() const; // returns persistence length
+    double getPackingFraction() const; // returns packing fraction
+    double getSystemSize() const; // returns system size
+    double getTimeStep() const; // returns time step
+
+    int getRandomSeed() const; // returns random seed
+    Random* getRandomGenerator(); // returns pointer to random generator
+
+    Particle* getParticle(int const& index); // returns pointer to given particle
+    std::vector<Particle> getParticles(); // returns vector of particles
+
+    CellList* getCellList(); // returns pointer to CellList object
+
+    std::string getOutputFile() const; // returns output file name
+
+    int* getDump(); // returns number of frames dumped since last reset
+    void resetDump();
+      // Reset time-extensive quantities over trajectory.
+    void copyDump(SystemN* system);
+      // Copy dumps from other system.
+      // WARNING: This also copies the index of last frame dumped. Consistency
+      //          has to be checked.
+
+    void copyState(std::vector<Particle>& newParticles);
+      // Copy positions and orientations.
+    void copyState(SystemN* system);
+      // Copy positions and orientations.
+
+    void saveInitialState();
+      // Saves initial state of particles to output file.
+    void saveNewState(std::vector<Particle>& newParticles);
+      // Saves new state of particles to output file then copy it.
+
+  private:
+
+    // ATTRIBUTES
+
+    int const init; // initialisation number of iterations
+    int const NLin; // number of linearly splaced blocks of frames
+    int const NiterLin; // number of iterations in blocks
+    int const NLog; // number of logarithmically spaced frames in blocks
+    std::vector<int> const frameIndices; // indices of frames to save
+    // NOTE: This vector is sorted and the element 0 is removed.
+    // NOTE: Frame 0 is ALWAYS saved first.
+
+    Parameters param; // class of simulation parameters
+
+    int const randomSeed; // random seed
+    Random randomGenerator; // random number generator
+
+    std::vector<Particle> particles; // vector of particles
+
+    CellList cellList; // cell list
+
+    Write output; // output class
+    std::vector<long int> velocitiesDumps; // locations in output file to dump velocities
+
+    int dumpFrame; // number of frames dumped since last reset
 
 };
 
@@ -735,15 +851,8 @@ double getGlobalPhase(std::vector<Particle>& particles);
 double getGlobalPhase(std::vector<double>& orientations);
   // Returns global phase.
 
-void _WCA_force(
-  System* system, int const& index1, int const& index2, double* force);
-  // Writes to `force' the force deriving from the WCA potential between
-  // particles `index1' and `index2'.
-
-void _WCA_force(
-  System0* system, int const& index1, int const& index2, double* force);
-  // Writes to `force' the force deriving from the WCA potential between
-  // particles `index1' and `index2'.
+std::vector<int> getLogFrames(int init, int Nlin, int NiterLin, int NLog);
+  // Returns vector of logarithmically spaced frames in linearly spaced blocks.
 
 
 ///////////////
@@ -824,13 +933,43 @@ template<class SystemClass, typename F> void pairs_system(
   #endif
 }
 
+template<class SystemClass> int wrapCoordinate(
+  SystemClass* system, double const& x) {
+  // Returns the algebraic number of times the coordinate `x' is accross the
+  // boundary of the system.
+
+  int quot;
+  double wrapX = std::remquo(x, system->getSystemSize(), &quot);
+  if (wrapX < 0) quot -= 1;
+
+  return quot;
+}
+
+template<class SystemClass> double diffPeriodic(
+  SystemClass* system, double const& x1, double const& x2) {
+  // Returns algebraic distance from `x1' to `x2' on a line taking into account
+  // periodic boundary condition of the system.
+
+    return algDistPeriod(x1, x2, system->getSystemSize());
+}
+
+template<class SystemClass> double getDistance(
+  SystemClass* system, int const& index1, int const& index2) {
+  // Returns distance between two particles in a given system.
+
+  return dist2DPeriod(
+    (system->getParticle(index1))->position(),
+    (system->getParticle(index2))->position(),
+    system->getSystemSize());
+}
+
 template<class SystemClass> double WCA_potential(SystemClass* system) {
   // Returns WCA potential of a given system.
 
   double potential = 0.0;
   auto addPotential = [&system, &potential](int index1, int index2) {
 
-    double dist = system->getDistance(index1, index2); // dimensionless distance between particles
+    double dist = getDistance<SystemClass>(system, index1, index2); // dimensionless distance between particles
     double sigma =
       ((system->getParticle(index1))->diameter()
       + (system->getParticle(index2))->diameter())/2.0; // equivalent diameter
@@ -847,33 +986,66 @@ template<class SystemClass> double WCA_potential(SystemClass* system) {
   return potential;
 }
 
-template<class SystemClass> double _wrapCoordinate(
-  SystemClass* system, double const& x) {
-  // Return wrap coordinate `x' taking into account periodic boundary
-  // conditions.
+template<class SystemClass> void WCA_force(
+  SystemClass* system, int const& index1, int const& index2, double* force) {
+  // Writes to `force' the force deriving from the WCA potential between
+  // particles `index1' and `index2' in `system'.
 
-  double wrapX = std::remainder(x, system->getSystemSize());
-  if (wrapX < 0) wrapX += system->getSystemSize();
+  force[0] = 0.0;
+  force[1] = 0.0;
 
-  return wrapX;
+  double dist = getDistance<SystemClass>(system, index1, index2); // distance between particles
+  double sigma =
+    ((system->getParticle(index1))->diameter()
+    + (system->getParticle(index2))->diameter())/2.0; // equivalent diameter
+
+  if (dist/sigma < pow(2., 1./6.)) { // distance lower than cut-off
+
+    // compute force
+    double coeff =
+      (48.0/pow(dist/sigma, 14.0) - 24.0/pow(dist/sigma, 8.0))/pow(sigma, 2.0);
+    for (int dim=0; dim < 2; dim++) {
+      force[dim] = diffPeriodic<SystemClass>(system,
+          (system->getParticle(index2))->position()[dim],
+          (system->getParticle(index1))->position()[dim])
+        *coeff;
+    }
+  }
 }
 
-template<class SystemClass> double _diffPeriodic(
-  SystemClass* system, double const& x1, double const& x2) {
-  // Returns algebraic distance from `x1' to `x2' on a line taking into account
-  // periodic boundary condition of the system.
-
-    return algDistPeriod(x1, x2, system->getSystemSize());
-}
-
-template<class SystemClass> double _getDistance(
+template<class SystemClass> void add_WCA_force(
   SystemClass* system, int const& index1, int const& index2) {
-  // Returns distance between two particles in a given system.
+  // Compute WCA forces between particles[index1] and particles[index2],
+  // and add to the corresponding force lists in system.
 
-  return dist2DPeriod(
-    (system->getParticle(index1))->position(),
-    (system->getParticle(index2))->position(),
-    system->getSystemSize());
+  if ( index1 != index2 ) { // only consider different particles
+
+    double force[2];
+    WCA_force<SystemClass>(system, index1, index2, &force[0]);
+
+    for (int dim=0; dim < 2; dim++) {
+      if ( force[dim] != 0 ) {
+
+        // update force arrays
+        (system->getParticle(index1))->force()[dim] += force[dim];
+        (system->getParticle(index2))->force()[dim] -= force[dim];
+      }
+    }
+  }
+}
+
+template<class SystemClass> void initPropulsionAOUP(SystemClass* system) {
+  // Draw self-propulsion vectors of each particle from their steady state
+  // distribution.
+
+  double std = sqrt(system->getTransDiffusivity()*system->getRotDiffusivity()); // standard deviation
+
+  for (int i=0; i < system->getNumberParticles(); i++) {
+    for (int dim=0; dim < 2; dim++) {
+      (system->getParticle(i))->propulsion()[dim] =
+        (system->getRandomGenerator())->gauss(0, std);
+    }
+  }
 }
 
 #endif

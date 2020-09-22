@@ -16,30 +16,30 @@ int main() {
 
   // simulation
   double dt = getEnvDouble("DT", 1e-3); // time step
-  int Niter = getEnvInt("NITER", 1000000); // number of iterations
-
-  // active work computation
-  int nWork = getEnvInt("NWORK", 0); // number of frames on which to compute active work
+  int init = getEnvInt("INIT", 1000); // initialisation number of iterations
+  int NLin = getEnvInt("NLIN", 100); // number of linearly splaced blocks of frames
+  int NiterLin = getEnvInt("NITERLIN", 100); // number of iterations in blocks
+  int NLog = getEnvInt("NLOG", 9); // number of logarithmically spaced frames in blocks
 
   // output
-  std::string filename = getEnvString("FILE", "out.dat0"); // output file name
-  bool dump = getEnvBool("DUMP", 1); // dump positions and orientations to output file
-  int period = getEnvInt("PERIOD", 1); // period of dumping of positions and orientations in number of frames
+  std::string filename = getEnvString("FILE", "out.datN"); // output file name
 
   // SYSTEM
 
   // simulation
-  auto simulate = [&Niter] (System0* system) { // use of lambda function to enable conditional definition of system
+  auto simulate = [] (SystemN* system) { // use of lambda function to enable conditional definition of system
     // INITIALISATION
     # if AOUP // system of AOUPs
-    initPropulsionAOUP<System0>(system); // set initial self-propulsion vectors
+    initPropulsionAOUP<SystemN>(system); // set initial self-propulsion vectors
     #endif
     system->saveInitialState(); // save first frame
     // ITERATION
+    int Niter = *std::max_element(
+      (system->getFrames())->begin(), (system->getFrames())->end());
     #if AOUP // simulation of AOUPs
-    iterate_AOUP_WCA<System0>(system, Niter); // run simulations
+    iterate_AOUP_WCA<SystemN>(system, Niter); // run simulations
     #else // simulation of ABPs (default)
-    iterate_ABP_WCA<System0>(system, Niter); // run simulations
+    iterate_ABP_WCA<SystemN>(system, Niter); // run simulations
     #endif
   };
 
@@ -83,9 +83,10 @@ int main() {
     Parameters parameters(N, epsilon, v0, D, Dr, phi, L, dt); // class of simulation parameters
 
     // system
-    System0 system(
-        &parameters, diameters, seed, filename, nWork, dump, period); // define system
-    FIRE_WCA<System0>(&system, // FIRE minimisation algorithm
+    SystemN system(
+      init, NLin, NiterLin, NLog,
+      &parameters, diameters, seed, filename); // define system
+    FIRE_WCA<SystemN>(&system, // FIRE minimisation algorithm
       getEnvDouble("EMIN", 1),
       getEnvInt("ITERMAX", (int) 100.0/dt),
       getEnvDouble("DTMIN", dt*1e-3),
@@ -99,8 +100,9 @@ int main() {
     int inputFrame = getEnvInt("INPUT_FRAME", 0); // frame to copy as initial frame
 
     // system
-    System0 system(
-      inputFilename, inputFrame, dt, seed, filename, nWork, dump, period); // define system
+    SystemN system(
+      init, NLin, NiterLin, NLog,
+      inputFilename, inputFrame, dt, seed, filename); // define system
     simulate(&system);
   }
 

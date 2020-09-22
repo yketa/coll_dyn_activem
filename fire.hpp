@@ -56,7 +56,7 @@ template<class SystemClass> void FIRE_WCA(
 
   double NPpos = 0; // number of consecutive steps with positive power
   double iter = 0; // number of iterations
-  double potential = WCA_potential(system);
+  double potential = WCA_potential<SystemClass>(system);
   while ( potential > Emin && iter < iterMax && dt > dtmin ) { // while energy is not minimised and time step is still big for a maximum of iterMax iterations
     iter++;
     #ifdef DEBUG
@@ -146,8 +146,8 @@ template<class SystemClass> void FIRE_WCA(
       for (int dim = 0; dim < 2; dim++) {
         // positions
         (system->getParticle(i))->position()[dim] += dt*velocities[2*i + dim];
-        (system->getParticle(i))->position()[dim] =
-          _wrapCoordinate<SystemClass>(system, // taking boundary condition into account
+        (system->getParticle(i))->position()[dim] -=
+          system->getSystemSize()*wrapCoordinate<SystemClass>(system, // taking boundary condition into account
             (system->getParticle(i))->position()[dim]);
         // velocities
         velocities[2*i + dim] += dt*(system->getParticle(i))->force()[dim];
@@ -158,7 +158,7 @@ template<class SystemClass> void FIRE_WCA(
     (system->getCellList())->template update<SystemClass>(system);
 
     // POTENTIAL ENERGY AT NEXT TIME STEP
-    potential = WCA_potential(system);
+    potential = WCA_potential<SystemClass>(system);
   }
 }
 

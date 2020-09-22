@@ -7,12 +7,13 @@ particles.
 """
 
 import numpy as np
+from scipy.stats import norm as norm_gen
 from collections import OrderedDict
 from operator import itemgetter
 
-from coll_dyn_activem.read import Dat, _Dat0
+from coll_dyn_activem.read import Dat
 from coll_dyn_activem.maths import Distribution, JointDistribution,\
-    wave_vectors_2D, g2Dto1D, g2Dto1Dgrid, mean_sterr, logspace
+    wave_vectors_2D, g2Dto1D, g2Dto1Dgrid, mean_sterr, linspace, logspace
 from coll_dyn_activem.rotors import nu_pdf_th as nu_pdf_th_ABP
 
 # CLASSES
@@ -41,7 +42,14 @@ class Displacements(Dat):
 
         super().__init__(filename, loadWork=False) # initialise with super class
 
-        self.skip = skip    # skip the `skip' first frames in the analysis
+        self.skip = skip    # skip the `skip' first frames (or blocks for .datN files) in the analysis
+
+        if self._type == 'datN':
+            self._dt = self.frameIndices[
+                (self.frameIndices > self.init)
+                *(self.frameIndices < self.init + self.NiterLin)] - self.init
+            self._time0 = np.array(
+                [self.init + i*self.NiterLin for i in range(self.NLin)])
 
     def nDisplacements(self, dt, int_max=None, jump=1, norm=False):
         """
@@ -177,24 +185,40 @@ class Displacements(Dat):
         """
 
         dt = np.array(dt)
-        time0 = np.array(list(OrderedDict.fromkeys(
-            np.linspace(self.skip, self.frames - dt.max() - 1, int_max, # array of initial times
-                endpoint=False, dtype=int))))
 
-        displacements = np.empty((time0.size, dt.size, self.N, 2))
-        for j in range(dt.size):
-            if j > 0:
-                for i in range(time0.size):
-                    displacements[i][j] = (         # displacements between time0[i] and time0[i] + dt[j]
-                        displacements[i][j - 1]     # displacements between time0[i] and time0[i] + dt[j - 1]
-                        + self.getDisplacements(    # displacements between time0[i] + dt[j - 1] and time0[i] + dt[j]
-                            time0[i] + dt[j - 1], time0[i] + dt[j],
-                            jump=jump))
-            else:
-                for i in range(time0.size):
-                    displacements[i][0] = self.getDisplacements(    # displacements between time0[i] and time0[i] + dt[0]
-                        time0[i], time0[i] + dt[0],
-                        jump=jump)
+        # array of initial times
+        if self._type == 'datN':
+            time0 = itemgetter(
+                *linspace(self.skip, len(self._time0) - 1, int_max,
+                    endpoint=True))(
+                    self._time0)
+        else:
+            time0 = np.array(list(OrderedDict.fromkeys(
+                np.linspace(self.skip, self.frames - dt.max() - 1, int_max,
+                    endpoint=False, dtype=int))))
+
+        if self._type == 'dat':
+
+            displacements = np.empty((time0.size, dt.size, self.N, 2))
+            for j in range(dt.size):
+                if j > 0:
+                    for i in range(time0.size):
+                        displacements[i][j] = (         # displacements between time0[i] and time0[i] + dt[j]
+                            displacements[i][j - 1]     # displacements between time0[i] and time0[i] + dt[j - 1]
+                            + self.getDisplacements(    # displacements between time0[i] + dt[j - 1] and time0[i] + dt[j]
+                                time0[i] + dt[j - 1], time0[i] + dt[j],
+                                jump=jump))
+                else:
+                    for i in range(time0.size):
+                        displacements[i][0] = self.getDisplacements(    # displacements between time0[i] and time0[i] + dt[0]
+                            time0[i], time0[i] + dt[0],
+                            jump=jump)
+
+        else:
+
+            displacements = np.array(
+                [[self.getDisplacements(t0, t0 + t) for t in dt]
+                    for t0 in time0])
 
         if norm: return np.sqrt(np.sum(displacements**2, axis=-1))
         return displacements
@@ -203,19 +227,22 @@ class Displacements(Dat):
         """
         Compute mean square displacement.
 
+        (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#ABP%20flow%20characteristics)
+        (see self._msd)
+
         Parameters
         ----------
         n_max : int
-            Maximum number of times at which to compute the mean square
-            displacement. (default: 100)
+            Maximum number of lag times at which to compute the displacements.
+            (default: 100)
         int_max : int
-            Maximum number of different intervals to consider when averaging
-            the mean square displacement. (default: 100)
+            Maximum number of different intervals to consider when computed
+            displacements for a given lag time. (default: 100)
         min : int or None
-            Minimum time at which to compute the displacement. (default: None)
+            Minimum time at which to compute the displacements. (default: None)
             NOTE: if min == None, then min = 1.
         max : int or None
-            Maximum time at which to compute the displacement. (default: None)
+            Maximum time at which to compute the displacements. (default: None)
             NOTE: if max == None, then max is taken to be the maximum according
                   to the choice of int_max.
         jump : int
@@ -232,16 +259,33 @@ class Displacements(Dat):
                 (2) standard error of the computed mean square displacement.
         """
 
-        min = 1 if min == None else int(min)
-        max = ((self.frames - self.skip - 1)//int_max if max == None
-            else int(max))
+        dt, displacements = self._displacements(
+            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump)
 
-        # COMPUTE RELEVANT DISPLACEMENTS FROM DATA
-        dt = logspace(min, max, n_max)              # array of lag times
-        displacements = self.dtDisplacements(dt,    # array of displacements for different initial times and lag times
-            int_max=int_max, jump=jump, norm=False)
+        return self._msd(dt, displacements)
 
-        # COMPUTE MEAN SQUARE DISPLACEMENTS
+    def _msd(self, dt, displacements):
+        """
+        Compute mean square displacement.
+
+        (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#ABP%20flow%20characteristics)
+
+        Parameters
+        ----------
+        dt : (*,) foat numpy array
+            Array of lag times.
+        displacements : (**, *, N, 2) float numpy array
+            Array of displacements. (see self.dtDisplacements)
+
+        Returns
+        -------
+        msd_sterr : (3, *) float numpy array
+            Array of:
+                (0) lag time at which the mean square displacement is computed,
+                (1) mean square displacement,
+                (2) standard error of the computed mean square displacement.
+        """
+
         msd_sterr = []
         for i in range(dt.size):
             disp = displacements[:, i]
@@ -273,10 +317,10 @@ class Displacements(Dat):
             Mean squared displacement.
         """
 
-        if self._isDat0:    # general parameters
-            return msd_th_ABP(self.v0, self.D, self.Dr, dt)
-        else:               # custom relations between parameters
+        if self._type == 'dat': # custom relations between parameters
             return msd_th_ABP(self.v0, 1./(3.*self.lp), 1./self.lp, dt)
+        else:                   # general parameters
+            return msd_th_ABP(self.v0, self.D, self.Dr, dt)
 
     def msd_th_AOUP(self, dt):
         """
@@ -298,6 +342,159 @@ class Displacements(Dat):
         """
 
         return msd_th_AOUP(self.D, self.Dr, dt)
+
+    def overlap(self, n_max=100, int_max=100, min=None, max=None, jump=1,
+        a=1):
+        """
+        Compute dynamical overlap function.
+
+        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+        (see self._overlap)
+
+        Parameters
+        ----------
+        n_max : int
+            Maximum number of lag times at which to compute the displacements.
+            (default: 100)
+        int_max : int
+            Maximum number of different intervals to consider when computed
+            displacements for a given lag time. (default: 100)
+        min : int or None
+            Minimum time at which to compute the displacements. (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum time at which to compute the displacements. (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+        jump : int
+            Compute displacements by treating frames in packs of `jump'. This
+            can speed up calculation but also give unaccuracies if
+            `jump'*self.dt is of the order of the system size. (default: 1)
+        a : float
+            Parameter of the dynamical overlap function. (default: 1)
+
+        Returns
+        -------
+        Q : (2, *) float numpy array
+            Array of:
+                (0) lag time at which the dynamical overlap function is
+                    computed,
+                (1) dynamical overlap function.
+        """
+
+        dt, displacements = self._displacements(
+            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump)
+
+        return self._overlap(dt, displacements, a=a)
+
+    def _overlap(self, dt, displacements, a=1):
+        """
+        Compute dynamical overlap function.
+
+        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+
+        Parameters
+        ----------
+        dt : (*,) foat numpy array
+            Array of lag times.
+        displacements : (**, *, N, 2) float numpy array
+            Array of displacements. (see self.dtDisplacements)
+        a : float
+            Parameter of the dynamical overlap function. (default: 1)
+
+        Returns
+        -------
+        Q : (2, *) float numpy array
+            Array of:
+                (0) lag time at which the dynamical overlap function is
+                    computed,
+                (1) dynamical overlap function.
+        """
+
+        Q = []
+        for i in range(dt.size):
+            disp = displacements[:, i]
+            Q += [[
+                dt[i],
+                (np.exp(-(disp**2).sum(axis=-1)/(a**2))).mean()]]
+
+        return np.array(Q)
+
+    def susceptibility(self, n_max=100, int_max=100, min=None, max=None, jump=1,
+        a=1):
+        """
+        Compute dynamical susceptibility.
+
+        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+        (see self._susceptibility)
+
+        Parameters
+        ----------
+        n_max : int
+            Maximum number of lag times at which to compute the displacements.
+            (default: 100)
+        int_max : int
+            Maximum number of different intervals to consider when computed
+            displacements for a given lag time. (default: 100)
+        min : int or None
+            Minimum time at which to compute the displacements. (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum time at which to compute the displacements. (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+        jump : int
+            Compute displacements by treating frames in packs of `jump'. This
+            can speed up calculation but also give unaccuracies if
+            `jump'*self.dt is of the order of the system size. (default: 1)
+        a : float
+            Parameter of the dynamical susceptibility. (default: 1)
+
+        Returns
+        -------
+        chi : (2, *) float numpy array
+            Array of:
+                (0) lag time at which the dynamical susceptibility is computed,
+                (1) dynamical overlap function.
+        """
+
+        dt, displacements = self._displacements(
+            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump)
+
+        return self._susceptiblity(dt, displacements, a=a)
+
+    def _susceptibility(self, dt, displacements, a=1):
+        """
+        Compute dynamical susceptibility.
+
+        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+
+        Parameters
+        ----------
+        dt : (*,) foat numpy array
+            Array of lag times.
+        displacements : (**, *, N, 2) float numpy array
+            Array of displacements. (see self.dtDisplacements)
+        a : float
+            Parameter of the dynamical susceptibility. (default: 1)
+
+        Returns
+        -------
+        chi : (2, *) float numpy array
+            Array of:
+                (0) lag time at which the dynamical susceptibility is computed,
+                (1) dynamical overlap function.
+        """
+
+        chi = []
+        for i in range(dt.size):
+            disp = displacements[:, i]
+            chi += [[
+                dt[i],
+                ((np.exp(-(disp**2).sum(axis=-1)/(a**2)).mean(axis=-1)).var()
+                    )*self.N]]
+
+        return np.array(chi)
 
     def _time0(self, dt, int_max=None):
         """
@@ -325,6 +522,61 @@ class Displacements(Dat):
         indexes = list(OrderedDict.fromkeys(
             np.linspace(0, time0.size, int_max, endpoint=False, dtype=int)))
         return np.array(itemgetter(*indexes)(time0), ndmin=1)
+
+    def _displacements(self, n_max=100, int_max=100, min=None, max=None,
+        jump=1):
+        """
+        Returns arrays of lag times and displacements evaluated over these lag
+        times.
+
+        Parameters
+        ----------
+        n_max : int
+            Maximum number of lag times at which to compute the displacements.
+            (default: 100)
+        int_max : int
+            Maximum number of different intervals to consider when computed
+            displacements for a given lag time. (default: 100)
+        min : int or None
+            Minimum time at which to compute the displacements. (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum time at which to compute the displacements. (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+        jump : int
+            Compute displacements by treating frames in packs of `jump'. This
+            can speed up calculation but also give unaccuracies if
+            `jump'*self.dt is of the order of the system size. (default: 1)
+
+        Returns
+        -------
+        dt : (*,) foat numpy array
+            Array of lag times.
+        displacements : (**, *, N, 2) float numpy array
+            Array of displacements. (see self.dtDisplacements)
+        """
+
+        min = 1 if min == None else int(min)
+        if self._type == 'datN':
+            max = self._dt.max() if max == None else int(max)
+        else:
+            max = ((self.frames - self.skip - 1)//int_max if max == None
+                else int(max))
+
+        # COMPUTE RELEVANT DISPLACEMENTS FROM DATA
+
+        # array of lag times
+        if self._type == 'datN':
+            dt = self._dt[(self._dt >= min)*(self._dt <= max)]
+            dt = itemgetter(*linspace(0, len(dt) - 1, n_max, endpoint=True))(dt)
+        else:
+            dt = logspace(min, max, n_max)
+
+        displacements = self.dtDisplacements(dt,    # array of displacements for different initial times and lag times
+            int_max=int_max, jump=jump, norm=False)
+
+        return np.array(dt), displacements
 
 class Velocities(Dat):
     """
@@ -757,7 +1009,7 @@ class Orientations(Dat):
         return np.linspace(
             self.skip, self.frames - 1, int(int_max), endpoint=False, dtype=int)
 
-class Propulsions(_Dat0):
+class Propulsions(Dat):
     """
     Compute and analyse self-propulsion vectors from simulation data.
 
@@ -946,13 +1198,18 @@ class Propulsions(_Dat0):
             Probability density function.
         """
 
+        # return np.array(list(map(
+        #     lambda _: np.exp(-(_[0]**2 + _[1]**2)/(2.*self.D*self.Dr))/(
+        #         2*np.pi*self.D*self.Dr),
+        #     p)))
         return np.array(list(map(
-            lambda _: np.exp(-(_[0]**2 + _[1]**2)/(2.*self.D*self.Dr))/(
-                2*np.pi*self.D*self.Dr),
+            lambda _: np.prod(list(map(
+                lambda __: norm_gen.pdf(__,
+                    loc=0, scale=np.sqrt(self.D*self.Dr)),
+                _))),
             p)))
 
-    def propulsionsCor(self, n_max=100, int_max=100, min=None, max=None,
-        init_cor=True):
+    def propulsionsCor(self, n_max=100, int_max=100, min=None, max=None):
         """
         Compute time correlations of particles' self-propulsion vectors.
 
@@ -970,9 +1227,6 @@ class Propulsions(_Dat0):
             Maximum time at which to compute the correlation. (default: None)
             NOTE: if max == None, then max is taken to be the maximum according
                   to the choice of int_max.
-        init_cor : bool
-            Remove from the propulsion at time t the propulsion at time 0
-            multiplied by \\exp(-D_r t). (default: True)
 
         Returns
         -------
@@ -986,8 +1240,6 @@ class Propulsions(_Dat0):
         max = ((self.frames - self.skip - 1)//int_max if max == None
             else int(max))
         _dt = logspace(min, max, n_max) # array of lag times
-
-        propulsions0 = init_cor*self.getPropulsions(self.skip, norm=False)  # initial self-propulsion vectors
 
         for dt in _dt:
 
@@ -1005,12 +1257,8 @@ class Propulsions(_Dat0):
                 np.mean(list(map(
                     lambda t: list(map(
                         lambda x, y: np.dot(x, y), *(
-                            self.getPropulsions(t, norm=False)
-                                - propulsions0*np.exp(
-                                    -self.Dr*self.dt*(t - self.skip)),
-                            self.getPropulsions(int(t + dt), norm=False)
-                                - propulsions0*np.exp(
-                                    -self.Dr*self.dt*(t + dt - self.skip))))),
+                            self.getPropulsions(t, norm=False),
+                            self.getPropulsions(int(t + dt), norm=False)))),
                     time0)))]]
 
         return np.array(Cpp)

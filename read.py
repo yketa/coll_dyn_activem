@@ -64,11 +64,16 @@ class _Read:
 
         return struct.unpack(type, self.file.read(self._bpe(type)))[0]
 
-class _Dat(_Read):
+class Dat(_Read):
     """
     Read data files from simulations.
 
-    (see coll_dyn_activem/particle.hpp -> class System & coll_dyn_activem/launch.py)
+    (.dat: see coll_dyn_activem/particle.hpp -> class System &
+    coll_dyn_activem/launch.py)
+    NOTE: FORCE_DAT=True can be used to enforce the choice of .dat format.
+    (.dat0: see coll_dyn_activem/particle.hpp -> class System0 &
+    coll_dyn_activem/launch0.py)
+    NOTE: FORCE_DAT0=True can be used to enforce the choice of .dat0 format.
     """
 
     def __init__(self, filename, loadWork=True):
@@ -84,51 +89,197 @@ class _Dat(_Read):
             NOTE: if loadWork=='r', force re-extract dumps from data file.
         """
 
-        # SIMULATION TYPE
-        self._isDat0 = False    # does not correspond to a simulation with general parameters (custom relations between parameters)
-
         # FILE
         super().__init__(filename)
 
-        # HEADER INFORMATION
-        self.N = self._read('i')                # number of particles
-        self.lp = self._read('d')               # persistence length
-        self.phi = self._read('d')              # packing fraction
-        self.L = self._read('d')                # system size
-        self.rho = self.N/(self.L**2)           # particle density
-        self.g = self._read('d')                # torque parameter
-        self.seed = self._read('i')             # random seed
-        self.dt = self._read('d')               # time step
-        self.framesWork = self._read('i')       # number of frames on which to sum the active work before dumping
-        self.dumpParticles = self._read('b')    # dump positions and orientations to output file
-        self.dumpPeriod = self._read('i')       # period of dumping of positions and orientations in number of frames
+        try:
 
-        # FILE PARTS LENGTHS
-        self.headerLength = self.file.tell()                        # length of header in bytes
-        self.particleLength = 5*self._bpe('d')*self.dumpParticles   # length the data of a single particle takes in a frame
-        self.frameLength = self.N*self.particleLength               # length the data of a single frame takes in a file
-        self.workLength = 8*self._bpe('d')                          # length the data of a single work and order parameter dump takes in a file
+            try:
 
-        # ESTIMATION OF NUMBER OF COMPUTED WORK AND ORDER SUMS AND FRAMES
-        self.numberWork = (self.fileSize
-            - self.headerLength                                     # header
-            - self.frameLength                                      # first frame
-            )//(
-            self.framesWork*self.frameLength
-                + self.workLength)                                  # number of cumputed work sums
-        self.frames = 0 if not(self.dumpParticles) else (
-            self.fileSize - self.headerLength
-            - self.numberWork*self.workLength)//self.frameLength    # number of frames which the file contains
+                ########
+                # .DAT #
+                ########
+                self._type = 'dat'
 
-        # FILE CORRUPTION CHECK
-        if self.fileSize != (
-            self.headerLength                   # header
-            + self.frames*self.frameLength      # frames
-            + self.numberWork*self.workLength): # work sums
-            raise ValueError("Invalid data file size.")
+                # HEADER INFORMATION
+                self.N = self._read('i')                # number of particles
+                self.lp = self._read('d')               # persistence length
+                self.phi = self._read('d')              # packing fraction
+                self.L = self._read('d')                # system size
+                self.rho = self.N/(self.L**2)           # particle density
+                self.g = self._read('d')                # torque parameter
+                self.seed = self._read('i')             # random seed
+                self.dt = self._read('d')               # time step
+                self.framesWork = self._read('i')       # number of frames on which to sum the active work before dumping
+                self.dumpParticles = self._read('b')    # dump positions and orientations to output file
+                self.dumpPeriod = self._read('i')       # period of dumping of positions and orientations in number of frames
 
-        # COMPUTED NORMALISED RATE OF ACTIVE WORK
-        self._loadWork(load=loadWork)
+                # FILE PARTS LENGTHS
+                self.headerLength = self.file.tell()                        # length of header in bytes
+                self.particleLength = 5*self._bpe('d')*self.dumpParticles   # length the data of a single particle takes in a frame
+                self.frameLength = self.N*self.particleLength               # length the data of a single frame takes in a file
+                self.workLength = 8*self._bpe('d')                          # length the data of a single work and order parameter dump takes in a file
+
+                # ESTIMATION OF NUMBER OF COMPUTED WORK AND ORDER SUMS AND FRAMES
+                self.numberWork = (self.fileSize
+                    - self.headerLength                                     # header
+                    - self.frameLength                                      # first frame
+                    )//(
+                    self.framesWork*self.frameLength
+                        + self.workLength)                                  # number of cumputed work sums
+                self.frames = 0 if not(self.dumpParticles) else (
+                    self.fileSize - self.headerLength
+                    - self.numberWork*self.workLength)//self.frameLength    # number of frames which the file contains
+
+                # FILE CORRUPTION CHECK
+                if self.fileSize != (
+                    self.headerLength                   # header
+                    + self.frames*self.frameLength      # frames
+                    + self.numberWork*self.workLength): # work sums
+                    raise ValueError("Invalid data file size.")
+
+                return
+
+            except:
+
+                if get_env('FORCE_DAT', default=False, vartype=bool):
+                    raise ValueError(
+                        "Invalid data file size ('%s')." % self.filename)
+
+            try:
+
+                #########
+                # .DAT0 #
+                #########
+                self._type = 'dat0'
+
+                # FILE
+                _Read.__init__(self, filename)
+
+                # HEADER INFORMATION
+                self.N = self._read('i')                # number of particles
+                self.epsilon = self._read('d')          # coefficient parameter of potential
+                self.v0 = self._read('d')               # self-propulsion velocity
+                self.D = self._read('d')                # translational diffusivity
+                self.Dr = self._read('d')               # rotational diffusivity
+                self.lp = self._read('d')               # persistence length
+                self.phi = self._read('d')              # packing fraction
+                self.L = self._read('d')                # system size
+                self.rho = self.N/(self.L**2)           # particle density
+                self.seed = self._read('i')             # random seed
+                self.dt = self._read('d')               # time step
+                self.framesWork = self._read('i')       # number of frames on which to sum the active work before dumping
+                self.dumpParticles = self._read('b')    # dump positions and orientations to output file
+                self.dumpPeriod = self._read('i')       # period of dumping of positions and orientations in number of frames
+
+                # DIAMETERS
+                self.diameters = np.empty((self.N,))    # array of diameters
+                for i in range(self.N): self.diameters[i] = self._read('d')
+
+                # FILE PARTS LENGTHS
+                self.headerLength = self.file.tell()                        # length of header in bytes
+                self.particleLength = 9*self._bpe('d')*self.dumpParticles   # length the data of a single particle takes in a frame
+                self.frameLength = self.N*self.particleLength               # length the data of a single frame takes in a file
+                self.workLength = 4*self._bpe('d')                          # length the data of a single work and order parameter dump takes in a file
+
+                # ESTIMATION OF NUMBER OF COMPUTED WORK AND ORDER SUMS AND FRAMES
+                self.numberWork = (self.fileSize
+                    - self.headerLength                                     # header
+                    - self.frameLength                                      # first frame
+                    )//(
+                    self.framesWork*self.frameLength
+                        + self.workLength)                                  # number of cumputed work sums
+                self.frames = 0 if not(self.dumpParticles) else (
+                    self.fileSize - self.headerLength
+                    - self.numberWork*self.workLength)//self.frameLength    # number of frames which the file contains
+
+                # FILE CORRUPTION CHECK
+                if self.fileSize != (
+                    self.headerLength                   # header
+                    + self.frames*self.frameLength      # frames
+                    + self.numberWork*self.workLength): # work sums
+                    raise ValueError(
+                        "Invalid data file size ('%s')." % self.filename)
+
+                return
+
+            except:
+
+                if get_env('FORCE_DAT0', default=False, vartype=bool):
+                    raise ValueError(
+                        "Invalid data file size ('%s')." % self.filename)
+
+            try:
+
+                #########
+                # .DATN #
+                #########
+                self._type = 'datN'
+
+                # FILE
+                _Read.__init__(self, filename)
+
+                # HEADER INFORMATION
+                self.N = self._read('i')                # number of particles
+                self.epsilon = self._read('d')          # coefficient parameter of potential
+                self.v0 = self._read('d')               # self-propulsion velocity
+                self.D = self._read('d')                # translational diffusivity
+                self.Dr = self._read('d')               # rotational diffusivity
+                self.lp = self._read('d')               # persistence length
+                self.phi = self._read('d')              # packing fraction
+                self.L = self._read('d')                # system size
+                self.rho = self.N/(self.L**2)           # particle density
+                self.seed = self._read('i')             # random seed
+                self.dt = self._read('d')               # time step
+                self.framesWork = 1                     # number of frames on which to sum the active work before dumping (here set as 0 to avoid crash of some functions)
+                self.dumpParticles = True               # dump positions and orientations to output file
+                self.dumpPeriod = 1                     # period of dumping of positions and orientations in number of frames
+
+                # FRAMES
+                self.init = self._read('i')                             # initialisation number of iterations
+                self.NLin = self._read('i')                             # number of linearly splaced blocks of frames
+                self.NiterLin = self._read('i')                         # number of iterations in blocks
+                self.NLog = self._read('i')                             # number of logarithmically spaced frames in blocks
+                self.frames = self._read('i')                           # number of frames
+                self.frameIndices = []                                  # frame indices which were saved
+                for _ in range(self.frames):
+                    self.frameIndices += [self._read('i')]
+                self.frames += 1                                        # count frame 0
+                self.frameIndices = np.array([0] + self.frameIndices)   # count frame 0
+
+                # DIAMETERS
+                self.diameters = np.empty((self.N,))    # array of diameters
+                for i in range(self.N): self.diameters[i] = self._read('d')
+
+                # FILE PARTS LENGTHS
+                self.headerLength = self.file.tell()                        # length of header in bytes
+                self.particleLength = 9*self._bpe('d')                      # length the data of a single particle takes in a frame
+                self.frameLength = self.N*self.particleLength               # length the data of a single frame takes in a file
+                self.workLength = 0*self._bpe('d')                          # length the data of a single work and order parameter dump takes in a file
+
+                # FILE CORRUPTION CHECK
+                if self.fileSize != (
+                    self.headerLength                   # header
+                    + self.frames*self.frameLength):    # frames
+                    raise ValueError(
+                        "Invalid data file size ('%s')." % self.filename)
+
+                return
+
+            except:
+
+                if get_env('FORCE_DAT0', default=False, vartype=bool):
+                    raise ValueError(
+                        "Invalid data file size ('%s')." % self.filename)
+
+            if not(hasattr(self, '_type')):
+                raise TypeError(
+                    "No appropriate file type found ('%s')." % self.filename)
+
+        finally:
+
+            # COMPUTED NORMALISED RATE OF ACTIVE WORK
+            self._loadWork(load=loadWork)
 
     def getWork(self, time0, time1):
         """
@@ -205,6 +356,8 @@ class _Dat(_Read):
             crossed any boundary. (default: 1)
             NOTE: `jump' must be chosen so that particles do not move a distance
                   greater than half the box size during this time.
+            NOTE: This is only relevant for .dat files since these do not embed
+                  unfolded positions.
         norm : bool
             Return norm of displacements rather than 2D displacements.
             (default: False)
@@ -219,22 +372,36 @@ class _Dat(_Read):
         if particle == (): particle = range(self.N)
         time0 = int(time0)
         time1 = int(time1)
-        jump = int(jump)
 
-        displacements = -self.getPositions(time0, *particle)
+        if self._type == 'dat':
 
-        increments = np.zeros((len(particle), 2))
-        positions1 = -displacements.copy()
-        for t in list(range(time0, time1, jump)) + [time1 - 1]:
-            positions0 = positions1.copy()
-            positions1 = self.getPositions(t + 1, *particle)
-            increments += (
-                ((positions0 - self.L/2)*(positions1 - self.L/2) < 0)   # if position switches "sign"
-                *(np.abs(positions0 - self.L/2) > self.L/4)             # (and) if particle is not in the centre of the box
-                *np.sign(positions0 - self.L/2)                         # "sign" of position
-                *self.L)
+            jump = int(jump)
 
-        displacements += positions1 + increments
+            displacements = -self.getPositions(time0, *particle)
+
+            increments = np.zeros((len(particle), 2))
+            positions1 = -displacements.copy()
+            for t in list(range(time0, time1, jump)) + [time1 - 1]:
+                positions0 = positions1.copy()
+                positions1 = self.getPositions(t + 1, *particle)
+                increments += (
+                    ((positions0 - self.L/2)*(positions1 - self.L/2) < 0)   # if position switches "sign"
+                    *(np.abs(positions0 - self.L/2) > self.L/4)             # (and) if particle is not in the centre of the box
+                    *np.sign(positions0 - self.L/2)                         # "sign" of position
+                    *self.L)
+
+            displacements += positions1 + increments
+
+        else:
+
+            displacements = (
+                np.array(list(map(
+                    lambda index: self._unfolded_position(time1, index),
+                    particle)))
+                - np.array(list(map(
+                    lambda index: self._unfolded_position(time0, index),
+                    particle))))
+
         if norm: return np.sqrt(np.sum(displacements**2, axis=-1))
         return displacements
 
@@ -345,7 +512,7 @@ class _Dat(_Read):
 
     def getDirections(self, time, *particle):
         """
-        Returns self-propulsion vector of particles at time.
+        Returns normalised self-propulsion vector of particles at time.
 
         Parameters
         ----------
@@ -366,6 +533,37 @@ class _Dat(_Read):
         return np.array(list(map(
             lambda theta: np.array([np.cos(theta), np.sin(theta)]),
             self.getOrientations(time, *particle))))
+
+    def getPropulsions(self, time, *particle, norm=False):
+        """
+        Returns self-propulsion vectors of particles at time.
+
+        Parameters
+        ----------
+        time : int
+            Frame.
+        particle : int
+            Indexes of particles.
+            NOTE: if none is given, then all particles are returned.
+        norm : bool
+            Return norm of self-propulsion vectors rather than 2D
+            self-propulsion vectors.
+            (default: False)
+
+        Returns
+        -------
+        propulsions : [not(norm)] (*, 2) float Numpy array
+                      [norm] (*,) float Numpy array
+            Self-propulsion vectors at `time'.
+        """
+
+        if particle == (): particle = range(self.N)
+
+        propulsions = np.array(list(map(
+            lambda index: self._propulsion(time, index),
+            particle)))
+        if norm: return np.sqrt(np.sum(propulsions**2, axis=-1))
+        return propulsions
 
     def getOrderParameter(self, time, norm=False):
         """
@@ -427,7 +625,6 @@ class _Dat(_Read):
             Normalised integral.
         """
 
-        time0, time1 = int(time0), int(time1)
         if time0 == time1: return 0
 
         torqueIntegral = 0
@@ -479,7 +676,6 @@ class _Dat(_Read):
             Normalised integral.
         """
 
-        time0, time1 = int(time0), int(time1)
         if time0 == time1: return 0
 
         torqueIntegral = 0
@@ -512,7 +708,6 @@ class _Dat(_Read):
             Normalised integral.
         """
 
-        time0, time1 = int(time0), int(time1)
         if time0 == time1: return 0
 
         torqueIntegral = 0
@@ -562,8 +757,6 @@ class _Dat(_Read):
         grid : (nBoxes, nBoxes, *) float Numpy array
             Averaged grid.
         """
-
-        time = int(time)
 
         array = np.array(array)
         if array.shape[0] != self.N: raise ValueError(
@@ -623,7 +816,7 @@ class _Dat(_Read):
             NOTE: if loadWork=='r', force re-extract dumps from data file.
         """
 
-        if not(load): return
+        if not(load) or self._type == 'datN': return
 
         # ACTIVE WORK
 
@@ -736,7 +929,7 @@ class _Dat(_Read):
             with open(self.filename + '.order.pickle', 'wb') as workFile:
                 pickle.dump(self.orderParameter, workFile)
 
-        if not(self._isDat0):
+        if self._type == 'dat':
 
             # VECTORIAL ORDER PARAMETER
 
@@ -840,6 +1033,8 @@ class _Dat(_Read):
             Position of `particle' at `time'.
         """
 
+        time = self._getFrameIndex(time)
+
         self.file.seek(
             self.headerLength                                           # header
             + time*self.frameLength                                     # other frames
@@ -863,6 +1058,8 @@ class _Dat(_Read):
         orientation : (2,) float Numpy array
             Orientation of `particle' at `time'.
         """
+
+        time = self._getFrameIndex(time)
 
         self.file.seek(
             self.headerLength                                           # header
@@ -889,11 +1086,75 @@ class _Dat(_Read):
             Velocity of `particle' at `time'.
         """
 
+        time = self._getFrameIndex(time)
+
         self.file.seek(
             self.headerLength                                           # header
             + time*self.frameLength                                     # other frames
             + particle*self.particleLength                              # other particles
-            + (3 + 2*self._isDat0)*self._bpe('d')                       # positions and orientation (and self-propulsion vector)
+            + 3*self._bpe('d')                                          # positions and orientation
+            + (np.max([time - 1, 0])//self.framesWork)*self.workLength) # active work sums (taking into account the frame with index 0)
+        return np.array([self._read('d'), self._read('d')])
+
+    def _propulsion(self, time, particle):
+        """
+        Returns array of self-propulsion vector of particle at time.
+
+        Parameters
+        ----------
+        time : int
+            Frame.
+        particle : int
+            Index of particle.
+
+        Returns
+        -------
+        position : (2,) float Numpy array
+            Self-propulsion vector of `particle' at `time'.
+        """
+
+        if not(self._type in ('dat0', 'datN')):
+            return self.getDirections(time, particle)[0]
+
+        time = self._getFrameIndex(time)
+
+        self.file.seek(
+            self.headerLength                                           # header
+            + time*self.frameLength                                     # other frames
+            + particle*self.particleLength                              # other particles
+            + 5*self._bpe('d')                                          # positions, orientation, and velocities
+            + (np.max([time - 1, 0])//self.framesWork)*self.workLength) # active work sums (taking into account the frame with index 0)
+        return np.array([self._read('d'), self._read('d')])
+
+    def _unfolded_position(self, time, particle):
+        """
+        Returns array of unfolded position of particle at time.
+
+        Parameters
+        ----------
+        time : int
+            Frame.
+        particle : int
+            Index of particle.
+
+        Returns
+        -------
+        position : (2,) float Numpy array
+            Position of `particle' at `time'.
+        """
+
+        if not(self._type in ('dat0', 'datN')):
+            raise AttributeError(
+                'Unfolded positions are not available for .%s files.'
+                % self._type)
+
+        time = self._getFrameIndex(time)
+
+        self.file.seek(
+            self.headerLength                                           # header
+            + time*self.frameLength                                     # other frames
+            + particle*self.particleLength                              # other particles
+            + 7*self._bpe('d')                                          # positions, orientation, velocities, and propulsions
             + (np.max([time - 1, 0])//self.framesWork)*self.workLength) # active work sums (taking into account the frame with index 0)
         return np.array([self._read('d'), self._read('d')])
 
@@ -912,7 +1173,7 @@ class _Dat(_Read):
             Normalised rate of active work between `time' and `time' + 1.
         """
 
-        time = int(time)
+        time = self._getFrameIndex(time)
 
         work = np.sum(list(map(         # sum over time
             lambda u, dr: np.dot(u,dr), # sum over particles
@@ -947,171 +1208,29 @@ class _Dat(_Read):
             np.abs(x0) + np.abs(self.L - x1), np.abs(self.L - x0) + np.abs(x1)])
         return diff
 
-class _Dat0(_Dat):
-    """
-    Read data files from simulations with general parameters.
-
-    (see coll_dyn_activem/particle.hpp -> class System0 &
-    coll_dyn_activem/launch0.py)
-    """
-
-    def __init__(self, filename, loadWork=True):
+    def _getFrameIndex(self, frame):
         """
-        Get data from header.
+        Returns index of frame in file.
+
+        NOTE: This function is meant mainly for .datN files.
 
         Parameters
         ----------
-        filename : string
-            Path to data file.
-        loadWork : bool or 'r'
-            Load dump arrays. (default: True)
-            NOTE: if loadWork=='r', force re-extract dumps from data file.
-        """
-
-        # SIMULATION TYPE
-        self._isDat0 = True # corresponds to a simulation with general parameters
-
-        # FILE
-        _Read.__init__(self, filename)
-
-        # HEADER INFORMATION
-        self.N = self._read('i')                # number of particles
-        self.epsilon = self._read('d')          # coefficient parameter of potential
-        self.v0 = self._read('d')               # self-propulsion velocity
-        self.D = self._read('d')                # translational diffusivity
-        self.Dr = self._read('d')               # rotational diffusivity
-        self.lp = self._read('d')               # persistence length
-        self.phi = self._read('d')              # packing fraction
-        self.L = self._read('d')                # system size
-        self.rho = self.N/(self.L**2)           # particle density
-        self.seed = self._read('i')             # random seed
-        self.dt = self._read('d')               # time step
-        self.framesWork = self._read('i')       # number of frames on which to sum the active work before dumping
-        self.dumpParticles = self._read('b')    # dump positions and orientations to output file
-        self.dumpPeriod = self._read('i')       # period of dumping of positions and orientations in number of frames
-
-        # DIAMETERS
-        self.diameters = np.empty((self.N,))    # array of diameters
-        for i in range(self.N): self.diameters[i] = self._read('d')
-
-        # FILE PARTS LENGTHS
-        self.headerLength = self.file.tell()                        # length of header in bytes
-        self.particleLength = 7*self._bpe('d')*self.dumpParticles   # length the data of a single particle takes in a frame
-        self.frameLength = self.N*self.particleLength               # length the data of a single frame takes in a file
-        self.workLength = 4*self._bpe('d')                          # length the data of a single work and order parameter dump takes in a file
-
-        # ESTIMATION OF NUMBER OF COMPUTED WORK AND ORDER SUMS AND FRAMES
-        self.numberWork = (self.fileSize
-            - self.headerLength                                     # header
-            - self.frameLength                                      # first frame
-            )//(
-            self.framesWork*self.frameLength
-                + self.workLength)                                  # number of cumputed work sums
-        self.frames = 0 if not(self.dumpParticles) else (
-            self.fileSize - self.headerLength
-            - self.numberWork*self.workLength)//self.frameLength    # number of frames which the file contains
-
-        # FILE CORRUPTION CHECK
-        if self.fileSize != (
-            self.headerLength                   # header
-            + self.frames*self.frameLength      # frames
-            + self.numberWork*self.workLength): # work sums
-            raise ValueError("Invalid data file size ('%s')." % self.filename)
-
-        # COMPUTED NORMALISED RATE OF ACTIVE WORK
-        self._loadWork(load=loadWork)
-
-    def getPropulsions(self, time, *particle, norm=False):
-        """
-        Returns self-propulsion vectors of particles at time.
-
-        Parameters
-        ----------
-        time : int
-            Frame.
-        particle : int
-            Indexes of particles.
-            NOTE: if none is given, then all particles are returned.
-        norm : bool
-            Return norm of self-propulsion vectors rather than 2D
-            self-propulsion vectors.
-            (default: False)
+        frame : int
+            Requested frame index.
 
         Returns
         -------
-        propulsions : [not(norm)] (*, 2) float Numpy array
-                      [norm] (*,) float Numpy array
-            Self-propulsion vectors at `time'.
+        frameFile : int
+            Index of frame in file.
         """
 
-        if particle == (): particle = range(self.N)
+        frame = int(frame)
 
-        propulsions = np.array(list(map(
-            lambda index: self._propulsion(time, index),
-            particle)))
-        if norm: return np.sqrt(np.sum(propulsions**2, axis=-1))
-        return propulsions
-
-    def _propulsion(self, time, particle):
-        """
-        Returns array of self-propulsion vector of particle at time.
-
-        Parameters
-        ----------
-        time : int
-            Frame.
-        particle : int
-            Index of particle.
-
-        Returns
-        -------
-        position : (2,) float Numpy array
-            Self-propulsion vector of `particle' at `time'.
-        """
-
-        self.file.seek(
-            self.headerLength                                           # header
-            + time*self.frameLength                                     # other frames
-            + particle*self.particleLength                              # other particles
-            + 3*self._bpe('d')                                          # positions and orientation
-            + (np.max([time - 1, 0])//self.framesWork)*self.workLength) # active work sums (taking into account the frame with index 0)
-        return np.array([self._read('d'), self._read('d')])
-
-class Dat(_Dat):
-    """
-    Read data files from simulations. Automatically load the correct attributes
-    for simulations with custom relations between parameters
-    (coll_dyn_activem.read._Dat) or general parameters
-    (coll_dyn_activem.read._Dat0).
-
-    WARNING: Success of this correct loading is not assured in all cases.
-             Set FORCE_DAT (resp. FORCE_DAT0) environment variable to True to
-             enforce choice of data structure with custom relations between
-             parameters (resp. general parameters).
-    """
-
-    def __init__(self, filename, loadWork=True):
-        """
-        Get data from header.
-
-        Parameters
-        ----------
-        filename : string
-            Path to data file.
-        loadWork : bool or 'r'
-            Load dump arrays. (default: True)
-            NOTE: if loadWork=='r', force re-extract dumps from data file.
-        """
-
-        if get_env('FORCE_DAT', default=False, vartype=bool):       # enforce choice of data structure with custom relations between parameters
-            _Dat.__init__(self, filename, loadWork=loadWork)
-        elif get_env('FORCE_DAT0', default=False, vartype=bool):    # enforce choice of data structure from simulation with general parameters
-            _Dat0.__init__(self, filename, loadWork=loadWork)
-        else:                                                       # guess data structure
-            try:
-                _Dat.__init__(self, filename, loadWork=loadWork)    # simulation with custom relations between parameters
-            except ValueError:
-                _Dat0.__init__(self, filename, loadWork=loadWork)   # simulation with general parameters
+        if self._type in ('dat', 'dat0'): return frame
+        try:
+            return np.where(self.frameIndices == frame)[0][0]
+        except IndexError: raise ValueError("Frame %i not in file." % frame)
 
 class DatR(_Read):
     """

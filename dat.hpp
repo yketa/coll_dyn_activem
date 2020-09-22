@@ -12,6 +12,7 @@
 
 class Dat;
 class Dat0;
+class DatN;
 class DatR;
 
 
@@ -147,16 +148,17 @@ class Dat0 {
     std::vector<double> getOrderParameter(); // returns vector of computed order parameter sums
 
     double getPosition(
-      int const& frame, int const& particle, int const& dimension);
+      int const& frame, int const& particle, int const& dimension,
+      bool const& unfolded = false);
       // Returns position of a given particle at a given frame.
     double getOrientation(int const& frame, int const& particle);
       // Returns orientation of a given particle at a given frame.
-    double getPropulsion(
-      int const& frame, int const& particle, int const& dimension);
-      // Returns self-propulsion vector of a given particle at a given frame.
     double getVelocity(
       int const& frame, int const& particle, int const& dimension);
       // Returns velocity of a given particle at a given frame.
+    double getPropulsion(
+      int const& frame, int const& particle, int const& dimension);
+      // Returns self-propulsion vector of a given particle at a given frame.
 
   private:
 
@@ -192,6 +194,90 @@ class Dat0 {
     std::vector<double> activeWorkForce; // computed active work (force) sums
     std::vector<double> activeWorkOri; // computed active work (orientation) sums
     std::vector<double> orderParameter; // computer order parameter sums
+
+};
+
+
+/*  DATN
+ *  ----
+ *  Read files as defined by the SystemN class (see particle.hpp).
+ */
+
+class DatN {
+
+  public:
+
+    // CONSTRUCTORS
+
+    DatN(std::string filename, bool loadWork = true);
+
+    // DESTRUCTORS
+
+    ~DatN();
+
+    // METHODS
+
+    int getNumberParticles() const; // returns number of particles
+    double getPotentialParameter() const; // returns coefficient parameter of potential
+    double getPropulsionVelocity() const; // returns self-propulsion velocity
+    double getTransDiffusivity() const; // returns translational diffusivity
+    double getRotDiffusivity() const; // returns rotational diffusivity
+    double getPersistenceLength() const; // returns persistence length
+    double getPackingFraction() const; // returns packing fraction
+    double getSystemSize() const; // returns system size
+    int getRandomSeed() const; // returns random seed
+    double getTimeStep() const; // returns time step
+
+    int getInit() const; // returns initialisation number of iterations
+    int getNLin() const; // returns number of linearly splaced blocks of frames
+    int getNiterLin() const; // returns number of iterations in blocks
+    int getNLog() const; // returns number of logarithmically spaced frames in blocks
+    std::vector<int>* getFrames(); // returns pointer to vector of frames which were saved
+
+    std::vector<double> getDiameters(); // returns vector of diameters
+
+    double getPosition(
+      int const& frame, int const& particle, int const& dimension,
+      bool const& unfolded = false);
+      // Returns position of a given particle at a given frame.
+    double getOrientation(int const& frame, int const& particle);
+      // Returns orientation of a given particle at a given frame.
+    double getVelocity(
+      int const& frame, int const& particle, int const& dimension);
+      // Returns velocity of a given particle at a given frame.
+    double getPropulsion(
+      int const& frame, int const& particle, int const& dimension);
+      // Returns self-propulsion vector of a given particle at a given frame.
+
+  private:
+
+    // ATTRIBUTES
+
+    int const numberParticles; // number of particles
+    double const potentialParameter; // coefficient parameter of potential
+    double const propulsionVelocity; // self-propulsion velocity
+    double const transDiffusivity; // translational diffusivity
+    double const rotDiffusivity; // rotational diffusivity
+    double const persistenceLength; // persistence length
+    double const packingFraction; // packing fraction
+    double const systemSize; // size of the system
+    int const randomSeed; // random seed
+    double const timeStep; // time step
+
+    int const init; // initialisation number of iterations
+    int const NLin; // number of linearly splaced blocks of frames
+    int const NiterLin; // number of iterations in blocks
+    int const NLog; // number of logarithmically spaced frames in blocks
+    int const frames; // number of frames
+    std::vector<int> frameIndices; // vector of frames which were saved
+
+    Read input; // input class
+
+    long int headerLength; // length of header in input file
+    long int particleLength; // length the data of a single particle takes in a frame
+    long int frameLength; // length the data of a single frame takes in a file
+
+    std::vector<double> diameters; // array of diameters
 
 };
 

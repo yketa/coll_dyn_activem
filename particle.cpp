@@ -19,16 +19,17 @@
 // CONSTRUCTORS
 
 Particle::Particle(double d) :
-  r{0, 0}, theta(0), p{0, 0}, v{0, 0}, sigma(d),
+  r{0, 0}, c{0, 0}, theta(0), p{0, 0}, v{0, 0}, sigma(d),
   f{0, 0}, fp{0, 0}, gamma(0) {}
 Particle::Particle(
   double x, double y, double ang, double px, double py, double d) :
-  r{x, y}, theta(ang), p{px, py}, v{0, 0}, sigma(d),
+  r{x, y}, c{0, 0}, theta(ang), p{px, py}, v{0, 0}, sigma(d),
   f{0, 0}, fp{0, 0}, gamma(0) {}
 
 // METHODS
 
 double* Particle::position() { return &r[0]; } // returns pointer to position
+long int* Particle::cross() { return &c[0]; } // returns pointer to number of boundary crossings
 double* Particle::orientation() { return &theta; } // returns pointer to orientation
 double* Particle::propulsion() { return &p[0]; } // returns pointer to self-propulsion direction
 double* Particle::velocity() { return &v[0]; } // returns pointer to velocity
@@ -433,41 +434,8 @@ double* System::getTotalOrder1() { return &(order1Sum[2]); }
 double* System::getTotalTorqueIntegral1() { return &(torqueIntegral1[2]); }
 double* System::getTotalTorqueIntegral2() { return &(torqueIntegral2[2]); }
 
-double System::diffPeriodic(double const& x1, double const& x2) {
-  // Returns algebraic distance from `x1' to `x2' on a line taking into account
-  // periodic boundary condition of the system.
-
-  return _diffPeriodic<System>(this, x1, x2);
-}
-
-double System::getDistance(int const& index1, int const& index2) {
-  // Returns distance between two particles in a given system.
-
-  return _getDistance<System>(this, index1, index2);
-}
-
-void System::WCA_force(int const& index1, int const& index2) {
-  // Compute WCA forces between particles[index1] and particles[index2],
-  // and add to particles[index1].force() and particles[index2].force().
-
-  if ( index1 != index2 ) { // only consider different particles
-
-    double force[2];
-    _WCA_force(this, index1, index2, &force[0]);
-
-    for (int dim=0; dim < 2; dim++) {
-      if ( force[dim] != 0 ) {
-
-        // update force arrays
-        particles[index1].force()[dim] += force[dim];
-        particles[index2].force()[dim] -= force[dim];
-      }
-    }
-  }
-}
-
 void System::copyState(std::vector<Particle>& newParticles) {
-  // Copy positions and orientations.
+  // Copy positions and propulsions.
 
   for (int i=0; i < getNumberParticles(); i++) {
     for (int dim=0; dim < 2; dim++) {
@@ -476,6 +444,10 @@ void System::copyState(std::vector<Particle>& newParticles) {
     }
     // ORIENTATIONS
     particles[i].orientation()[0] = newParticles[i].orientation()[0];
+    for (int dim=0; dim < 2; dim++) {
+      // SELF-PROPULSION VECTORS
+      particles[i].propulsion()[dim] = newParticles[i].propulsion()[dim];
+    }
   }
 
   // UPDATING CELL LIST
@@ -483,7 +455,7 @@ void System::copyState(std::vector<Particle>& newParticles) {
 }
 
 void System::copyState(System* system) {
-  // Copy positions and orientations.
+  // Copy positions and propulsions.
 
   for (int i=0; i < getNumberParticles(); i++) {
     for (int dim=0; dim < 2; dim++) {
@@ -492,6 +464,11 @@ void System::copyState(System* system) {
     }
     // ORIENTATIONS
     particles[i].orientation()[0] = (system->getParticle(i))->orientation()[0];
+    for (int dim=0; dim < 2; dim++) {
+      // SELF-PROPULSION VECTORS
+      particles[i].propulsion()[dim] =
+        (system->getParticle(i))->propulsion()[dim];
+    }
   }
 
   // UPDATING CELL LIST
@@ -528,6 +505,8 @@ void System::saveInitialState() {
 
 void System::saveNewState(std::vector<Particle>& newParticles) {
   // Saves new state of particles to output file then copy it.
+
+  int cross;
 
   // DUMP FRAME
   dumpFrame++;
@@ -567,15 +546,24 @@ void System::saveNewState(std::vector<Particle>& newParticles) {
         /2;
     }
 
-    // WRAPPED COORDINATES
+    // COORDINATES
     for (int dim=0; dim < 2; dim++) {
+      // compute crossings
+      cross = wrapCoordinate<System>(this, newParticles[i].position()[dim]);
+      particles[i].cross()[dim] += cross;
       // keep particles in the box
-      newParticles[i].position()[dim] =
-        _wrapCoordinate<System>(this, newParticles[i].position()[dim]);
+      newParticles[i].position()[dim] -= cross*getSystemSize();
+    }
+    if ( dumpParticles && dumpFrame % dumpPeriod == 0 ) {
       // output wrapped position in each dimension
-      if ( dumpParticles && dumpFrame % dumpPeriod == 0 ) {
+      for (int dim=0; dim < 2; dim++) {
         output.write<double>(newParticles[i].position()[dim]);
       }
+      // output unwrapped position in each dimension
+      // for (int dim=0; dim < 2; dim++) {
+      //   output.write<double>(newParticles[i].position()[dim]
+      //     + particles[i].cross()[dim]*getSystemSize());
+      // }
     }
 
     if ( dumpParticles && (dumpFrame - 1) % dumpPeriod == 0 ) {
@@ -1099,41 +1087,8 @@ double* System0::getTotalWorkForce() { return &(workForceSum[2]); }
 double* System0::getTotalWorkOrientation() { return &(workOrientationSum[2]); }
 double* System0::getTotalOrder() { return &(orderSum[2]); }
 
-double System0::diffPeriodic(double const& x1, double const& x2) {
-  // Returns algebraic distance from `x1' to `x2' on a line taking into account
-  // periodic boundary condition of the system.
-
-  return _diffPeriodic<System0>(this, x1, x2);
-}
-
-double System0::getDistance(int const& index1, int const& index2) {
-  // Returns distance between two particles in a given system.
-
-  return _getDistance<System0>(this, index1, index2);
-}
-
-void System0::WCA_force(int const& index1, int const& index2) {
-  // Compute WCA forces between particles[index1] and particles[index2],
-  // and add to particles[index1].force() and particles[index2].force().
-
-  if ( index1 != index2 ) { // only consider different particles
-
-    double force[2];
-    _WCA_force(this, index1, index2, &force[0]);
-
-    for (int dim=0; dim < 2; dim++) {
-      if ( force[dim] != 0 ) {
-
-        // update force arrays
-        particles[index1].force()[dim] += force[dim];
-        particles[index2].force()[dim] -= force[dim];
-      }
-    }
-  }
-}
-
 void System0::copyState(std::vector<Particle>& newParticles) {
-  // Copy positions and orientations.
+  // Copy positions and propulsions.
 
   for (int i=0; i < getNumberParticles(); i++) {
     for (int dim=0; dim < 2; dim++) {
@@ -1153,7 +1108,7 @@ void System0::copyState(std::vector<Particle>& newParticles) {
 }
 
 void System0::copyState(System0* system) {
-  // Copy positions and orientations.
+  // Copy positions and propulsions.
 
   for (int i=0; i < getNumberParticles(); i++) {
     for (int dim=0; dim < 2; dim++) {
@@ -1180,20 +1135,24 @@ void System0::saveInitialState() {
   if ( dumpParticles ) {
 
     for (int i=0; i < getNumberParticles(); i++) { // output all particles
-      // POSITIONS
+      // WRAPPED POSITIONS
       for (int dim=0; dim < 2; dim++) { // output position in each dimension
         output.write<double>(particles[i].position()[dim]);
       }
       // ORIENTATIONS
       output.write<double>(particles[i].orientation()[0]); // output orientation
-      // SELF-PROPULSION VECTORS
-      for (int dim=0; dim < 2; dim++) { // output position in each dimension
-        output.write<double>(particles[i].propulsion()[dim]);
-      }
       // VELOCITIES
       velocitiesDumps[i] = output.tellp(); // location to dump velocities at next time step
       for (int dim=0; dim < 2; dim++) { // output velocity in each dimension
         output.write<double>(0.0); // zero by default for initial frame
+      }
+      // SELF-PROPULSION VECTORS
+      for (int dim=0; dim < 2; dim++) { // output position in each dimension
+        output.write<double>(particles[i].propulsion()[dim]);
+      }
+      // UNWRAPPED POSITIONS
+      for (int dim=0; dim < 2; dim++) { // output position in each dimension
+        output.write<double>(particles[i].position()[dim]);
       }
     }
   }
@@ -1205,6 +1164,8 @@ void System0::saveInitialState() {
 void System0::saveNewState(std::vector<Particle>& newParticles) {
   // Saves new state of particles to output file then copy it.
 
+  int cross;
+
   // DUMP FRAME
   dumpFrame++;
 
@@ -1212,10 +1173,13 @@ void System0::saveNewState(std::vector<Particle>& newParticles) {
   // SAVING //
   ////////////
 
-  for (int i=0; i < getNumberParticles(); i++) { // output all particles
+  for (int i=0; i < getNumberParticles(); i++) {
 
-    // ACTIVE WORK and ORDER PARAMETER (computation)
+    // COMPUTATION
+
     for (int dim=0; dim < 2; dim++) {
+
+      // ACTIVE WORK
       // active work
       workSum[0] +=
         (newParticles[i].propulsion()[dim] + particles[i].propulsion()[dim])
@@ -1231,53 +1195,60 @@ void System0::saveNewState(std::vector<Particle>& newParticles) {
         (newParticles[i].propulsion()[dim] + particles[i].propulsion()[dim])
         *getTimeStep()*particles[i].propulsion()[dim]
         /2;
+
+      // COORDINATES
+      // compute crossings
+      cross = wrapCoordinate<System0>(this, newParticles[i].position()[dim]);
+      particles[i].cross()[dim] += cross;
+      // keep particles in the box
+      newParticles[i].position()[dim] -= cross*getSystemSize();
     }
 
-    // WRAPPED COORDINATES
-    for (int dim=0; dim < 2; dim++) {
-      // keep particles in the box
-      newParticles[i].position()[dim] =
-        _wrapCoordinate<System0>(this, newParticles[i].position()[dim]);
-      // output wrapped position in each dimension
-      if ( dumpParticles && dumpFrame % dumpPeriod == 0 ) {
+    // DUMP
+
+    if ( dumpParticles && dumpFrame % dumpPeriod == 0 ) {
+      // WRAPPED POSITION
+      for (int dim=0; dim < 2; dim++) {
         output.write<double>(newParticles[i].position()[dim]);
+      }
+      // ORIENTATION
+      output.write<double>(newParticles[i].orientation()[0]);
+      // VELOCITIES
+      velocitiesDumps[i] = output.tellp(); // location to dump velocities at next time step
+      for (int dim=0; dim < 2; dim++) {
+        output.write<double>(0.0); // zero by default until rewrite at next time step
+      }
+      // SELF-PROPULSION VECTORS
+      for (int dim=0; dim < 2; dim++) {
+        output.write<double>(newParticles[i].propulsion()[dim]);
+      }
+      // UNWRAPPED POSITION
+      for (int dim=0; dim < 2; dim++) {
+        output.write<double>(newParticles[i].position()[dim]
+          + particles[i].cross()[dim]*getSystemSize());
       }
     }
 
+    // VELOCITIES
     if ( dumpParticles && (dumpFrame - 1) % dumpPeriod == 0 ) {
-
-      // VELOCITIES
       for (int dim=0; dim < 2; dim++) {
         output.write<double>(
           particles[i].velocity()[dim],
           velocitiesDumps[i] + dim*sizeof(double));
       }
     }
-
-    if ( dumpParticles && dumpFrame % dumpPeriod == 0 ) {
-
-      // ORIENTATION
-      output.write<double>(newParticles[i].orientation()[0]);
-
-      // SELF-PROPULSION VECTORS
-      for (int dim=0; dim < 2; dim++) {
-        output.write<double>(newParticles[i].propulsion()[dim]);
-      }
-
-      // VELOCITIES
-      velocitiesDumps[i] = output.tellp(); // location to dump velocities at next time step
-      for (int dim=0; dim < 2; dim++) {
-        output.write<double>(0.0); // zero by default until rewrite at next time step
-      }
-    }
   }
+
+  // COMPUTATION
 
   // ORDER PARAMETER
   orderSum[0] +=
     (getOrderParameterNorm(particles) + getOrderParameterNorm(newParticles))
       /2;
 
-  // ACTIVE WORK and ORDER PARAMETER (output)
+  // DUMP
+
+  // ACTIVE WORK and ORDER PARAMETER
   if ( dumpFrame % (framesWork*dumpPeriod) == 0 ) {
     // compute normalised rates since last dump
     workSum[1] = workSum[0]/(
@@ -1303,6 +1274,606 @@ void System0::saveNewState(std::vector<Particle>& newParticles) {
     workForceSum[0] = 0;
     workOrientationSum[0] = 0;
     orderSum[0] = 0;
+  }
+
+  /////////////
+  // COPYING //
+  /////////////
+
+  copyState(newParticles);
+}
+
+
+/***********
+ * SYSTEMN *
+ ***********/
+
+// CONSTRUCTORS
+
+SystemN::SystemN() :
+  init(), NLin(), NiterLin(), NLog(), frameIndices(),
+  param(new Parameters()),
+  randomSeed(0), randomGenerator(),
+  particles(0),
+  cellList(),
+  output(""), velocitiesDumps(),
+  dumpFrame(-1) {}
+
+SystemN::SystemN(
+  int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+  Parameters* parameters, int seed, std::string filename) :
+  init(initFrames),
+    NLin(NLinFrames), NiterLin(NiterLinFrames), NLog(NLogFrames),
+    frameIndices(getLogFrames(init, NLin, NiterLin, NLog)),
+  param(parameters),
+  randomSeed(seed), randomGenerator(randomSeed),
+  particles(0),
+  cellList(),
+  output(filename), velocitiesDumps(parameters->getNumberParticles()),
+  dumpFrame(-1) {
+
+  // set diameters
+  // CAUTION: consistence between packing fraction and system size has to be checked before
+  for (int i=0; i < getNumberParticles(); i++) {
+    particles.push_back(Particle(1.0));
+  }
+
+  // write header with system parameters to output file
+  output.write<int>(getNumberParticles());
+  output.write<double>(getPotentialParameter());
+  output.write<double>(getPropulsionVelocity());
+  output.write<double>(getTransDiffusivity());
+  output.write<double>(getRotDiffusivity());
+  output.write<double>(getPersistenceLength());
+  output.write<double>(getPackingFraction());
+  output.write<double>(getSystemSize());
+  output.write<int>(randomSeed);
+  output.write<double>(getTimeStep());
+
+  // write frames
+  output.write<int>(init);
+  output.write<int>(NLin);
+  output.write<int>(NiterLin);
+  output.write<int>(NLog);
+  output.write<int>(frameIndices.size()); // number of frames
+  for (std::vector<int>::const_iterator frame = frameIndices.begin();
+    frame != frameIndices.end(); frame++) {
+    output.write<int>(*frame); // frame index
+  }
+
+  // write particles' diameters
+  for (int i=0; i < getNumberParticles(); i++) {
+    output.write<double>(getParticle(i)->diameter());
+  }
+
+  // put particles on a grid with random orientation
+  int gridSize = ceil(sqrt(getNumberParticles())); // size of the grid on which to put the particles
+  double gridSpacing = getSystemSize()/gridSize;
+  for (int i=0; i < getNumberParticles(); i++) { // loop over particles
+    // position on the grid
+    particles[i].position()[0] = (i%gridSize)*gridSpacing;
+    particles[i].position()[1] = (i/gridSize)*gridSpacing;
+    // random orientation
+    particles[i].orientation()[0] = 2*M_PI*randomGenerator.random01();
+    // self-propulsion vector
+    particles[i].propulsion()[0] =
+      getPropulsionVelocity()*cos(particles[i].orientation()[0]);
+    particles[i].propulsion()[1] =
+      getPropulsionVelocity()*sin(particles[i].orientation()[0]);
+  }
+
+  // initialise cell list
+  double maxDiameter = 1.0; // maximum diameter
+  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+}
+
+SystemN::SystemN(
+  int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+  Parameters* parameters, std::vector<double>& diameters, int seed,
+  std::string filename) :
+  init(initFrames),
+    NLin(NLinFrames), NiterLin(NiterLinFrames), NLog(NLogFrames),
+    frameIndices(getLogFrames(init, NLin, NiterLin, NLog)),
+  param(parameters),
+  randomSeed(seed), randomGenerator(randomSeed),
+  particles(0),
+  cellList(),
+  output(filename), velocitiesDumps(parameters->getNumberParticles()),
+  dumpFrame(-1) {
+
+  // set diameters
+  // CAUTION: consistence between packing fraction and system size has to be checked before
+  for (int i=0; i < getNumberParticles(); i++) {
+    particles.push_back(Particle(diameters[i]));
+  }
+
+  // write header with system parameters to output file
+  output.write<int>(getNumberParticles());
+  output.write<double>(getPotentialParameter());
+  output.write<double>(getPropulsionVelocity());
+  output.write<double>(getTransDiffusivity());
+  output.write<double>(getRotDiffusivity());
+  output.write<double>(getPersistenceLength());
+  output.write<double>(getPackingFraction());
+  output.write<double>(getSystemSize());
+  output.write<int>(randomSeed);
+  output.write<double>(getTimeStep());
+
+  // write frames
+  output.write<int>(init);
+  output.write<int>(NLin);
+  output.write<int>(NiterLin);
+  output.write<int>(NLog);
+  output.write<int>(frameIndices.size()); // number of frames
+  for (std::vector<int>::const_iterator frame = frameIndices.begin();
+    frame != frameIndices.end(); frame++) {
+    output.write<int>(*frame); // frame index
+  }
+
+  // write particles' diameters
+  for (int i=0; i < parameters->getNumberParticles(); i++) {
+    output.write<double>(getParticle(i)->diameter());
+  }
+
+  // put particles on a grid with random orientation
+  int gridSize = ceil(sqrt(getNumberParticles())); // size of the grid on which to put the particles
+  double gridSpacing = getSystemSize()/gridSize;
+  for (int i=0; i < getNumberParticles(); i++) { // loop over particles
+    // position on the grid
+    particles[i].position()[0] = (i%gridSize)*gridSpacing;
+    particles[i].position()[1] = (i/gridSize)*gridSpacing;
+    // random orientation
+    particles[i].orientation()[0] = 2*M_PI*randomGenerator.random01();
+    // self-propulsion vector
+    particles[i].propulsion()[0] =
+      getPropulsionVelocity()*cos(particles[i].orientation()[0]);
+    particles[i].propulsion()[1] =
+      getPropulsionVelocity()*sin(particles[i].orientation()[0]);
+  }
+
+  // initialise cell list
+  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
+  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+}
+
+SystemN::SystemN(
+  int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+  SystemN* system, int seed, std::string filename) :
+  init(initFrames),
+    NLin(NLinFrames), NiterLin(NiterLinFrames), NLog(NLogFrames),
+    frameIndices(getLogFrames(init, NLin, NiterLin, NLog)),
+  param(system->getParameters()),
+  randomSeed(seed), randomGenerator(randomSeed),
+  particles(0),
+  cellList(),
+  output(filename), velocitiesDumps(system->getNumberParticles()),
+  dumpFrame(-1) {
+
+  // set diameters
+  // CAUTION: consistence between packing fraction and system size has to be checked before
+  std::vector<double> diameters(0);
+  for (int i=0; i < getNumberParticles(); i++) {
+    diameters.push_back((system->getParticle(i))->diameter());
+    particles.push_back(Particle(diameters[i]));
+  }
+
+  // write header with system parameters to output file
+  output.write<int>(getNumberParticles());
+  output.write<double>(getPotentialParameter());
+  output.write<double>(getPropulsionVelocity());
+  output.write<double>(getTransDiffusivity());
+  output.write<double>(getRotDiffusivity());
+  output.write<double>(getPersistenceLength());
+  output.write<double>(getPackingFraction());
+  output.write<double>(getSystemSize());
+  output.write<int>(randomSeed);
+  output.write<double>(getTimeStep());
+
+  // write frames
+  output.write<int>(init);
+  output.write<int>(NLin);
+  output.write<int>(NiterLin);
+  output.write<int>(NLog);
+  output.write<int>(frameIndices.size()); // number of frames
+  for (std::vector<int>::const_iterator frame = frameIndices.begin();
+    frame != frameIndices.end(); frame++) {
+    output.write<int>(*frame); // frame index
+  }
+
+  // write particles' diameters
+  for (int i=0; i < getNumberParticles(); i++) {
+    output.write<double>(getParticle(i)->diameter());
+  }
+
+  // initialise cell list
+  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
+  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+  // copy positions, orientations, and self-propulsion vectors, and update cell list
+  copyState(system);
+  // copy dumps
+  copyDump(system);
+}
+
+SystemN::SystemN(
+  int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+  SystemN* system, std::vector<double>& diameters, int seed,
+  std::string filename) :
+  init(initFrames),
+    NLin(NLinFrames), NiterLin(NiterLinFrames), NLog(NLogFrames),
+    frameIndices(getLogFrames(init, NLin, NiterLin, NLog)),
+  param(system->getParameters()),
+  randomSeed(seed), randomGenerator(randomSeed),
+  particles(0),
+  cellList(),
+  output(filename), velocitiesDumps(system->getNumberParticles()),
+  dumpFrame(-1) {
+
+  // set diameters
+  // CAUTION: consistence between packing fraction and system size has to be checked before
+  for (int i=0; i < getNumberParticles(); i++) {
+    particles.push_back(Particle(diameters[i]));
+  }
+
+  // write header with system parameters to output file
+  output.write<int>(getNumberParticles());
+  output.write<double>(getPotentialParameter());
+  output.write<double>(getPropulsionVelocity());
+  output.write<double>(getTransDiffusivity());
+  output.write<double>(getRotDiffusivity());
+  output.write<double>(getPersistenceLength());
+  output.write<double>(getPackingFraction());
+  output.write<double>(getSystemSize());
+  output.write<int>(randomSeed);
+  output.write<double>(getTimeStep());
+
+  // write frames
+  output.write<int>(init);
+  output.write<int>(NLin);
+  output.write<int>(NiterLin);
+  output.write<int>(NLog);
+  output.write<int>(frameIndices.size()); // number of frames
+  for (std::vector<int>::const_iterator frame = frameIndices.begin();
+    frame != frameIndices.end(); frame++) {
+    output.write<int>(*frame); // frame index
+  }
+
+  // write particles' diameters
+  for (int i=0; i < getNumberParticles(); i++) {
+    output.write<double>(getParticle(i)->diameter());
+  }
+
+  // initialise cell list
+  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
+  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+  // copy positions, orientations, and self-propulsion vectors, and update cell list
+  copyState(system);
+  // copy dumps
+  copyDump(system);
+}
+
+SystemN::SystemN(
+  int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+  std::string inputFilename, int inputFrame, double dt,
+  int seed, std::string filename) :
+  init(initFrames),
+    NLin(NLinFrames), NiterLin(NiterLinFrames), NLog(NLogFrames),
+    frameIndices(getLogFrames(init, NLin, NiterLin, NLog)),
+  param(
+    [&]{ // necessary initialisation with a lambda function due to const attributes
+      try {
+        DatN inputDat(inputFilename, false); // data object
+        Parameters param(
+          inputDat.getNumberParticles(),
+          inputDat.getPotentialParameter(),
+          inputDat.getPropulsionVelocity(),
+          inputDat.getTransDiffusivity(),
+          inputDat.getRotDiffusivity(),
+          inputDat.getPackingFraction(),
+          inputDat.getSystemSize(),
+          dt > 0 ? dt : inputDat.getTimeStep());
+        return param;
+      }
+      catch (const std::exception& e) {
+        Dat0 inputDat(inputFilename, false); // data object
+        Parameters param(
+          inputDat.getNumberParticles(),
+          inputDat.getPotentialParameter(),
+          inputDat.getPropulsionVelocity(),
+          inputDat.getTransDiffusivity(),
+          inputDat.getRotDiffusivity(),
+          inputDat.getPackingFraction(),
+          inputDat.getSystemSize(),
+          dt > 0 ? dt : inputDat.getTimeStep());
+        return param;
+      }
+    }()),
+  randomSeed(seed), randomGenerator(randomSeed),
+  particles(0),
+  cellList(),
+  output(filename), velocitiesDumps(0),
+  dumpFrame(-1) {
+
+  std::vector<double> diameters; // diameters of particles
+
+  try {
+    // load data
+    DatN inputDat(inputFilename, false); // data object
+
+    // set diameters
+    // CAUTION: consistence between packing fraction and system size has to be checked before
+    diameters = inputDat.getDiameters();
+    for (int i=0; i < getNumberParticles(); i++) {
+      particles.push_back(Particle(diameters[i]));
+    }
+
+    // resize velocity dumps
+    velocitiesDumps.resize(2*getNumberParticles()); // resize vector of locations of velocity dumps
+
+    // set positions and orientations
+    for (int i=0; i < getNumberParticles(); i++) {
+      // positions
+      for (int dim=0; dim < 2; dim++) {
+        particles[i].position()[dim] = inputDat.getPosition(inputFrame, i, dim);
+      }
+      // orientations
+      particles[i].orientation()[0] = inputDat.getOrientation(inputFrame, i);
+      // self-propulsion vector
+      for (int dim=0; dim < 2; dim++) {
+        particles[i].propulsion()[dim] =
+          inputDat.getPropulsion(inputFrame, i, dim);
+      }
+    }
+  }
+  catch (const std::exception& e) {
+    // load data
+    Dat0 inputDat(inputFilename, false); // data object
+
+    // set diameters
+    // CAUTION: consistence between packing fraction and system size has to be checked before
+    diameters = inputDat.getDiameters(); // diameters of particles
+    for (int i=0; i < getNumberParticles(); i++) {
+      particles.push_back(Particle(diameters[i]));
+    }
+
+    // resize velocity dumps
+    velocitiesDumps.resize(2*getNumberParticles()); // resize vector of locations of velocity dumps
+
+    // set positions and orientations
+    for (int i=0; i < getNumberParticles(); i++) {
+      // positions
+      for (int dim=0; dim < 2; dim++) {
+        particles[i].position()[dim] = inputDat.getPosition(inputFrame, i, dim);
+      }
+      // orientations
+      particles[i].orientation()[0] = inputDat.getOrientation(inputFrame, i);
+      // self-propulsion vector
+      for (int dim=0; dim < 2; dim++) {
+        particles[i].propulsion()[dim] =
+          inputDat.getPropulsion(inputFrame, i, dim);
+      }
+    }
+  }
+
+  // write header with system parameters to output file
+  output.write<int>(getNumberParticles());
+  output.write<double>(getPotentialParameter());
+  output.write<double>(getPropulsionVelocity());
+  output.write<double>(getTransDiffusivity());
+  output.write<double>(getRotDiffusivity());
+  output.write<double>(getPersistenceLength());
+  output.write<double>(getPackingFraction());
+  output.write<double>(getSystemSize());
+  output.write<int>(randomSeed);
+  output.write<double>(getTimeStep());
+
+  // write frames
+  output.write<int>(init);
+  output.write<int>(NLin);
+  output.write<int>(NiterLin);
+  output.write<int>(NLog);
+  output.write<int>(frameIndices.size()); // number of frames
+  for (std::vector<int>::const_iterator frame = frameIndices.begin();
+    frame != frameIndices.end(); frame++) {
+    output.write<int>(*frame); // frame index
+  }
+
+  // write particles' diameters
+  for (int i=0; i < getNumberParticles(); i++) {
+    output.write<double>(getParticle(i)->diameter());
+  }
+
+  // initialise cell list
+  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
+  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+}
+
+// DESTRUCTORS
+
+SystemN::~SystemN() {}
+
+// METHODS
+
+int SystemN::getInit() const { return init; }
+int SystemN::getNLin() const { return NLin; }
+int SystemN::getNiterLin() const { return NiterLin; }
+int SystemN::getNLog() const {return NLog; }
+std::vector<int> const* SystemN::getFrames() { return &frameIndices; }
+
+Parameters* SystemN::getParameters() { return &param; }
+
+int SystemN::getNumberParticles() const {
+  return param.getNumberParticles(); }
+double SystemN::getPotentialParameter() const {
+  return param.getPotentialParameter(); }
+double SystemN::getPropulsionVelocity() const {
+  return param.getPropulsionVelocity(); }
+double SystemN::getTransDiffusivity() const {
+  return param.getTransDiffusivity(); }
+double SystemN::getRotDiffusivity() const {
+  return param.getRotDiffusivity(); }
+double SystemN::getPersistenceLength() const {
+  return param.getPersistenceLength(); }
+double SystemN::getPackingFraction() const {
+  return param.getPackingFraction(); }
+double SystemN::getSystemSize() const {
+  return param.getSystemSize(); }
+double SystemN::getTimeStep() const {
+  return param.getTimeStep(); }
+
+int SystemN::getRandomSeed() const { return randomSeed; }
+Random* SystemN::getRandomGenerator() { return &randomGenerator; }
+
+Particle* SystemN::getParticle(int const& index) { return &(particles[index]); }
+std::vector<Particle> SystemN::getParticles() { return particles; }
+
+CellList* SystemN::getCellList() { return &cellList; }
+
+std::string SystemN::getOutputFile() const { return output.getOutputFile(); }
+
+int* SystemN::getDump() { return &dumpFrame; }
+
+void SystemN::resetDump() {
+  // Reset time-extensive quantities over trajectory.
+
+  dumpFrame = 0;
+}
+
+void SystemN::copyDump(SystemN* system) {
+  // Copy dumps from other system.
+  // WARNING: This also copies the index of last frame dumped. Consistency
+  //          has to be checked.
+
+  dumpFrame = system->getDump()[0];
+}
+
+void SystemN::copyState(std::vector<Particle>& newParticles) {
+  // Copy positions and propulsions.
+
+  for (int i=0; i < getNumberParticles(); i++) {
+    for (int dim=0; dim < 2; dim++) {
+      // POSITIONS
+      particles[i].position()[dim] = newParticles[i].position()[dim];
+    }
+    // ORIENTATIONS
+    particles[i].orientation()[0] = newParticles[i].orientation()[0];
+    for (int dim=0; dim < 2; dim++) {
+      // SELF-PROPULSION VECTORS
+      particles[i].propulsion()[dim] = newParticles[i].propulsion()[dim];
+    }
+  }
+
+  // UPDATING CELL LIST
+  cellList.update<SystemN>(this);
+}
+
+void SystemN::copyState(SystemN* system) {
+  // Copy positions and propulsions.
+
+  for (int i=0; i < getNumberParticles(); i++) {
+    for (int dim=0; dim < 2; dim++) {
+      // POSITIONS
+      particles[i].position()[dim] = (system->getParticle(i))->position()[dim];
+    }
+    // ORIENTATIONS
+    particles[i].orientation()[0] = (system->getParticle(i))->orientation()[0];
+    for (int dim=0; dim < 2; dim++) {
+      // SELF-PROPULSION VECTORS
+      particles[i].propulsion()[dim] =
+        (system->getParticle(i))->propulsion()[dim];
+    }
+  }
+
+  // UPDATING CELL LIST
+  cellList.update<SystemN>(this);
+}
+
+void SystemN::saveInitialState() {
+  // Saves initial state of particles to output file.
+
+  for (int i=0; i < getNumberParticles(); i++) { // output all particles
+    // WRAPPED POSITIONS
+    for (int dim=0; dim < 2; dim++) { // output position in each dimension
+      output.write<double>(particles[i].position()[dim]);
+    }
+    // ORIENTATIONS
+    output.write<double>(particles[i].orientation()[0]); // output orientation
+    // VELOCITIES
+    velocitiesDumps[i] = output.tellp(); // location to dump velocities at next time step
+    for (int dim=0; dim < 2; dim++) { // output velocity in each dimension
+      output.write<double>(0.0); // zero by default for initial frame
+    }
+    // SELF-PROPULSION VECTORS
+    for (int dim=0; dim < 2; dim++) { // output position in each dimension
+      output.write<double>(particles[i].propulsion()[dim]);
+    }
+    // UNWRAPPED POSITIONS
+    for (int dim=0; dim < 2; dim++) { // output position in each dimension
+      output.write<double>(particles[i].position()[dim]);
+    }
+  }
+
+  // reset dump
+  resetDump();
+}
+
+void SystemN::saveNewState(std::vector<Particle>& newParticles) {
+  // Saves new state of particles to output file then copy it.
+
+  int cross;
+
+  // DUMP FRAME
+  dumpFrame++;
+
+  ////////////
+  // SAVING //
+  ////////////
+
+  for (int i=0; i < getNumberParticles(); i++) {
+
+    // COMPUTATION
+
+    for (int dim=0; dim < 2; dim++) {
+      // COORDINATES
+      // compute crossings
+      cross = wrapCoordinate<SystemN>(this, newParticles[i].position()[dim]);
+      particles[i].cross()[dim] += cross;
+      // keep particles in the box
+      newParticles[i].position()[dim] -= cross*getSystemSize();
+    }
+
+    // DUMP
+
+    if ( isInSortedVec<int>(&frameIndices, dumpFrame) ) {
+      // WRAPPED POSITION
+      for (int dim=0; dim < 2; dim++) {
+        output.write<double>(newParticles[i].position()[dim]);
+      }
+      // ORIENTATION
+      output.write<double>(newParticles[i].orientation()[0]);
+      // VELOCITIES
+      velocitiesDumps[i] = output.tellp(); // location to dump velocities at next time step
+      for (int dim=0; dim < 2; dim++) {
+        output.write<double>(0.0); // zero by default until rewrite at next time step
+      }
+      // SELF-PROPULSION VECTORS
+      for (int dim=0; dim < 2; dim++) {
+        output.write<double>(newParticles[i].propulsion()[dim]);
+      }
+      // UNWRAPPED POSITION
+      for (int dim=0; dim < 2; dim++) {
+        output.write<double>(newParticles[i].position()[dim]
+          + particles[i].cross()[dim]*getSystemSize());
+      }
+    }
+
+    // VELOCITIES
+    if ( isInSortedVec<int>(&frameIndices, dumpFrame - 1) ) {
+      for (int dim=0; dim < 2; dim++) {
+        output.write<double>(
+          particles[i].velocity()[dim],
+          velocitiesDumps[i] + dim*sizeof(double));
+      }
+    }
   }
 
   /////////////
@@ -1638,49 +2209,38 @@ double getGlobalPhase(std::vector<double>& orientations) {
   return getAngle(order[0]/sqrt(pow(order[0], 2) + pow(order[1], 2)), order[1]);
 }
 
-void _WCA_force(
+std::vector<int> getLogFrames(int init, int NLin, int NiterLin, int NLog) {
+  // Returns vector of logarithmically spaced frames in linearly spaced blocks.
+
+  std::vector<int> frames;
+	frames.push_back(init);
+	for (int i = 0; i < NLin; i++) {
+		frames.push_back((int) init + i*NiterLin);
+		for (int j = 0; j < NLog - 1; j++) {
+			frames.push_back(
+        (int) init + i*NiterLin + exp(j*log(NiterLin - 1)/(NLog - 2)));
+		}
+	}
+
+  return *sortVec(removeVec(&frames, 0));
+}
+
+template<> void WCA_force<System>(
   System* system, int const& index1, int const& index2, double* force) {
   // Writes to `force' the force deriving from the WCA potential between
-  // particles `index1' and `index2'.
+  // particles `index1' and `index2' in `system'.
 
   force[0] = 0.0;
   force[1] = 0.0;
 
-  double dist = system->getDistance(index1, index2); // dimensionless distance between particles
+  double dist = getDistance<System>(system, index1, index2); // dimensionless distance between particles
 
   if (dist < pow(2., 1./6.)) { // distance lower than cut-off
 
     // compute force
     double coeff = 48.0/pow(dist, 14.0) - 24.0/pow(dist, 8.0);
     for (int dim=0; dim < 2; dim++) {
-      force[dim] = system->diffPeriodic(
-          (system->getParticle(index2))->position()[dim],
-          (system->getParticle(index1))->position()[dim])
-        *coeff;
-    }
-  }
-}
-
-void _WCA_force(
-  System0* system, int const& index1, int const& index2, double* force) {
-  // Writes to `force' the force deriving from the WCA potential between
-  // particles `index1' and `index2'.
-
-  force[0] = 0.0;
-  force[1] = 0.0;
-
-  double dist = system->getDistance(index1, index2); // distance between particles
-  double sigma =
-    ((system->getParticle(index1))->diameter()
-    + (system->getParticle(index2))->diameter())/2.0; // equivalent diameter
-
-  if (dist/sigma < pow(2., 1./6.)) { // distance lower than cut-off
-
-    // compute force
-    double coeff =
-      (48.0/pow(dist/sigma, 14.0) - 24.0/pow(dist/sigma, 8.0))/pow(sigma, 2.0);
-    for (int dim=0; dim < 2; dim++) {
-      force[dim] = system->diffPeriodic(
+      force[dim] = diffPeriodic<System>(system,
           (system->getParticle(index2))->position()[dim],
           (system->getParticle(index1))->position()[dim])
         *coeff;

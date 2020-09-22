@@ -28,7 +28,7 @@ int main() {
     // INITIALISATION
     system->saveInitialState(); // save first frame
     // ITERATION
-    iterate_ABP_WCA(system, Niter); // run simulations
+    iterate_ABP_WCA<System>(system, Niter); // run simulations
   };
 
   // definition

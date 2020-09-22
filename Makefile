@@ -19,15 +19,18 @@ endif
 ifeq ($(TEST),yes)
 	EXEC=$(BU)/test
 	CPP=test.cpp
-	LDFLAGS+=-fopenmp  # compile with openMP
-	MPIFLAGS+=-fopenmp # compile with openMP
+	# compile with openMP
+	LDFLAGS+=-fopenmp
+	MPIFLAGS+=-fopenmp
 else
 
 # ABP CLONING ALGORITHM
 ifeq ($(CLONING),yes)
 	CPP=cloning.cpp
-	LDFLAGS+=-fopenmp -lstdc++fs # compile with openMP and libstdc++fs library
-	MPIFLAGS+=-fopenmp           # compile with openMP
+	# compile with openMP and libstdc++fs library
+	CFLAGS+=-lstdc++fs
+	LDFLAGS+=-fopenmp -lstdc++fs
+	MPIFLAGS+=-fopenmp
 ifeq ($(BIAS_POLARISATION),yes)
 	EXEC=$(BU)/cloningP
 	CFLAGS+=-DBIAS_POLARISATION
@@ -59,8 +62,10 @@ else
 ifeq ($(CLONINGR),yes)
 	EXEC=$(BU)/cloningR
 	CPP=cloningR.cpp
-	LDFLAGS+=-fopenmp -lstdc++fs # compile with openMP and libstdc++fs library
-	MPIFLAGS+=-fopenmp           # compile with openMP
+	# compile with openMP and libstdc++fs library
+	CFLAGS+=-lstdc++fs
+	LDFLAGS+=-fopenmp -lstdc++fs
+	MPIFLAGS+=-fopenmp
 ifeq ($(BIAS),1)
 	CFLAGS+=-DBIAS=1
 	EXEC:=$(EXEC)_B1
@@ -81,21 +86,27 @@ ifeq ($(ROTORS),yes)
 else
 
 # SIMULATIONS
-ifeq ($(SIM0),yes)
+ifeq ($(SIM),dat)
+	CPP=main.cpp
+	EXEC=$(BU)/simulation
+	CFLAGS+=-DABP
+else
+ifeq ($(SIM),dat0)
 	CPP=main0.cpp
+	EXEC=$(BU)/simulation0
+endif
+ifeq ($(SIM),datN)
+	CPP=mainN.cpp
+	EXEC=$(BU)/simulationN
+endif
 ifeq ($(TYPE),AOUP)
 # AOUPs
 	CFLAGS+=-DAOUP
-	EXEC=$(BU)/simulationOU
+	EXEC:=$(EXEC)OU
 else
 # ABPs
 	CFLAGS+=-DABP
-	EXEC=$(BU)/simulation0
 endif
-else
-	CFLAGS+=-DABP
-	EXEC=$(BU)/simulation
-	CPP=main.cpp
 endif
 
 endif
@@ -124,7 +135,7 @@ ifneq ($(EXEC_NAME),)
 	EXEC=$(BU)/$(EXEC_NAME)
 endif
 
-MAIN=main.cpp main0.cpp mainR.cpp cloning.cpp cloningR.cpp test.cpp																	# files with main()
+MAIN=main.cpp main0.cpp mainN.cpp mainR.cpp cloning.cpp cloningR.cpp test.cpp																	# files with main()
 SRC=$(filter-out $(filter-out $(CPP), $(MAIN)), $(filter-out $(wildcard old*), $(wildcard *.cpp)))	# compile all files but the ones with wrong main()
 
 OBJ=$(addprefix $(OB)/, $(SRC:.cpp=.o))
@@ -172,6 +183,9 @@ $(OB)/main.o: main.cpp env.hpp iteration.hpp particle.hpp
 
 $(OB)/main0.o: main0.cpp env.hpp fire.hpp iteration.hpp maths.hpp particle.hpp
 	$(CC) -o $(OB)/main0.o -c main0.cpp $(CFLAGS)
+
+$(OB)/mainN.o: mainN.cpp env.hpp fire.hpp iteration.hpp maths.hpp particle.hpp
+	$(CC) -o $(OB)/mainN.o -c mainN.cpp $(CFLAGS)
 
 $(OB)/mainR.o: mainR.cpp env.hpp iteration.hpp particle.hpp
 	$(CC) -o $(OB)/mainR.o -c mainR.cpp $(CFLAGS)

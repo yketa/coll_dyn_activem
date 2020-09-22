@@ -1,10 +1,12 @@
 """
-Module launch0 launches simulations with all different parameters.
+Module launchN launches simulations with all different parameters and save
+logarithmically spaced frames.
 """
 
 from coll_dyn_activem.exponents import float_to_letters
 from coll_dyn_activem.init import get_env
 from coll_dyn_activem.read import Dat
+from coll_dyn_activem.launch0 import v0_AOUP
 
 from numpy.random import randint
 from numpy import sqrt, pi
@@ -41,30 +43,8 @@ def filename(N, epsilon, v0, D, Dr, phi, launch):
         File name.
     """
 
-    return 'N%s_F%s_V%s_T%s_R%s_D%s_E%s.dat0' % tuple(map(float_to_letters,
+    return 'N%s_F%s_V%s_T%s_R%s_D%s_E%s.datN' % tuple(map(float_to_letters,
         (N, epsilon, v0, D, Dr, phi, launch)))
-
-def v0_AOUP(D, Dr):
-    """
-    Returns mean self-propulsion vector norm for an OU process with rotational
-    diffusivity Dr and translational diffusivity D.
-
-    (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
-
-    Parameters
-    ----------
-    D : float
-        Translational diffusivity.
-    Dr : float
-        Rotational diffusivity.
-
-    Returns
-    -------
-    v0 : float
-        Mean self-propulsion vector norm.
-    """
-
-    return sqrt(pi*D*Dr/2.)
 
 # DEFAULT VARIABLES
 
@@ -77,7 +57,10 @@ _I = 0  # polydispersity index
 
 _seed = randint(1e7)    # default random seed
 _dt = 1e-3              # default time step
-_Niter = 5e4            # default number of iterations
+_init = 1000            # default initialisation number of iterations
+_NLin = 100             # default number of linearly splaced blocks of frames
+_NiterLin = 100         # default number of iterations in blocks
+_NLog = 9               # default number of logarithmically spaced frames in blocks
 
 _Emin = 1   # default minimum energy at which to stop the minimisation
 
@@ -89,7 +72,7 @@ _period = 1 # default period of dumping of positions and orientations in number 
 
 _N_cell = 100                                                           # number of particles above which simulations should be launched with a cell list
 _exec_dir = path.join(path.dirname(path.realpath(__file__)), 'build')   # default executable directory
-_exec_name = ['simulation0%s', 'simulation0%s_cell_list']               # default executable name without and with a cell list
+_exec_name = ['simulationN%s', 'simulationN%s_cell_list']               # default executable name without and with a cell list
 _exec_type = {'ABP': '', 'AOUP': 'OU'}                                  # default suffixes associtated to active particles' types
 
 _out_dir = _exec_dir    # default simulation output directory
@@ -134,9 +117,12 @@ if __name__ == '__main__':
             del dat
 
     # SIMULATION PARAMETERS
-    seed = get_env('SEED', default=_seed, vartype=int)      # random seed
-    dt = get_env('DT', default=_dt, vartype=float)          # time step
-    Niter = get_env('NITER', default=_Niter, vartype=int)   # number of iterations
+    seed = get_env('SEED', default=_seed, vartype=int)              # random seed
+    dt = get_env('DT', default=_dt, vartype=float)                  # time step
+    init = get_env('INIT', default=_init, vartype=int)              # initialisation number of iterations
+    NLin = get_env('NLIN', default=_NLin, vartype=int)              # number of linearly splaced blocks of frames
+    NiterLin = get_env('NITERLIN', default=_NiterLin, vartype=int)  # number of iterations in blocks
+    NLog = get_env('NLOG', default=_NLog, vartype=int)              # number of logarithmically spaced frames in blocks
 
     # FIRE ALGORITHM PARAMETERS
     Emin = get_env('EMIN', default=_Emin, vartype=float)            # minimum energy at which to stop the minimisation
@@ -147,11 +133,6 @@ if __name__ == '__main__':
 
     # NAMING PARAMETERS
     launch = get_env('LAUNCH', default=_launch, vartype=float)  # launch identifier
-
-    # OUTPUT PARAMETERS
-    nWork = get_env('NWORK', default=_nWork, vartype=int)       # number of frames on which to sum the active work before dumping
-    dump = get_env('DUMP', default=_dump, vartype=int)          # boolean to indicate to dump positions and orientations to output file
-    period = get_env('PERIOD', default=_period, vartype=int)    # period of dumping of positions and orientations in number of frames
 
     # EXECUTABLE PARAMETERS
     exec_dir = get_env('EXEC_DIR', default=_exec_dir, vartype=str)      # executable directory
@@ -174,9 +155,8 @@ if __name__ == '__main__':
             'INPUT_FRAME': str(inputFrame),
             'SEED': str(seed),
             'FILE': path.join(out_dir, out_file),
-            'DT': str(dt), 'NITER': str(Niter),
-            'NWORK': str(nWork),
+            'DT': str(dt), 'INIT': str(init), 'NLIN': str(NLin),
+                'NITERLIN': str(NiterLin), 'NLOG': str(NLog),
             'EMIN': str(Emin), 'ITERMAX': str(iterMax), 'DTMIN': str(dtmin),
-                'DT0': str(dt0), 'DTMAX': str(dtmax),
-            'DUMP': str(dump), 'PERIOD': str(period)})
+                'DT0': str(dt0), 'DTMAX': str(dtmax)})
     proc.wait()

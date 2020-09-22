@@ -4,6 +4,7 @@
 #include <random>
 #include <cmath>
 #include <ostream>
+#include <bits/stdc++.h>
 
 /////////////
 // CLASSES //
@@ -37,6 +38,7 @@ class Random {
     // member functions for generating random double in [0,1] and random integer in [0,max-1]
     double random01() { return (*real01)(generator); }
     int randomInt(int max) { return (*intmax)(generator) % max; }
+    // member functions for generating normally distributed random doubles
     double gauss() { return (*normal)(generator); }
     double gauss_cutoff() {
       double g = this->gauss();
@@ -44,6 +46,9 @@ class Random {
         g = this->gauss();
       }
       return g;
+    }
+    double gauss(double mean, double std) {
+      return std::normal_distribution<double>(mean, std)(generator);
     }
 
     // overload << operator
@@ -89,5 +94,36 @@ double dist2DPeriod(double* pos0, double* pos1, double const& length);
   // Returns distance between points on a plane, with positions `pos0' and
   // `pos1' taking into account period boundary condition in a square system
   // of size `length'.
+
+
+///////////////
+// FUNCTIONS //
+///////////////
+
+template<class vecClass> std::vector<vecClass>*
+	sortVec(std::vector<vecClass>* vec) {
+	// Sort vector `vec', remove duplicate entries, and returns pointer to it.
+
+	std::sort(vec->begin(), vec->end());
+  vec->erase(std::unique(vec->begin(), vec->end()), vec->end());
+	return vec;
+}
+
+template<class vecClass> std::vector<vecClass>*
+  removeVec(std::vector<vecClass>* vec, vecClass element) {
+  // Remove value `element' from vec.
+
+  vec->erase(std::remove(vec->begin(), vec->end(), element), vec->end());
+  return vec;
+}
+
+template<class vecClass> bool
+  isInSortedVec(std::vector<vecClass> const* vec, vecClass element) {
+  // Returns if `element' is in `vec' assuming that `vec' is sorted.
+
+  typename std::vector<vecClass>::const_iterator lower =
+    std::lower_bound(vec->begin(), vec->end(), element);
+  return ( lower != vec->end() && *lower == element );
+}
 
 #endif

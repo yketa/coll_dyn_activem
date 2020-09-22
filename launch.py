@@ -4,7 +4,7 @@ Module launch launches simulations with custom relations between parameters.
 
 from coll_dyn_activem.exponents import float_to_letters
 from coll_dyn_activem.init import get_env
-from coll_dyn_activem.read import _Dat as Dat
+from coll_dyn_activem.read import Dat
 
 from numpy.random import randint
 

@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#! /bin/bash -e
 
 # Compile all executables.
 
@@ -19,11 +19,13 @@ make clean && CLONINGR=yes BIAS=1 CONTROLLED_DYNAMICS=yes HEUN=$USE_HEUN make;  
 for CL in yes no; do  # with and without cell lists
 
   # CUSTOM ABP MODEL SIMULATIONS
-  make clean && SIM0=no CELLLIST=$CL HEUN=$USE_HEUN make;
+  make clean && SIM=dat CELLLIST=$CL HEUN=$USE_HEUN make;
 
   # GENERAL SIMULATIONS
   for TY in ABP AOUP; do  # types of active particles
-    make clean && SIM0=yes TYPE=$TY CELLLIST=$CL HEUN=$USE_HEUN make;
+    for SI in dat0 datN; do # types of simulation
+      make clean && SIM=$SI TYPE=$TY CELLLIST=$CL HEUN=$USE_HEUN make;
+    done
   done
 
   # ABP CLONING

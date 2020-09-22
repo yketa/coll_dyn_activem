@@ -44,8 +44,7 @@ Dat::Dat(std::string filename, bool loadWork) :
   // FILE CORRUPTION CHECK
   if ( input.getFileSize() !=
     headerLength + frames*frameLength + numberWork*workLength ) {
-    std::cerr << "Invalid file size." << std::endl;
-    exit(1);
+    throw std::invalid_argument("Invalid file size.");
   }
 
   // ACTIVE WORK AND ORDER PARAMETER
@@ -177,7 +176,7 @@ Dat0::Dat0(std::string filename, bool loadWork) :
 
   // FILE PARTS LENGTHS
   headerLength = input.tellg();
-  particleLength = 7*sizeof(double)*dumpParticles;
+  particleLength = 9*sizeof(double)*dumpParticles;
   frameLength = numberParticles*particleLength;
   workLength = 4*sizeof(double);
 
@@ -190,8 +189,7 @@ Dat0::Dat0(std::string filename, bool loadWork) :
   // FILE CORRUPTION CHECK
   if ( input.getFileSize() !=
     headerLength + frames*frameLength + numberWork*workLength ) {
-    std::cerr << "Invalid file size." << std::endl;
-    exit(1);
+    throw std::invalid_argument("Invalid file size.");
   }
 
   // ACTIVE WORK AND ORDER PARAMETER
@@ -243,7 +241,8 @@ std::vector<double> Dat0::getActiveWorkOri() { return activeWorkOri; }
 std::vector<double> Dat0::getOrderParameter() { return orderParameter; }
 
 double Dat0::getPosition(
-  int const& frame, int const& particle, int const& dimension) {
+  int const& frame, int const& particle, int const& dimension,
+  bool const& unfolded) {
   // Returns position of a given particle at a given frame.
 
   return input.read<double>(
@@ -251,6 +250,7 @@ double Dat0::getPosition(
     + frame*frameLength                              // other frames
     + particle*particleLength                        // other particles
     + (std::max(frame - 1, 0)/framesWork)*workLength // active work sums (taking into account the frame with index 0)
+    + 7*unfolded*sizeof(double)                      // unfolded positions
     + dimension*sizeof(double));                     // dimension
 }
 
@@ -265,9 +265,9 @@ double Dat0::getOrientation(int const& frame, int const& particle){
     + 2*sizeof(double));                             // positions
 }
 
-double Dat0::getPropulsion(
+double Dat0::getVelocity(
   int const& frame, int const& particle, int const& dimension) {
-  // Returns self-propulsion vector of a given particle at a given frame.
+  // Returns velocity of a given particle at a given frame.
 
   return input.read<double>(
     headerLength                                     // header
@@ -278,7 +278,125 @@ double Dat0::getPropulsion(
     + dimension*sizeof(double));                     // dimension
 }
 
-double Dat0::getVelocity(
+double Dat0::getPropulsion(
+  int const& frame, int const& particle, int const& dimension) {
+  // Returns self-propulsion vector of a given particle at a given frame.
+
+  return input.read<double>(
+    headerLength                                     // header
+    + frame*frameLength                              // other frames
+    + particle*particleLength                        // other particles
+    + (std::max(frame - 1, 0)/framesWork)*workLength // active work sums (taking into account the frame with index 0)
+    + 5*sizeof(double)                               // positions, orientation, and velocities
+    + dimension*sizeof(double));                     // dimension
+}
+
+
+/********
+ * DATN *
+ ********/
+
+// CONSTRUCTORS
+
+DatN::DatN(std::string filename, bool loadWork) :
+  numberParticles(), potentialParameter(), propulsionVelocity(),
+    transDiffusivity(), rotDiffusivity(), persistenceLength(),
+    packingFraction(), systemSize(), randomSeed(), timeStep(),
+    init(), NLin(), NiterLin(), NLog(), frames(),
+  input(filename) {
+
+  // HEADER INFORMATION
+  input.read<const int>(&numberParticles);
+  input.read<const double>(&potentialParameter);
+  input.read<const double>(&propulsionVelocity);
+  input.read<const double>(&transDiffusivity);
+  input.read<const double>(&rotDiffusivity);
+  input.read<const double>(&persistenceLength);
+  input.read<const double>(&packingFraction);
+  input.read<const double>(&systemSize);
+  input.read<const int>(&randomSeed);
+  input.read<const double>(&timeStep);
+  input.read<const int>(&init);
+  input.read<const int>(&NLin);
+  input.read<const int>(&NiterLin);
+  input.read<const int>(&NLog);
+  input.read<const int>(&frames);
+
+  // FRAMES
+  int frame;
+  for (int i=0; i < frames; i++) {
+    input.read<int>(&frame);
+    frameIndices.push_back(frame);
+  }
+
+  // DIAMETERS
+  double diameter;
+  for (int i=0; i < numberParticles; i++) {
+    input.read<double>(&diameter);
+    diameters.push_back(diameter);
+  }
+
+  // FILE PARTS LENGTHS
+  headerLength = input.tellg();
+  particleLength = 9*sizeof(double);
+  frameLength = numberParticles*particleLength;
+
+  // FILE CORRUPTION CHECK
+  if ( input.getFileSize() !=
+    headerLength + frames*frameLength ) {
+    throw std::invalid_argument("Invalid file size.");
+  }
+}
+
+// DESTRUCTORS
+
+DatN::~DatN() {}
+
+// METHODS
+
+int DatN::getNumberParticles() const { return numberParticles; }
+double DatN::getPotentialParameter() const { return potentialParameter; }
+double DatN::getPropulsionVelocity() const { return propulsionVelocity; }
+double DatN::getTransDiffusivity() const { return transDiffusivity; }
+double DatN::getRotDiffusivity() const { return rotDiffusivity; }
+double DatN::getPersistenceLength() const { return persistenceLength; }
+double DatN::getPackingFraction() const { return packingFraction; }
+double DatN::getSystemSize() const { return systemSize; }
+int DatN::getRandomSeed() const { return randomSeed; }
+double DatN::getTimeStep() const { return timeStep; }
+
+int DatN::getInit() const { return init; }
+int DatN::getNLin() const { return NLin; }
+int DatN::getNiterLin() const { return NiterLin; }
+int DatN::getNLog() const {return NLog; }
+std::vector<int>* DatN::getFrames() { return &frameIndices; }
+
+std::vector<double> DatN::getDiameters() { return diameters; }
+
+double DatN::getPosition(
+  int const& frame, int const& particle, int const& dimension,
+  bool const& unfolded) {
+  // Returns position of a given particle at a given frame.
+
+  return input.read<double>(
+    headerLength                                     // header
+    + frame*frameLength                              // other frames
+    + particle*particleLength                        // other particles
+    + 7*unfolded*sizeof(double)                      // unfolded positions
+    + dimension*sizeof(double));                     // dimension
+}
+
+double DatN::getOrientation(int const& frame, int const& particle){
+  // Returns orientation of a given particle at a given frame.
+
+  return input.read<double>(
+    headerLength                                     // header
+    + frame*frameLength                              // other frames
+    + particle*particleLength                        // other particles
+    + 2*sizeof(double));                             // positions
+}
+
+double DatN::getVelocity(
   int const& frame, int const& particle, int const& dimension) {
   // Returns velocity of a given particle at a given frame.
 
@@ -286,8 +404,19 @@ double Dat0::getVelocity(
     headerLength                                     // header
     + frame*frameLength                              // other frames
     + particle*particleLength                        // other particles
-    + (std::max(frame - 1, 0)/framesWork)*workLength // active work sums (taking into account the frame with index 0)
-    + 5*sizeof(double)                               // positions, orientation, and self-propulsion vector
+    + 3*sizeof(double)                               // positions and orientation
+    + dimension*sizeof(double));                     // dimension
+}
+
+double DatN::getPropulsion(
+  int const& frame, int const& particle, int const& dimension) {
+  // Returns self-propulsion vector of a given particle at a given frame.
+
+  return input.read<double>(
+    headerLength                                     // header
+    + frame*frameLength                              // other frames
+    + particle*particleLength                        // other particles
+    + 5*sizeof(double)                               // positions, orientation, and velocities
     + dimension*sizeof(double));                     // dimension
 }
 
@@ -328,8 +457,7 @@ DatR::DatR(std::string filename, bool loadOrder) :
   // FILE CORRUTION CHECK
   if ( input.getFileSize() !=
     headerLength + frames*frameLength + numberOrder*orderLength ) {
-    std::cerr << "Invalid file size." << std::endl;
-    exit(1);
+    throw std::invalid_argument("Invalid file size.");
   }
 
   // ORDER PARAMETER
