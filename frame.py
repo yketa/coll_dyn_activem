@@ -8,6 +8,7 @@ https://github.com/yketa/active_particles/tree/master/analysis/frame.py)
 from coll_dyn_activem.init import get_env, mkdir
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.maths import normalise1D, amplogwidth
+from coll_dyn_activem.structure import Positions
 
 from os import getcwd
 from os import environ as envvar
@@ -25,6 +26,9 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize as ColorsNormalise
 from matplotlib.cm import ScalarMappable
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+# plt.rc('text', usetex=True)
+# plt.rc('text.latex', preamble=r'\usepackage{amsmath}')
 
 from datetime import datetime
 
@@ -95,7 +99,7 @@ class _Frame:
             bottom=True, top=True, left=True, right=True)
 
         self.positions = dat.getPositions(frame, centre=centre)             # particles' positions at frame frame with centre as centre of frame
-        if dat._isDat0: self.diameters = dat.diameters                      # particles' diameters
+        if dat._type != 'dat': self.diameters = dat.diameters               # particles' diameters
         else: self.diameters = np.full((dat.N,), fill_value=1, dtype=float) # unit diameter by default
 
         self.particles = [particle for particle in range(len(self.positions))
@@ -345,14 +349,16 @@ class Displacement(_Frame):
         self.vmin, self.vmax = amplogwidth(self.displacements)
         try:
             self.vmin = np.log10(kwargs['vmin'])
-        except (KeyError, AttributeError): pass # 'vmin' not in keyword arguments or None
+        except (KeyError, AttributeError, TypeError): pass  # 'vmin' not in keyword arguments or None
         try:
             self.vmax = np.log10(kwargs['vmax'])
-        except (KeyError, AttributeError): pass # 'vmax' not in keyword arguments or None
+        except (KeyError, AttributeError, TypeError): pass  # 'vmax' not in keyword arguments or None
 
         self.colorbar(self.vmin, self.vmax) # add colorbar to figure
         self.colormap.set_label(            # colorbar legend
-            r'$\log_{10}||\vec{r}_i(t + \Delta t) - \vec{r}_i(t)||$',
+            r'$\log_{10} ||\vec{r}_i(t + \Delta t) - \vec{r}_i(t)||$',
+            # r'$\log_{10}$'
+            #     + r'$||\boldsymbol{r}_i(t + \Delta t) - \boldsymbol{r}_i(t)||$',
             labelpad=pad, rotation=270)
 
         self.label = label  # write labels
@@ -428,14 +434,15 @@ class Velocity(_Frame):
         self.vmin, self.vmax = amplogwidth(self.velocities)
         try:
             self.vmin = np.log10(kwargs['vmin'])
-        except (KeyError, AttributeError): pass # 'vmin' not in keyword arguments or None
+        except (KeyError, AttributeError, TypeError): pass  # 'vmin' not in keyword arguments or None
         try:
             self.vmax = np.log10(kwargs['vmax'])
-        except (KeyError, AttributeError): pass # 'vmax' not in keyword arguments or None
+        except (KeyError, AttributeError, TypeError): pass  # 'vmax' not in keyword arguments or None
 
         self.colorbar(self.vmin, self.vmax) # add colorbar to figure
-        self.colormap.set_label(            # colorbar legend
+        self.colormap.set_label(            # colorbar
             r'$\log_{10}||\vec{v}_i(t)||$',
+            # r'$\log_{10}||\boldsymbol{v}_i(t)||$',
             labelpad=pad, rotation=270)
 
         self.label = label  # write labels
@@ -456,6 +463,71 @@ class Velocity(_Frame):
                 label=self.label)                                       # draw particle circle with color corresponding to velocity amplitude
             self.draw_arrow(particle,
                 *normalise1D(velocity)*0.75*self.diameters[particle])   # draw velocity direction arrow
+
+class Order(_Frame):
+    """
+    Plotting class specific to 'order' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        arrow_width=_arrow_width,
+        arrow_head_width=_arrow_head_width,
+        arrow_head_length=_arrow_head_length,
+        pad=_colormap_label_pad,
+        label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+    		Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        arrow_width : float
+            Width of the arrows.
+        arrow_head_width : float
+            Width of the arrows' head.
+        arrow_head_length : float
+            Length of the arrows' head.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            arrow_width=arrow_width,
+            arrow_head_width=arrow_head_width,
+            arrow_head_length=arrow_head_length)    # initialise superclass
+
+        self.bondOrder = Positions(dat.filename).getBondOrderParameter(frame)
+
+        self.colorbar(0, 1, cmap=plt.cm.inferno)    # add colorbar to figure
+        self.colormap.set_label(                    # colorbar legend
+            r'$|\psi_{6,i}|$',
+            labelpad=pad, rotation=270)
+
+        self.label = label  # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        for particle, order in zip(
+            self.particles, np.abs(self.bondOrder)):    # for particle and particle's bond orientation order parameter norm in rendered box
+            self.draw_circle(particle,
+                color=self.scalarMap.to_rgba(order),
+                fill=True,
+                label=self.label)                       # draw particle circle with color corresponding to bond orientation order parameter norm
 
 class Bare(_Frame):
     """
@@ -511,6 +583,8 @@ if __name__ == '__main__':  # executing as script
         plotting_object = Displacement
     elif mode == 'velocity':
         plotting_object = Velocity
+    elif mode == 'order':
+        plotting_object = Order
     elif mode == 'bare':
         plotting_object = Bare
     else: raise ValueError('Mode %s is not known.' % mode)  # mode is not known
@@ -580,18 +654,18 @@ if __name__ == '__main__':  # executing as script
 
         if not(display_suptitle): return ''
 
-        if dat._isDat0:
+        if dat._type == 'dat':
+            suptitle = (
+                str(r'$N=%.2e, \phi=%1.4f, l_p/\sigma=%.2e$'
+        		% (dat.N, dat.phi, dat.lp)))
+            Dr = 1/dat.lp
+        else:
             suptitle = (
                 str(r'$N=%.2e, \phi=%1.4f, D=%.2e, D_r=%.2e,$'
         		% (dat.N, dat.phi, dat.D, dat.Dr))
                 + str(r'$\epsilon=%.2e, v_0=%.2e$'
                 % (dat.epsilon, dat.v0)))
             Dr = dat.Dr
-        else:
-            suptitle = (
-                str(r'$N=%.2e, \phi=%1.4f, l_p/\sigma=%.2e$'
-        		% (dat.N, dat.phi, dat.lp)))
-            Dr = 1/dat.lp
 
         suptitle += str(r'$, L=%.3e$' % dat.L)
         if 'BOX_SIZE' in envvar:

@@ -331,6 +331,35 @@ def angle(dx, dy):
 
     return math.atan2(dy, dx)
 
+def angleVec(vec1, vec2):
+    """
+    Get angle from 2D vector `vec1' to `vec2'.
+
+    Parameters
+    ----------
+    vec1 : (2,) float array-like
+        First vector.
+    vec2 : (2,) float array-like
+        Second vector.
+
+    Returns
+    -------
+    angle : float
+        Angle between the vectors.
+    """
+
+    vec1 = normalise1D(*vec1)
+    vec2 = normalise1D(*vec2)
+
+    if (vec1 == vec2).all(): return 0
+
+    cosinus = np.dot(vec1, vec2)
+    if np.abs(cosinus) > 1:
+        raise ValueError((vec1, vec2, cosinus))
+    sinus = vec1[0]*vec2[1] - vec2[0]*vec1[1]
+
+    return np.arccos(cosinus)*(1 if sinus > 0 else -1)
+
 class CurveFit:
     """
     Fit a 1-variable scalar function to data points and evaluate with
