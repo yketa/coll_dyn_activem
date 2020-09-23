@@ -324,6 +324,7 @@ DatN::DatN(std::string filename, bool loadWork) :
 
   // FRAMES
   int frame;
+  frameIndices.push_back(0);
   for (int i=0; i < frames; i++) {
     input.read<int>(&frame);
     frameIndices.push_back(frame);
@@ -343,7 +344,7 @@ DatN::DatN(std::string filename, bool loadWork) :
 
   // FILE CORRUPTION CHECK
   if ( input.getFileSize() !=
-    headerLength + frames*frameLength ) {
+    headerLength + (frames + 1)*frameLength ) {
     throw std::invalid_argument("Invalid file size.");
   }
 }

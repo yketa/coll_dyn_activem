@@ -268,8 +268,8 @@ class DatN {
     int const NLin; // number of linearly splaced blocks of frames
     int const NiterLin; // number of iterations in blocks
     int const NLog; // number of logarithmically spaced frames in blocks
-    int const frames; // number of frames
-    std::vector<int> frameIndices; // vector of frames which were saved
+    int const frames; // number of frames (minus frame 0)
+    std::vector<int> frameIndices; // vector of frames which were saved (including frame 0)
 
     Read input; // input class
 
