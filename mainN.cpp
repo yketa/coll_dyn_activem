@@ -29,9 +29,6 @@ int main() {
   // simulation
   auto simulate = [] (SystemN* system) { // use of lambda function to enable conditional definition of system
     // INITIALISATION
-    # if AOUP // system of AOUPs
-    initPropulsionAOUP<SystemN>(system); // set initial self-propulsion vectors
-    #endif
     system->saveInitialState(); // save first frame
     // ITERATION
     int Niter = *std::max_element(
@@ -92,6 +89,9 @@ int main() {
       getEnvDouble("DTMIN", dt*1e-3),
       getEnvDouble("DT0", dt*1e-1),
       getEnvDouble("DTMAX", dt));
+    # if AOUP // system of AOUPs
+    initPropulsionAOUP<SystemN>(&system); // set initial self-propulsion vectors
+    #endif
     simulate(&system);
   }
   else { // set parameters from file
