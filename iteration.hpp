@@ -316,10 +316,8 @@ template<class SystemClass> void iterate_AOUP_WCA(
 
     // ORIENTATION
     for (int i=0; i < parameters->getNumberParticles(); i++) {
-      for (int dim=0; dim < 2; dim++) {
-        newParticles[i].orientation()[0] = getAngleVector(
-            newParticles[i].propulsion()[0], newParticles[i].propulsion()[1]);
-      }
+      newParticles[i].orientation()[0] = getAngleVector(
+          newParticles[i].propulsion()[0], newParticles[i].propulsion()[1]);
     }
 
     // SAVE AND COPY
