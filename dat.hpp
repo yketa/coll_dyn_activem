@@ -228,10 +228,8 @@ class DatN {
     int getRandomSeed() const; // returns random seed
     double getTimeStep() const; // returns time step
 
-    int getInit() const; // returns initialisation number of iterations
-    int getNLin() const; // returns number of linearly splaced blocks of frames
-    int getNiterLin() const; // returns number of iterations in blocks
-    int getNLog() const; // returns number of logarithmically spaced frames in blocks
+    std::vector<int>* getTime0(); // returns pointer to vector of initial frames
+    std::vector<int>* getDt(); // returns pointer to vector of lag times
     std::vector<int>* getFrames(); // returns pointer to vector of frames which were saved
 
     std::vector<double> getDiameters(); // returns vector of diameters
@@ -249,6 +247,9 @@ class DatN {
       int const& frame, int const& particle, int const& dimension);
       // Returns self-propulsion vector of a given particle at a given frame.
 
+    int getFrameIndex(int const& frame);
+      // Returns index of frame in file.
+
   private:
 
     // ATTRIBUTES
@@ -264,11 +265,11 @@ class DatN {
     int const randomSeed; // random seed
     double const timeStep; // time step
 
-    int const init; // initialisation number of iterations
-    int const NLin; // number of linearly splaced blocks of frames
-    int const NiterLin; // number of iterations in blocks
-    int const NLog; // number of logarithmically spaced frames in blocks
-    int const frames; // number of frames (minus frame 0)
+    int const initialTimes; // number of initial times
+    std::vector<int> time0; // vector of initial frames
+    int const lagTimes; // number of lag times
+    std::vector<int> dt; // vector of lag times
+    int const frames; // number of frames (minus 0)
     std::vector<int> frameIndices; // vector of frames which were saved (including frame 0)
 
     Read input; // input class

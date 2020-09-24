@@ -44,13 +44,6 @@ class Displacements(Dat):
 
         self.skip = skip    # skip the `skip' first frames (or blocks for .datN files) in the analysis
 
-        if self._type == 'datN':
-            self._dt = self.frameIndices[
-                (self.frameIndices > self.init)
-                *(self.frameIndices < self.init + self.NiterLin)] - self.init
-            self._time0 = np.array(
-                [self.init + i*self.NiterLin for i in range(self.NLin)])
-
     def nDisplacements(self, dt, int_max=None, jump=1, norm=False):
         """
         Returns array of displacements with lag time `dt'.
@@ -189,9 +182,9 @@ class Displacements(Dat):
         # array of initial times
         if self._type == 'datN':
             time0 = itemgetter(
-                *linspace(self.skip, len(self._time0) - 1, int_max,
+                *linspace(self.skip, len(self.time0) - 1, int_max,
                     endpoint=True))(
-                    self._time0)
+                    self.time0)
         else:
             time0 = np.array(list(OrderedDict.fromkeys(
                 np.linspace(self.skip, self.frames - dt.max() - 1, int_max,
@@ -559,7 +552,7 @@ class Displacements(Dat):
 
         min = 1 if min == None else int(min)
         if self._type == 'datN':
-            max = self._dt.max() if max == None else int(max)
+            max = self.deltat.max() if max == None else int(max)
         else:
             max = ((self.frames - self.skip - 1)//int_max if max == None
                 else int(max))
@@ -568,7 +561,7 @@ class Displacements(Dat):
 
         # array of lag times
         if self._type == 'datN':
-            dt = self._dt[(self._dt >= min)*(self._dt <= max)]
+            dt = self.deltat[(self.deltat >= min)*(self.deltat <= max)]
             dt = itemgetter(*linspace(0, len(dt) - 1, n_max, endpoint=True))(dt)
         else:
             dt = logspace(min, max, n_max)

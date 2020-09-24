@@ -302,7 +302,7 @@ DatN::DatN(std::string filename, bool loadWork) :
   numberParticles(), potentialParameter(), propulsionVelocity(),
     transDiffusivity(), rotDiffusivity(), persistenceLength(),
     packingFraction(), systemSize(), randomSeed(), timeStep(),
-    init(), NLin(), NiterLin(), NLog(), frames(),
+  initialTimes(), lagTimes(), frames(),
   input(filename) {
 
   // HEADER INFORMATION
@@ -316,15 +316,23 @@ DatN::DatN(std::string filename, bool loadWork) :
   input.read<const double>(&systemSize);
   input.read<const int>(&randomSeed);
   input.read<const double>(&timeStep);
-  input.read<const int>(&init);
-  input.read<const int>(&NLin);
-  input.read<const int>(&NiterLin);
-  input.read<const int>(&NLog);
-  input.read<const int>(&frames);
 
   // FRAMES
-  int frame;
+  input.read<const int>(&initialTimes);
+  int t0;
+  for (int i=0; i < initialTimes; i++) {
+    input.read<int>(&t0);
+    time0.push_back(t0);
+  }
+  input.read<const int>(&lagTimes);
+  int t;
+  for (int i=0; i < lagTimes; i++) {
+    input.read<int>(&t);
+    time0.push_back(t);
+  }
+  input.read<const int>(&frames);
   frameIndices.push_back(0);
+  int frame;
   for (int i=0; i < frames; i++) {
     input.read<int>(&frame);
     frameIndices.push_back(frame);
@@ -366,10 +374,8 @@ double DatN::getSystemSize() const { return systemSize; }
 int DatN::getRandomSeed() const { return randomSeed; }
 double DatN::getTimeStep() const { return timeStep; }
 
-int DatN::getInit() const { return init; }
-int DatN::getNLin() const { return NLin; }
-int DatN::getNiterLin() const { return NiterLin; }
-int DatN::getNLog() const {return NLog; }
+std::vector<int>* DatN::getTime0() { return &time0; }
+std::vector<int>* DatN::getDt() { return &dt; }
 std::vector<int>* DatN::getFrames() { return &frameIndices; }
 
 std::vector<double> DatN::getDiameters() { return diameters; }
@@ -381,7 +387,7 @@ double DatN::getPosition(
 
   return input.read<double>(
     headerLength                                     // header
-    + frame*frameLength                              // other frames
+    + getFrameIndex(frame)*frameLength               // other frames
     + particle*particleLength                        // other particles
     + 7*unfolded*sizeof(double)                      // unfolded positions
     + dimension*sizeof(double));                     // dimension
@@ -392,7 +398,7 @@ double DatN::getOrientation(int const& frame, int const& particle){
 
   return input.read<double>(
     headerLength                                     // header
-    + frame*frameLength                              // other frames
+    + getFrameIndex(frame)*frameLength               // other frames
     + particle*particleLength                        // other particles
     + 2*sizeof(double));                             // positions
 }
@@ -403,7 +409,7 @@ double DatN::getVelocity(
 
   return input.read<double>(
     headerLength                                     // header
-    + frame*frameLength                              // other frames
+    + getFrameIndex(frame)*frameLength               // other frames
     + particle*particleLength                        // other particles
     + 3*sizeof(double)                               // positions and orientation
     + dimension*sizeof(double));                     // dimension
@@ -415,10 +421,18 @@ double DatN::getPropulsion(
 
   return input.read<double>(
     headerLength                                     // header
-    + frame*frameLength                              // other frames
+    + getFrameIndex(frame)*frameLength               // other frames
     + particle*particleLength                        // other particles
     + 5*sizeof(double)                               // positions, orientation, and velocities
     + dimension*sizeof(double));                     // dimension
+}
+
+int DatN::getFrameIndex(int const& frame) {
+  // Returns index of frame in file.
+
+  return (int) std::distance(
+    frameIndices.begin(),
+    std::lower_bound(frameIndices.begin(), frameIndices.end(), frame));
 }
 
 

@@ -582,21 +582,26 @@ class SystemN {
 
     SystemN();
     SystemN(
-      int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+      int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+        std::vector<int>* time0, std::vector<int>* deltat,
       Parameters* parameters, int seed = 0, std::string filename = "");
     SystemN(
-      int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+      int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+        std::vector<int>* time0, std::vector<int>* deltat,
       Parameters* parameters, std::vector<double>& diameters, int seed = 0,
       std::string filename = "");
     SystemN(
-      int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+      int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+        std::vector<int>* time0, std::vector<int>* deltat,
       SystemN* system, int seed = 0, std::string filename = "");
     SystemN(
-      int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+      int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+        std::vector<int>* time0, std::vector<int>* deltat,
       SystemN* system, std::vector<double>& diameters, int seed = 0,
       std::string filename = "");
     SystemN(
-      int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+      int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+        std::vector<int>* time0, std::vector<int>* deltat,
       std::string inputFilename, int inputFrame = 0, double dt = 0,
       int seed = 0, std::string filename = "");
 
@@ -606,10 +611,6 @@ class SystemN {
 
     // METHODS
 
-    int getInit() const; // returns initialisation number of iterations
-    int getNLin() const; // returns number of linearly splaced blocks of frames
-    int getNiterLin() const; // returns number of iterations in blocks
-    int getNLog() const; // returns number of logarithmically spaced frames in blocks
     std::vector<int> const* getFrames(); // returns pointer to vector of indices of frames to save
 
     Parameters* getParameters(); // returns pointer to class of parameters
@@ -656,10 +657,6 @@ class SystemN {
 
     // ATTRIBUTES
 
-    int const init; // initialisation number of iterations
-    int const NLin; // number of linearly splaced blocks of frames
-    int const NiterLin; // number of iterations in blocks
-    int const NLog; // number of logarithmically spaced frames in blocks
     std::vector<int> const frameIndices; // indices of frames to save
     // NOTE: This vector is sorted and the element 0 is removed.
     // NOTE: Frame 0 is ALWAYS saved first.
@@ -851,8 +848,13 @@ double getGlobalPhase(std::vector<Particle>& particles);
 double getGlobalPhase(std::vector<double>& orientations);
   // Returns global phase.
 
-std::vector<int> getLogFrames(int init, int Nlin, int NiterLin, int NLog);
-  // Returns vector of logarithmically spaced frames in linearly spaced blocks.
+std::vector<int> getLogFrames(
+  int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+  std::vector<int>* time0, std::vector<int>* dt);
+  // Returns vector of logarithmically spaced frames in overlapping linearly
+  // spaced blocks.
+  // Saves in `time0' the initial frames and in `dt' the lag times.
+  // NOTE: `dtMax' may be modified according to other parameters.
 
 
 ///////////////

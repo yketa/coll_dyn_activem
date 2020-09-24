@@ -16,10 +16,12 @@ int main() {
 
   // simulation
   double dt = getEnvDouble("DT", 1e-3); // time step
-  int init = getEnvInt("INIT", 1000); // initialisation number of iterations
-  int NLin = getEnvInt("NLIN", 100); // number of linearly splaced blocks of frames
-  int NiterLin = getEnvInt("NITERLIN", 100); // number of iterations in blocks
-  int NLog = getEnvInt("NLOG", 9); // number of logarithmically spaced frames in blocks
+  int init = getEnvInt("INIT", 10000); // initialisation number of iterations
+  int Niter = getEnvInt("NITER", 10000); // number of production iterations
+  int dtMin = getEnvInt("LAGMIN", 1); // minimum lag time
+  int dtMax = getEnvInt("LAGMAX", 100); // maximum lag time
+  int nMax = getEnvInt("NMAX", 10); // maxium number of lag times
+  int intMax = getEnvInt("INTMAX", 100); // maximum number of initial times
 
   // output
   std::string filename = getEnvString("FILE", "out.datN"); // output file name
@@ -27,20 +29,20 @@ int main() {
   // SYSTEM
 
   // simulation
-  auto simulate = [] (SystemN* system) { // use of lambda function to enable conditional definition of system
+  auto simulate = [&init, &Niter] (SystemN* system) { // use of lambda function to enable conditional definition of system
     // INITIALISATION
     system->saveInitialState(); // save first frame
     // ITERATION
-    int Niter = *std::max_element(
-      (system->getFrames())->begin(), (system->getFrames())->end());
     #if AOUP // simulation of AOUPs
-    iterate_AOUP_WCA<SystemN>(system, Niter); // run simulations
+    iterate_AOUP_WCA<SystemN>(system, init + Niter); // run simulations
     #else // simulation of ABPs (default)
-    iterate_ABP_WCA<SystemN>(system, Niter); // run simulations
+    iterate_ABP_WCA<SystemN>(system, init + Niter); // run simulations
     #endif
   };
 
   // definition
+  std::vector<int> time0;
+  std::vector<int> deltat;
   std::string inputFilename = getEnvString("INPUT_FILENAME", ""); // input file from which to copy data
   if ( inputFilename == "" ) { // set parameters from environment variables
 
@@ -81,7 +83,8 @@ int main() {
 
     // system
     SystemN system(
-      init, NLin, NiterLin, NLog,
+      init, Niter, dtMin, &dtMax, nMax, intMax,
+        &time0, &deltat,
       &parameters, diameters, seed, filename); // define system
     FIRE_WCA<SystemN>(&system, // FIRE minimisation algorithm
       getEnvDouble("EMIN", 1),
@@ -101,7 +104,8 @@ int main() {
 
     // system
     SystemN system(
-      init, NLin, NiterLin, NLog,
+      init, Niter, dtMin, &dtMax, nMax, intMax,
+        &time0, &deltat,
       inputFilename, inputFrame, dt, seed, filename); // define system
     simulate(&system);
   }

@@ -58,9 +58,11 @@ _I = 0  # polydispersity index
 _seed = randint(1e7)    # default random seed
 _dt = 1e-3              # default time step
 _init = 1000            # default initialisation number of iterations
-_NLin = 100             # default number of linearly splaced blocks of frames
-_NiterLin = 100         # default number of iterations in blocks
-_NLog = 9               # default number of logarithmically spaced frames in blocks
+_Niter = 10000          # default number of production iterations
+_dtMin = 1              # default minimum lag time
+_dtMax = 100            # default maximum lag time
+_nMax = 10              # default maxium number of lag times
+_intMax = 100           # default maximum number of initial times
 
 _Emin = 1   # default minimum energy at which to stop the minimisation
 
@@ -117,12 +119,14 @@ if __name__ == '__main__':
             del dat
 
     # SIMULATION PARAMETERS
-    seed = get_env('SEED', default=_seed, vartype=int)              # random seed
-    dt = get_env('DT', default=_dt, vartype=float)                  # time step
-    init = get_env('INIT', default=_init, vartype=int)              # initialisation number of iterations
-    NLin = get_env('NLIN', default=_NLin, vartype=int)              # number of linearly splaced blocks of frames
-    NiterLin = get_env('NITERLIN', default=_NiterLin, vartype=int)  # number of iterations in blocks
-    NLog = get_env('NLOG', default=_NLog, vartype=int)              # number of logarithmically spaced frames in blocks
+    seed = get_env('SEED', default=_seed, vartype=int)          # random seed
+    dt = get_env('DT', default=_dt, vartype=float)              # time step
+    init = get_env('INIT', default=_init, vartype=int)          # initialisation number of iterations
+    Niter = get_env('NITER', default=_Niter, vartype=int)       # number of production iterations
+    dtMin = get_env('LAGMIN', default=_dtMin, vartype=int)      # minimum lag time
+    dtMax = get_env('LAGMAX', default=_dtMax, vartype=int)      # maximum lag time
+    nMax = get_env('NMAX', default=_nMax, vartype=int)          # maximum number of lag times
+    intMax = get_env('INTMAX', default=_intMax, vartype=int)    # maximum number of initial times
 
     # FIRE ALGORITHM PARAMETERS
     Emin = get_env('EMIN', default=_Emin, vartype=float)            # minimum energy at which to stop the minimisation
@@ -155,8 +159,9 @@ if __name__ == '__main__':
             'INPUT_FRAME': str(inputFrame),
             'SEED': str(seed),
             'FILE': path.join(out_dir, out_file),
-            'DT': str(dt), 'INIT': str(init), 'NLIN': str(NLin),
-                'NITERLIN': str(NiterLin), 'NLOG': str(NLog),
+            'DT': str(dt), 'INIT': str(init), 'NITER': str(Niter),
+                'LAGMIN': str(dtMin), 'LAGMAX': str(dtMax),
+                'NMAX': str(nMax), 'INTMAX': str(intMax),
             'EMIN': str(Emin), 'ITERMAX': str(iterMax), 'DTMIN': str(dtmin),
                 'DT0': str(dt0), 'DTMAX': str(dtmax)})
     proc.wait()

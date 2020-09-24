@@ -236,10 +236,16 @@ class Dat(_Read):
                 self.dumpPeriod = 1                     # period of dumping of positions and orientations in number of frames
 
                 # FRAMES
-                self.init = self._read('i')                             # initialisation number of iterations
-                self.NLin = self._read('i')                             # number of linearly splaced blocks of frames
-                self.NiterLin = self._read('i')                         # number of iterations in blocks
-                self.NLog = self._read('i')                             # number of logarithmically spaced frames in blocks
+                self.time0 = []                                         # initial frames
+                self.initialFrames = self._read('i')                    # number of initial frames
+                for _ in range(self.initialFrames):
+                    self.time0 += [self._read('i')]
+                self.time0 = np.array(self.time0)
+                self.deltat = []                                        # lag times
+                self.lagTimes = self._read('i')                         # number of lag times
+                for _ in range(self.lagTimes):
+                    self.deltat += [self._read('i')]
+                self.deltat = np.array(self.deltat)
                 self.frames = self._read('i')                           # number of frames
                 self.frameIndices = []                                  # frame indices which were saved
                 for _ in range(self.frames):

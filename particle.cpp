@@ -8,6 +8,8 @@
 #include "particle.hpp"
 #include "maths.hpp"
 
+#include <iostream>
+
 /////////////
 // CLASSES //
 /////////////
@@ -65,7 +67,13 @@ int CellList::index(Particle *particle) {
 
   int x = (int) ((particle->position())[0]/sizeBox);
   int y = (int) ((particle->position())[1]/sizeBox);
-  return (x == numberBoxes ? 0 : x) + numberBoxes*(y == numberBoxes ? 0 : y);
+  // check values are in {0, ..., numberBoxes - 1}
+  while ( x < 0 ) x += numberBoxes;
+  while ( x >= numberBoxes ) x -= numberBoxes;
+  while ( y < 0 ) y += numberBoxes;
+  while ( y >= numberBoxes ) y -= numberBoxes;
+
+  return x + numberBoxes*y;
 }
 
 std::vector<int> CellList::getNeighbours(Particle *particle) {
@@ -83,6 +91,7 @@ std::vector<int> CellList::getNeighbours(Particle *particle) {
       neighbourIndex =
         (numberBoxes + (x + dx))%numberBoxes
           + numberBoxes*((numberBoxes + (y + dy))%numberBoxes); // index of neighbouring cell
+      std::cout << neighbourIndex << std::endl;
       neighbours.insert(
         std::end(neighbours),
         std::begin(cellList[neighbourIndex]),
@@ -305,7 +314,7 @@ System::System(
   particles.resize(getNumberParticles());
 
   // resize velocity dumps
-  velocitiesDumps.resize(2*getNumberParticles()); // resize vector of locations of velocity dumps
+  velocitiesDumps.resize(getNumberParticles()); // resize vector of locations of velocity dumps
 
   // set positions and orientations
   for (int i=0; i < getNumberParticles(); i++) {
@@ -1291,7 +1300,7 @@ void System0::saveNewState(std::vector<Particle>& newParticles) {
 // CONSTRUCTORS
 
 SystemN::SystemN() :
-  init(), NLin(), NiterLin(), NLog(), frameIndices(),
+  frameIndices(),
   param(new Parameters()),
   randomSeed(0), randomGenerator(),
   particles(0),
@@ -1300,11 +1309,11 @@ SystemN::SystemN() :
   dumpFrame(-1) {}
 
 SystemN::SystemN(
-  int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+  int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+    std::vector<int>* time0, std::vector<int>* deltat,
   Parameters* parameters, int seed, std::string filename) :
-  init(initFrames),
-    NLin(NLinFrames), NiterLin(NiterLinFrames), NLog(NLogFrames),
-    frameIndices(getLogFrames(init, NLin, NiterLin, NLog)),
+  frameIndices(
+    getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
   param(parameters),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
@@ -1331,10 +1340,14 @@ SystemN::SystemN(
   output.write<double>(getTimeStep());
 
   // write frames
-  output.write<int>(init);
-  output.write<int>(NLin);
-  output.write<int>(NiterLin);
-  output.write<int>(NLog);
+  output.write<int>(time0->size()); // number of initial frames
+  for (auto t0 = time0->begin(); t0 != time0->end(); t0++) {
+    output.write<int>(*t0); // frame index
+  }
+  output.write<int>(deltat->size()); // number of lag times
+  for (auto t = deltat->begin(); t != deltat->end(); t++) {
+    output.write<int>(*t); // lag time
+  }
   output.write<int>(frameIndices.size()); // number of frames
   for (std::vector<int>::const_iterator frame = frameIndices.begin();
     frame != frameIndices.end(); frame++) {
@@ -1368,12 +1381,12 @@ SystemN::SystemN(
 }
 
 SystemN::SystemN(
-  int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+  int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+    std::vector<int>* time0, std::vector<int>* deltat,
   Parameters* parameters, std::vector<double>& diameters, int seed,
   std::string filename) :
-  init(initFrames),
-    NLin(NLinFrames), NiterLin(NiterLinFrames), NLog(NLogFrames),
-    frameIndices(getLogFrames(init, NLin, NiterLin, NLog)),
+  frameIndices(
+    getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
   param(parameters),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
@@ -1400,10 +1413,14 @@ SystemN::SystemN(
   output.write<double>(getTimeStep());
 
   // write frames
-  output.write<int>(init);
-  output.write<int>(NLin);
-  output.write<int>(NiterLin);
-  output.write<int>(NLog);
+  output.write<int>(time0->size()); // number of initial frames
+  for (auto t0 = time0->begin(); t0 != time0->end(); t0++) {
+    output.write<int>(*t0); // frame index
+  }
+  output.write<int>(deltat->size()); // number of lag times
+  for (auto t = deltat->begin(); t != deltat->end(); t++) {
+    output.write<int>(*t); // lag time
+  }
   output.write<int>(frameIndices.size()); // number of frames
   for (std::vector<int>::const_iterator frame = frameIndices.begin();
     frame != frameIndices.end(); frame++) {
@@ -1437,11 +1454,11 @@ SystemN::SystemN(
 }
 
 SystemN::SystemN(
-  int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+  int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+    std::vector<int>* time0, std::vector<int>* deltat,
   SystemN* system, int seed, std::string filename) :
-  init(initFrames),
-    NLin(NLinFrames), NiterLin(NiterLinFrames), NLog(NLogFrames),
-    frameIndices(getLogFrames(init, NLin, NiterLin, NLog)),
+  frameIndices(
+    getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
   param(system->getParameters()),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
@@ -1470,10 +1487,14 @@ SystemN::SystemN(
   output.write<double>(getTimeStep());
 
   // write frames
-  output.write<int>(init);
-  output.write<int>(NLin);
-  output.write<int>(NiterLin);
-  output.write<int>(NLog);
+  output.write<int>(time0->size()); // number of initial frames
+  for (auto t0 = time0->begin(); t0 != time0->end(); t0++) {
+    output.write<int>(*t0); // frame index
+  }
+  output.write<int>(deltat->size()); // number of lag times
+  for (auto t = deltat->begin(); t != deltat->end(); t++) {
+    output.write<int>(*t); // lag time
+  }
   output.write<int>(frameIndices.size()); // number of frames
   for (std::vector<int>::const_iterator frame = frameIndices.begin();
     frame != frameIndices.end(); frame++) {
@@ -1495,12 +1516,12 @@ SystemN::SystemN(
 }
 
 SystemN::SystemN(
-  int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+  int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+    std::vector<int>* time0, std::vector<int>* deltat,
   SystemN* system, std::vector<double>& diameters, int seed,
   std::string filename) :
-  init(initFrames),
-    NLin(NLinFrames), NiterLin(NiterLinFrames), NLog(NLogFrames),
-    frameIndices(getLogFrames(init, NLin, NiterLin, NLog)),
+  frameIndices(
+    getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
   param(system->getParameters()),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
@@ -1527,10 +1548,14 @@ SystemN::SystemN(
   output.write<double>(getTimeStep());
 
   // write frames
-  output.write<int>(init);
-  output.write<int>(NLin);
-  output.write<int>(NiterLin);
-  output.write<int>(NLog);
+  output.write<int>(time0->size()); // number of initial frames
+  for (auto t0 = time0->begin(); t0 != time0->end(); t0++) {
+    output.write<int>(*t0); // frame index
+  }
+  output.write<int>(deltat->size()); // number of lag times
+  for (auto t = deltat->begin(); t != deltat->end(); t++) {
+    output.write<int>(*t); // lag time
+  }
   output.write<int>(frameIndices.size()); // number of frames
   for (std::vector<int>::const_iterator frame = frameIndices.begin();
     frame != frameIndices.end(); frame++) {
@@ -1552,12 +1577,12 @@ SystemN::SystemN(
 }
 
 SystemN::SystemN(
-  int initFrames, int NLinFrames, int NiterLinFrames, int NLogFrames,
+  int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+    std::vector<int>* time0, std::vector<int>* deltat,
   std::string inputFilename, int inputFrame, double dt,
   int seed, std::string filename) :
-  init(initFrames),
-    NLin(NLinFrames), NiterLin(NiterLinFrames), NLog(NLogFrames),
-    frameIndices(getLogFrames(init, NLin, NiterLin, NLog)),
+  frameIndices(
+    getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
   param(
     [&]{ // necessary initialisation with a lambda function due to const attributes
       try {
@@ -1607,7 +1632,7 @@ SystemN::SystemN(
     }
 
     // resize velocity dumps
-    velocitiesDumps.resize(2*getNumberParticles()); // resize vector of locations of velocity dumps
+    velocitiesDumps.resize(getNumberParticles()); // resize vector of locations of velocity dumps
 
     // set positions and orientations
     for (int i=0; i < getNumberParticles(); i++) {
@@ -1636,7 +1661,7 @@ SystemN::SystemN(
     }
 
     // resize velocity dumps
-    velocitiesDumps.resize(2*getNumberParticles()); // resize vector of locations of velocity dumps
+    velocitiesDumps.resize(getNumberParticles()); // resize vector of locations of velocity dumps
 
     // set positions and orientations
     for (int i=0; i < getNumberParticles(); i++) {
@@ -1667,10 +1692,14 @@ SystemN::SystemN(
   output.write<double>(getTimeStep());
 
   // write frames
-  output.write<int>(init);
-  output.write<int>(NLin);
-  output.write<int>(NiterLin);
-  output.write<int>(NLog);
+  output.write<int>(time0->size()); // number of initial frames
+  for (auto t0 = time0->begin(); t0 != time0->end(); t0++) {
+    output.write<int>(*t0); // frame index
+  }
+  output.write<int>(deltat->size()); // number of lag times
+  for (auto t = deltat->begin(); t != deltat->end(); t++) {
+    output.write<int>(*t); // lag time
+  }
   output.write<int>(frameIndices.size()); // number of frames
   for (std::vector<int>::const_iterator frame = frameIndices.begin();
     frame != frameIndices.end(); frame++) {
@@ -1693,10 +1722,6 @@ SystemN::~SystemN() {}
 
 // METHODS
 
-int SystemN::getInit() const { return init; }
-int SystemN::getNLin() const { return NLin; }
-int SystemN::getNiterLin() const { return NiterLin; }
-int SystemN::getNLog() const {return NLog; }
 std::vector<int> const* SystemN::getFrames() { return &frameIndices; }
 
 Parameters* SystemN::getParameters() { return &param; }
@@ -2209,18 +2234,38 @@ double getGlobalPhase(std::vector<double>& orientations) {
   return getAngle(order[0]/sqrt(pow(order[0], 2) + pow(order[1], 2)), order[1]);
 }
 
-std::vector<int> getLogFrames(int init, int NLin, int NiterLin, int NLog) {
-  // Returns vector of logarithmically spaced frames in linearly spaced blocks.
+std::vector<int> getLogFrames(
+  int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+  std::vector<int>* time0, std::vector<int>* dt) {
+  // Returns vector of logarithmically spaced frames in overlapping linearly
+  // spaced blocks.
+  // Saves in `time0' the initial frames and in `dt' the lag times.
+  // NOTE: `dtMax' may be modified according to other parameters.
+
+  dtMax[0] = std::min(dtMax[0], Niter - (intMax - 1));
+
+  time0->clear();
+  for (int i=0; i < intMax; i++) {
+    time0->push_back((int) init + i*(Niter - dtMax[0])/(intMax - 1));
+  }
+  sortVec(time0);
+
+  dt->clear();
+  dt->push_back(dtMin);
+  for (int i=1; i < nMax - 1; i++) {
+    dt->push_back((int) dtMin + exp(i*log(dtMax[0] - dtMin)/(nMax - 1)));
+  }
+  dt->push_back(dtMax[0]);
+  sortVec(dt);
 
   std::vector<int> frames;
-	frames.push_back(init);
-	for (int i = 0; i < NLin; i++) {
-		frames.push_back((int) init + i*NiterLin);
-		for (int j = 0; j < NLog - 1; j++) {
-			frames.push_back(
-        (int) init + i*NiterLin + exp(j*log(NiterLin - 1)/(NLog - 2)));
-		}
-	}
+	for (auto t0 = time0->begin(); t0 != time0->end(); t0++) {
+    frames.push_back(*t0);
+    for (auto t = dt->begin(); t != dt->end(); t++) {
+      frames.push_back(*t0 + *t);
+    }
+  }
+  frames.push_back(init + Niter);
 
   return *sortVec(removeVec(&frames, 0));
 }
