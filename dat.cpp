@@ -4,6 +4,7 @@
 #include <algorithm>
 
 #include "dat.hpp"
+#include "maths.hpp"
 
 /*******
  * DAT *
@@ -429,6 +430,11 @@ double DatN::getPropulsion(
 
 int DatN::getFrameIndex(int const& frame) {
   // Returns index of frame in file.
+
+  if ( ! isInSortedVec(&frameIndices, frame) ) {
+    throw std::invalid_argument(
+      "Frame " + std::to_string(frame) + " not in file.");
+  }
 
   return (int) std::distance(
     frameIndices.begin(),
