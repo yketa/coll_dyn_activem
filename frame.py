@@ -116,7 +116,8 @@ class _Frame:
 
         plt.close(self.fig)
 
-    def draw_circle(self, particle, color='black', fill=False, label=False):
+    def draw_circle(self, particle, color='black', fill=False, border=None,
+        label=False):
         """
         Draws circle at particle's position with particle's diameter.
 
@@ -128,14 +129,34 @@ class _Frame:
             Circle color. (default: 'black')
         fill : bool
             Filling the circle with same color. (default: False)
+        border : string or None
+            Circle bordel color. (default: None)
+            NOTE: if border == None, do not add border.
         label : bool
             Write indexes of particles in circles. (default: False)
         """
 
-        circle = plt.Circle(self.positions[particle],
-            self.diameters[particle]/2, color=color, fill=fill,
-            zorder=0)   # circle artist representing particle
-        self.ax.add_artist(circle)
+        def _draw_circle(position):
+            """
+            Draw circle at position.
+
+            Parameters
+            ----------
+            position : (2,) float array-like
+                Position of circle to draw.
+            """
+
+            circle = plt.Circle(position,
+                self.diameters[particle]/2, color=color, fill=fill,
+                zorder=0)       # circle artist representing particle
+            self.ax.add_artist(circle)
+            if border != None:  # add black border
+                circleBorder = plt.Circle(position,
+                    self.diameters[particle]/2, color=border, fill=False,
+                    zorder=1)
+                self.ax.add_artist(circleBorder)
+
+        _draw_circle(self.positions[particle])
 
         for dim in range(2):
             if (np.abs(self.positions[particle][dim]) >
@@ -143,10 +164,7 @@ class _Frame:
                 newPosition = self.positions[particle].copy()
                 newPosition[dim] -= (np.sign(self.positions[particle][dim])
                     *self.box_size)
-                circle = plt.Circle(newPosition,
-                    self.diameters[particle]/2, color=color, fill=fill,
-                    zorder=0)   # circle artist representing particle
-                self.ax.add_artist(circle)
+                _draw_circle(newPosition)
 
         if label:
             self.ax.annotate(
@@ -526,7 +544,7 @@ class Order(_Frame):
             self.particles, np.abs(self.bondOrder)):    # for particle and particle's bond orientation order parameter norm in rendered box
             self.draw_circle(particle,
                 color=self.scalarMap.to_rgba(order),
-                fill=True,
+                fill=True, border='black',
                 label=self.label)                       # draw particle circle with color corresponding to bond orientation order parameter norm
 
 class Bare(_Frame):
