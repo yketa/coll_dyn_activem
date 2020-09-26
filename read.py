@@ -76,7 +76,7 @@ class Dat(_Read):
     NOTE: FORCE_DAT0=True can be used to enforce the choice of .dat0 format.
     """
 
-    def __init__(self, filename, loadWork=True):
+    def __init__(self, filename, loadWork=True, corruption=None):
         """
         Get data from header.
 
@@ -87,6 +87,12 @@ class Dat(_Read):
         loadWork : bool or 'r'
             Load dump arrays. (default: True)
             NOTE: if loadWork=='r', force re-extract dumps from data file.
+        corruption : str or None
+            Pass corruption test for given file type ('dat', 'dat0', 'datN').
+            (default: None)
+            NOTE: This can be used for unfinished simulations.
+            NOTE: if corruption == None, then the file has to pass corruption
+                  tests.
         """
 
         # FILE
@@ -132,10 +138,11 @@ class Dat(_Read):
                     - self.numberWork*self.workLength)//self.frameLength    # number of frames which the file contains
 
                 # FILE CORRUPTION CHECK
-                if self.fileSize != (
+                if corruption != 'dat' and self.fileSize != (
                     self.headerLength                   # header
                     + self.frames*self.frameLength      # frames
                     + self.numberWork*self.workLength): # work sums
+                    del self._type
                     raise ValueError("Invalid data file size.")
 
                 return
@@ -194,10 +201,11 @@ class Dat(_Read):
                     - self.numberWork*self.workLength)//self.frameLength    # number of frames which the file contains
 
                 # FILE CORRUPTION CHECK
-                if self.fileSize != (
+                if corruption != 'dat0' and self.fileSize != (
                     self.headerLength                   # header
                     + self.frames*self.frameLength      # frames
                     + self.numberWork*self.workLength): # work sums
+                    del self._type
                     raise ValueError(
                         "Invalid data file size ('%s')." % self.filename)
 
@@ -264,9 +272,10 @@ class Dat(_Read):
                 self.workLength = 0*self._bpe('d')                          # length the data of a single work and order parameter dump takes in a file
 
                 # FILE CORRUPTION CHECK
-                if self.fileSize != (
+                if corruption != 'datN' and self.fileSize != (
                     self.headerLength                   # header
                     + self.frames*self.frameLength):    # frames
+                    del self._type
                     raise ValueError(
                         "Invalid data file size ('%s')." % self.filename)
 
@@ -285,7 +294,7 @@ class Dat(_Read):
         finally:
 
             # COMPUTED NORMALISED RATE OF ACTIVE WORK
-            self._loadWork(load=loadWork)
+            if hasattr(self, '_type'): self._loadWork(load=loadWork)
 
     def getWork(self, time0, time1):
         """
