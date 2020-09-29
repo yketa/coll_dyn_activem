@@ -3,6 +3,24 @@
 
 #include "maths.hpp"
 
+double getL(double phi, std::vector<double> const& diameters) {
+  // Returns the length of a square system with packing fraction `phi'
+  // containing particles with `diameters'.
+
+  double totalArea = 0.0;
+  for (auto i = diameters.begin(); i != diameters.end(); i++) {
+    totalArea += M_PI*pow(*i, 2)/4.0;
+  }
+  return sqrt(totalArea/phi);
+}
+
+double getL(double phi, int N, double diameter) {
+  // Returns the length of a square system with packing fraction `phi'
+  // containing  `N' particles with same `diameter'.
+
+  return getL(phi, std::vector<double>(N, diameter));
+}
+
 double getAngle(double cosinus, double signSinus) {
   // Returns angle in radians from its cosinus and sign of its sinus.
 
