@@ -234,7 +234,7 @@ int Dat0::getFramesWork() const { return framesWork; }
 long int Dat0::getNumberWork() const { return numberWork; }
 long int Dat0::getFrames() const { return frames; }
 
-std::vector<double> Dat0::getDiameters() { return diameters; }
+std::vector<double> Dat0::getDiameters() const { return diameters; }
 
 std::vector<double> Dat0::getActiveWork() { return activeWork; }
 std::vector<double> Dat0::getActiveWorkForce() { return activeWorkForce; }
@@ -379,7 +379,7 @@ std::vector<int>* DatN::getTime0() { return &time0; }
 std::vector<int>* DatN::getDt() { return &dt; }
 std::vector<int>* DatN::getFrames() { return &frameIndices; }
 
-std::vector<double> DatN::getDiameters() { return diameters; }
+std::vector<double> DatN::getDiameters() const { return diameters; }
 
 double DatN::getPosition(
   int const& frame, int const& particle, int const& dimension,

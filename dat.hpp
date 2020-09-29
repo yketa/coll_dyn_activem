@@ -140,7 +140,7 @@ class Dat0 {
     long int getNumberWork() const; // returns number of computed work sums
     long int getFrames() const; // returns number of frames
 
-    std::vector<double> getDiameters(); // returns vector of diameters
+    std::vector<double> getDiameters() const; // returns vector of diameters
 
     std::vector<double> getActiveWork(); // returns vector of computed active work sums
     std::vector<double> getActiveWorkForce(); // returns vector of computed active work (force) sums
@@ -232,7 +232,7 @@ class DatN {
     std::vector<int>* getDt(); // returns pointer to vector of lag times
     std::vector<int>* getFrames(); // returns pointer to vector of frames which were saved
 
-    std::vector<double> getDiameters(); // returns vector of diameters
+    std::vector<double> getDiameters() const; // returns vector of diameters
 
     double getPosition(
       int const& frame, int const& particle, int const& dimension,
