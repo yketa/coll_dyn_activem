@@ -8,6 +8,7 @@ particles.
 
 import numpy as np
 from scipy.stats import norm as norm_gen
+from scipy.special import lambertw
 from collections import OrderedDict
 from operator import itemgetter
 
@@ -379,6 +380,29 @@ class Displacements(Dat):
             n_max=n_max, int_max=int_max, min=min, max=max, jump=jump)
 
         return self._overlap(dt, displacements, a=a)
+
+    def overlap_relaxation_free_AOUP(q=0.5, a=1):
+        """
+        Returns relaxation time for a free Ornstein-Uhlenbeck particle, given as
+        the time for the dynamical overlap function to decrease below threshold
+        `q'.
+
+        (see https://yketa.github.io/PhD_Wiki/#One%20AOUP)
+
+        Parameters
+        ----------
+        q : float
+            Dynamical overlap function threshold. (default: 0.5)
+        a : float
+            Parameter of the dynamical overlap function. (default: 1)
+
+        Returns
+        -------
+        t : float
+            Relaxation time.
+        """
+
+        return overlap_relaxation_free_AOUP(self.D, self.Dr, q=q, a=a)
 
     def _overlap(self, dt, displacements, a=1):
         """
@@ -1313,9 +1337,9 @@ def msd_th_ABP(v0, D, Dr, dt):
     v0 : float
         Self-propulsion velocity.
     D : float
-        Translational diffusion.
+        Translational diffusivity.
     Dr : float
-        Rotational diffusion.
+        Rotational diffusivity.
     dt : float
         Lag time at which to evaluate the theoretical mean squared
         displacement.
@@ -1338,9 +1362,9 @@ def msd_th_AOUP(D, Dr, dt):
     Parameters
     ----------
     D : float
-        Translational diffusion.
+        Translational diffusivity.
     Dr : float
-        Rotational diffusion.
+        Rotational diffusivity.
     dt : float
         Lag time at which to evaluate the theoretical mean squared
         displacement.
@@ -1352,3 +1376,58 @@ def msd_th_AOUP(D, Dr, dt):
     """
 
     return 4*D*(dt + (np.exp(-Dr*dt) - 1)/Dr)
+
+def overlap_free_AOUP(D, Dr, dt, a=1):
+    """
+    Returns value of the dynamical overlap funtionat lag time `dt' for a free
+    Ornstein-Uhlenbeck particle.
+
+    (see https://yketa.github.io/PhD_Wiki/#One%20AOUP)
+
+    Parameters
+    ----------
+    D : float
+        Translational diffusivity.
+    Dr : float
+        Rotational diffusivity.
+    dt : float
+        Lag time at which to evaluate the dynamical overlap function.
+    a : float
+        Parameter of the dynamical overlap function. (default: 1)
+
+    Returns
+    -------
+    Q : float
+        Dynamical overlap.
+    """
+
+    return 1./(1. + msd_th_AOUP(D, Dr, dt)/(a**2))
+
+def overlap_relaxation_free_AOUP(D, Dr, q=0.5, a=1):
+    """
+    Returns relaxation time for a free Ornstein-Uhlenbeck particle, given as the
+    time for the dynamical overlap function to decrease below threshold `q'.
+
+    (see https://yketa.github.io/PhD_Wiki/#One%20AOUP)
+
+    Parameters
+    ----------
+    D : float
+        Translational diffusivity.
+    Dr : float
+        Rotational diffusivity.
+    q : float
+        Dynamical overlap function threshold. (default: 0.5)
+    a : float
+        Parameter of the dynamical overlap function. (default: 1)
+
+    Returns
+    -------
+    t : float
+        Relaxation time.
+    """
+
+    return (
+        ((a**2)*Dr*(1 - q)
+            + 4*q*D*(1 + lambertw(-np.exp(-1 + (a**2)*(q - 1)*Dr/(4*q*D)))))
+        /(4*q*D*Dr)).real
