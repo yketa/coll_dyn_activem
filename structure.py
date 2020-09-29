@@ -68,6 +68,27 @@ class Positions(Dat):
             np.full((self.N,), fill_value=1),
             nBoxes=nBoxes, box_size=self.L, centre=(0, 0), average=False)
 
+    def getLocalDensity(self, time):
+        """
+        Returns local packing fraction defined as the ratio of particles'
+        volume to the volume of the corresponding voronoi cells.
+
+        (see self._voronoi)
+        (see https://yketa.github.io/PhD_Wiki/#Structure%20characteristics)
+
+        Parameters
+        ----------
+        time : int
+            Frame index.
+
+        Returns
+        -------
+        localPhi : (self.N,) float numpy array
+            Array of local packing fraction.
+        """
+
+        return ((np.pi/4.)*(self.diameters**2))/self._voronoi(time).volumes
+
     def getNeighbourList(self, time):
         """
         Get list of neighbours and bond length for particles in the system at
