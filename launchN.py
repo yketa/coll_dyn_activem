@@ -108,14 +108,14 @@ if __name__ == '__main__':
     else:
 
         # SYSTEM PARAMETERS
-        with Dat(inputFilename, loadWork=False) as dat: # data object
-            N = dat.N                                   # number of particles in the system
-            Dr = dat.Dr                                 # rotational diffusivity
-            epsilon = dat.epsilon                       # coefficient parameter of potential
-            D = dat.D                                   # translational diffusivity
-            v0 = dat.v0                                 # self-propulsion velocity
-            phi = dat.phi                               # packing fraction
-            I = -1                                      # polydispersity index
+        with Dat(inputFilename, loadWork=False) as dat:                         # data object
+            N = dat.N                                                           # number of particles in the system
+            Dr = get_env('DR', default=dat.Dr, vartype=float)                   # rotational diffusivity
+            epsilon = get_env('EPSILON', default=dat.epsilon, vartype=float)    # coefficient parameter of potential
+            D = get_env('D', default=dat.D, vartype=float)                      # translational diffusivity
+            v0 = get_env('V0', default=dat.v0, vartype=float)                   # self-propulsion velocity
+            phi = get_env('PHI', default=dat.phi, vartype=float)                # packing fraction
+            I = -1                                                              # polydispersity index
             del dat
 
     # SIMULATION PARAMETERS

@@ -20,11 +20,13 @@
 
 // CONSTRUCTORS
 
-Particle::Particle(double d) :
+Particle::Particle(const double& d) :
   r{0, 0}, c{0, 0}, theta(0), p{0, 0}, v{0, 0}, sigma(d),
   f{0, 0}, fp{0, 0}, gamma(0) {}
 Particle::Particle(
-  double x, double y, double ang, double px, double py, double d) :
+  const double& x, const double& y,
+  const double& ang, const double& px, const double& py,
+  const double& d) :
   r{x, y}, c{0, 0}, theta(ang), p{px, py}, v{0, 0}, sigma(d),
   f{0, 0}, fp{0, 0}, gamma(0) {}
 
@@ -118,7 +120,7 @@ Parameters::Parameters(int N, double lp, double phi, double dt, double g) :
   numberParticles(N), potentialParameter(1.0), propulsionVelocity(1.0),
     transDiffusivity(1.0/(3.0*lp)), rotDiffusivity(1.0/lp),
     persistenceLength(lp), packingFraction(phi),
-    systemSize(sqrt(M_PI*N/phi)/2.0), torqueParameter(g), timeStep(dt) {}
+    systemSize(getL(phi, N, 1.0)), torqueParameter(g), timeStep(dt) {}
 
 Parameters::Parameters(
   int N, double epsilon, double v0, double D, double Dr, double phi, double L,
@@ -150,6 +152,7 @@ Parameters::Parameters(Parameters* parameters) :
   systemSize(parameters->getSystemSize()),
   torqueParameter(parameters->getTorqueParameter()),
   timeStep(parameters->getTimeStep()) {}
+
 
 // METHODS
 
@@ -277,17 +280,7 @@ System::System(
   std::string inputFilename, int inputFrame, double dt,
   int seed, std::string filename,
   int nWork, bool dump, int period) :
-  param(
-    [&]{ // necessary initialisation with a lambda function due to const attributes
-      Dat inputDat(inputFilename, false); // data object
-      Parameters param(
-        inputDat.getNumberParticles(),
-        inputDat.getPersistenceLength(),
-        inputDat.getPackingFraction(),
-        dt > 0 ? dt : inputDat.getTimeStep(),
-        inputDat.getTorqueParameter());
-      return param;
-    }()),
+  param(Dat(inputFilename, false), dt),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
   cellList(),
@@ -726,7 +719,11 @@ System0::System0(
     orderSum {0, 0, 0} {
 
   // set diameters
-  // CAUTION: consistence between packing fraction and system size has to be checked before
+  if (
+    getL(getPackingFraction(), getNumberParticles(), 1) != getSystemSize() ) {
+    throw std::invalid_argument(
+      "Packing fraction, system size, and diameters are not consistent.");
+  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(1.0));
   }
@@ -788,7 +785,10 @@ System0::System0(
     orderSum {0, 0, 0} {
 
   // set diameters
-  // CAUTION: consistence between packing fraction and system size has to be checked before
+  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
+    throw std::invalid_argument(
+      "Packing fraction, system size, and diameters are not consistent.");
+  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -850,10 +850,12 @@ System0::System0(
     orderSum {0, 0, 0} {
 
   // set diameters
-  // CAUTION: consistence between packing fraction and system size has to be checked before
-  std::vector<double> diameters(0);
+  std::vector<double> diameters = system->getDiameters();
+  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
+    throw std::invalid_argument(
+      "Packing fraction, system size, and diameters are not consistent.");
+  }
   for (int i=0; i < getNumberParticles(); i++) {
-    diameters.push_back((system->getParticle(i))->diameter());
     particles.push_back(Particle(diameters[i]));
   }
 
@@ -902,7 +904,10 @@ System0::System0(
     orderSum {0, 0, 0} {
 
   // set diameters
-  // CAUTION: consistence between packing fraction and system size has to be checked before
+  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
+    throw std::invalid_argument(
+      "Packing fraction, system size, and diameters are not consistent.");
+  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -940,20 +945,7 @@ System0::System0(
   std::string inputFilename, int inputFrame, double dt,
   int seed, std::string filename,
   int nWork, bool dump, int period) :
-  param(
-    [&]{ // necessary initialisation with a lambda function due to const attributes
-      Dat0 inputDat(inputFilename, false); // data object
-      Parameters param(
-        inputDat.getNumberParticles(),
-        inputDat.getPotentialParameter(),
-        inputDat.getPropulsionVelocity(),
-        inputDat.getTransDiffusivity(),
-        inputDat.getRotDiffusivity(),
-        inputDat.getPackingFraction(),
-        inputDat.getSystemSize(),
-        dt > 0 ? dt : inputDat.getTimeStep());
-      return param;
-    }()),
+  param(Dat0(inputFilename, false), dt),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
   cellList(),
@@ -969,8 +961,11 @@ System0::System0(
   Dat0 inputDat(inputFilename, false); // data object
 
   // set diameters
-  // CAUTION: consistence between packing fraction and system size has to be checked before
-  std::vector<double> diameters = inputDat.getDiameters(); // diameters of particles
+  std::vector<double> diameters = inputDat.getDiameters();
+  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
+    throw std::invalid_argument(
+      "Packing fraction, system size, and diameters are not consistent.");
+  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -1025,6 +1020,13 @@ System0::~System0() {}
 // METHODS
 
 Parameters* System0::getParameters() { return &param; }
+std::vector<double> System0::getDiameters() const {
+  std::vector<double> diameters(0);
+  for (int i=0; i < getNumberParticles(); i++) {
+    diameters.push_back(particles[i].diameter());
+  }
+  return diameters;
+}
 
 int System0::getNumberParticles() const {
   return param.getNumberParticles(); }
@@ -1322,7 +1324,11 @@ SystemN::SystemN(
   dumpFrame(-1) {
 
   // set diameters
-  // CAUTION: consistence between packing fraction and system size has to be checked before
+  if (
+    getL(getPackingFraction(), getNumberParticles(), 1) != getSystemSize() ) {
+    throw std::invalid_argument(
+      "Packing fraction, system size, and diameters are not consistent.");
+  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(1.0));
   }
@@ -1395,7 +1401,10 @@ SystemN::SystemN(
   dumpFrame(-1) {
 
   // set diameters
-  // CAUTION: consistence between packing fraction and system size has to be checked before
+  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
+    throw std::invalid_argument(
+      "Packing fraction, system size, and diameters are not consistent.");
+  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -1467,10 +1476,12 @@ SystemN::SystemN(
   dumpFrame(-1) {
 
   // set diameters
-  // CAUTION: consistence between packing fraction and system size has to be checked before
-  std::vector<double> diameters(0);
+  std::vector<double> diameters = system->getDiameters();
+  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
+    throw std::invalid_argument(
+      "Packing fraction, system size, and diameters are not consistent.");
+  }
   for (int i=0; i < getNumberParticles(); i++) {
-    diameters.push_back((system->getParticle(i))->diameter());
     particles.push_back(Particle(diameters[i]));
   }
 
@@ -1530,7 +1541,10 @@ SystemN::SystemN(
   dumpFrame(-1) {
 
   // set diameters
-  // CAUTION: consistence between packing fraction and system size has to be checked before
+  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
+    throw std::invalid_argument(
+      "Packing fraction, system size, and diameters are not consistent.");
+  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -1583,101 +1597,131 @@ SystemN::SystemN(
   int seed, std::string filename) :
   frameIndices(
     getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
-  param(
-    [&]{ // necessary initialisation with a lambda function due to const attributes
-      try {
-        DatN inputDat(inputFilename, false); // data object
-        Parameters param(
-          inputDat.getNumberParticles(),
-          inputDat.getPotentialParameter(),
-          inputDat.getPropulsionVelocity(),
-          inputDat.getTransDiffusivity(),
-          inputDat.getRotDiffusivity(),
-          inputDat.getPackingFraction(),
-          inputDat.getSystemSize(),
-          dt > 0 ? dt : inputDat.getTimeStep());
-        return param;
-      }
-      catch (const std::exception& e) {
-        Dat0 inputDat(inputFilename, false); // data object
-        Parameters param(
-          inputDat.getNumberParticles(),
-          inputDat.getPotentialParameter(),
-          inputDat.getPropulsionVelocity(),
-          inputDat.getTransDiffusivity(),
-          inputDat.getRotDiffusivity(),
-          inputDat.getPackingFraction(),
-          inputDat.getSystemSize(),
-          dt > 0 ? dt : inputDat.getTimeStep());
-        return param;
-      }
-    }()),
+  param(DatN(inputFilename, false), dt),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
   cellList(),
   output(filename), velocitiesDumps(0),
   dumpFrame(-1) {
 
-  std::vector<double> diameters; // diameters of particles
+  // load data
+  DatN inputDat(inputFilename, false); // data object
 
-  try {
-    // load data
-    DatN inputDat(inputFilename, false); // data object
+  // set diameters
+  std::vector<double> diameters = inputDat.getDiameters();
+  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
+    throw std::invalid_argument(
+      "Packing fraction, system size, and diameters are not consistent.");
+  }
+  for (int i=0; i < getNumberParticles(); i++) {
+    particles.push_back(Particle(diameters[i]));
+  }
 
-    // set diameters
-    // CAUTION: consistence between packing fraction and system size has to be checked before
-    diameters = inputDat.getDiameters();
-    for (int i=0; i < getNumberParticles(); i++) {
-      particles.push_back(Particle(diameters[i]));
+  // resize velocity dumps
+  velocitiesDumps.resize(getNumberParticles()); // resize vector of locations of velocity dumps
+
+  // set positions and orientations
+  for (int i=0; i < getNumberParticles(); i++) {
+    // positions
+    for (int dim=0; dim < 2; dim++) {
+      particles[i].position()[dim] = inputDat.getPosition(inputFrame, i, dim);
     }
-
-    // resize velocity dumps
-    velocitiesDumps.resize(getNumberParticles()); // resize vector of locations of velocity dumps
-
-    // set positions and orientations
-    for (int i=0; i < getNumberParticles(); i++) {
-      // positions
-      for (int dim=0; dim < 2; dim++) {
-        particles[i].position()[dim] = inputDat.getPosition(inputFrame, i, dim);
-      }
-      // orientations
-      particles[i].orientation()[0] = inputDat.getOrientation(inputFrame, i);
-      // self-propulsion vector
-      for (int dim=0; dim < 2; dim++) {
-        particles[i].propulsion()[dim] =
-          inputDat.getPropulsion(inputFrame, i, dim);
-      }
+    // orientations
+    particles[i].orientation()[0] = inputDat.getOrientation(inputFrame, i);
+    // self-propulsion vector
+    for (int dim=0; dim < 2; dim++) {
+      particles[i].propulsion()[dim] =
+        inputDat.getPropulsion(inputFrame, i, dim);
     }
   }
-  catch (const std::exception& e) {
-    // load data
-    Dat0 inputDat(inputFilename, false); // data object
 
-    // set diameters
-    // CAUTION: consistence between packing fraction and system size has to be checked before
-    diameters = inputDat.getDiameters(); // diameters of particles
-    for (int i=0; i < getNumberParticles(); i++) {
-      particles.push_back(Particle(diameters[i]));
+  // write header with system parameters to output file
+  output.write<int>(getNumberParticles());
+  output.write<double>(getPotentialParameter());
+  output.write<double>(getPropulsionVelocity());
+  output.write<double>(getTransDiffusivity());
+  output.write<double>(getRotDiffusivity());
+  output.write<double>(getPersistenceLength());
+  output.write<double>(getPackingFraction());
+  output.write<double>(getSystemSize());
+  output.write<int>(randomSeed);
+  output.write<double>(getTimeStep());
+
+  // write frames
+  output.write<int>(time0->size()); // number of initial frames
+  for (auto t0 = time0->begin(); t0 != time0->end(); t0++) {
+    output.write<int>(*t0); // frame index
+  }
+  output.write<int>(deltat->size()); // number of lag times
+  for (auto t = deltat->begin(); t != deltat->end(); t++) {
+    output.write<int>(*t); // lag time
+  }
+  output.write<int>(frameIndices.size()); // number of frames
+  for (std::vector<int>::const_iterator frame = frameIndices.begin();
+    frame != frameIndices.end(); frame++) {
+    output.write<int>(*frame); // frame index
+  }
+
+  // write particles' diameters
+  for (int i=0; i < getNumberParticles(); i++) {
+    output.write<double>(getParticle(i)->diameter());
+  }
+
+  // initialise cell list
+  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
+  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+}
+
+SystemN::SystemN(
+  int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+    std::vector<int>* time0, std::vector<int>* deltat,
+  std::string inputFilename, int inputFrame, Parameters* parameters,
+  int seed, std::string filename) :
+  frameIndices(
+    getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
+  param(parameters),
+  randomSeed(seed), randomGenerator(randomSeed),
+  particles(0),
+  cellList(),
+  output(filename), velocitiesDumps(0),
+  dumpFrame(-1) {
+
+  // load data
+  DatN inputDat(inputFilename, false); // data object
+
+  // set diameters
+  std::vector<double> diameters = inputDat.getDiameters();
+  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
+    throw std::invalid_argument(
+      "Packing fraction, system size, and diameters are not consistent.");
+  }
+  for (int i=0; i < getNumberParticles(); i++) {
+    particles.push_back(Particle(diameters[i]));
+  }
+
+  // resize velocity dumps
+  velocitiesDumps.resize(getNumberParticles()); // resize vector of locations of velocity dumps
+
+  // set positions and orientations
+  for (int i=0; i < getNumberParticles(); i++) {
+    // positions
+    for (int dim=0; dim < 2; dim++) {
+      particles[i].position()[dim] = inputDat.getPosition(inputFrame, i, dim);
     }
-
-    // resize velocity dumps
-    velocitiesDumps.resize(getNumberParticles()); // resize vector of locations of velocity dumps
-
-    // set positions and orientations
-    for (int i=0; i < getNumberParticles(); i++) {
-      // positions
-      for (int dim=0; dim < 2; dim++) {
-        particles[i].position()[dim] = inputDat.getPosition(inputFrame, i, dim);
-      }
-      // orientations
-      particles[i].orientation()[0] = inputDat.getOrientation(inputFrame, i);
-      // self-propulsion vector
-      for (int dim=0; dim < 2; dim++) {
-        particles[i].propulsion()[dim] =
-          inputDat.getPropulsion(inputFrame, i, dim);
-      }
+    // orientations
+    particles[i].orientation()[0] = inputDat.getOrientation(inputFrame, i);
+    // self-propulsion vector
+    for (int dim=0; dim < 2; dim++) {
+      particles[i].propulsion()[dim] =
+        inputDat.getPropulsion(inputFrame, i, dim);
     }
   }
+  #if AOUP // system of AOUPs
+  if ( getTransDiffusivity() != inputDat.getTransDiffusivity()
+    || getRotDiffusivity() != inputDat.getRotDiffusivity() ) {
+    initPropulsionAOUP<SystemN>(this);
+  }
+  #endif
 
   // write header with system parameters to output file
   output.write<int>(getNumberParticles());
@@ -1725,6 +1769,13 @@ SystemN::~SystemN() {}
 std::vector<int> const* SystemN::getFrames() { return &frameIndices; }
 
 Parameters* SystemN::getParameters() { return &param; }
+std::vector<double> SystemN::getDiameters() const {
+  std::vector<double> diameters(0);
+  for (int i=0; i < getNumberParticles(); i++) {
+    diameters.push_back(particles[i].diameter());
+  }
+  return diameters;
+}
 
 int SystemN::getNumberParticles() const {
   return param.getNumberParticles(); }

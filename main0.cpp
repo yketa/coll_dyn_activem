@@ -74,11 +74,7 @@ int main() {
     std::random_shuffle(diameters.begin(), diameters.end(),
       [&randomGenerator](int max) { return randomGenerator.randomInt(max); });
     // system size
-    double totalArea = 0.0;
-    for (int i=0; i < N; i++) {
-      totalArea += M_PI*pow(diameters[i], 2)/4.0;
-    }
-    double L = sqrt(totalArea/phi);
+    double L = getL(phi, diameters);
 
     Parameters parameters(N, epsilon, v0, D, Dr, phi, L, dt); // class of simulation parameters
 

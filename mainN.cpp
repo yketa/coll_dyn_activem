@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <math.h>
 
+#include "dat.hpp"
 #include "env.hpp"
 #include "fire.hpp"
 #include "iteration.hpp"
@@ -73,11 +74,7 @@ int main() {
     std::random_shuffle(diameters.begin(), diameters.end(),
       [&randomGenerator](int max) { return randomGenerator.randomInt(max); });
     // system size
-    double totalArea = 0.0;
-    for (int i=0; i < N; i++) {
-      totalArea += M_PI*pow(diameters[i], 2)/4.0;
-    }
-    double L = sqrt(totalArea/phi);
+    double L = getL(phi, diameters);
 
     Parameters parameters(N, epsilon, v0, D, Dr, phi, L, dt); // class of simulation parameters
 
@@ -100,13 +97,25 @@ int main() {
   else { // set parameters from file
 
     // input file parameters
+    DatN inputDat(inputFilename, false); // input file data object
     int inputFrame = getEnvInt("INPUT_FRAME", 0); // frame to copy as initial frame
+
+    // physical parameters
+    int N = inputDat.getNumberParticles(); // number of particles in the system
+    double Dr = getEnvDouble("DR", inputDat.getRotDiffusivity()); // rotational diffusivity
+    double epsilon = getEnvDouble("EPSILON", inputDat.getPotentialParameter()); // coefficient parameter of potential
+    double D = getEnvDouble("D", inputDat.getTransDiffusivity()); // translational diffusivity
+    double v0 = getEnvDouble("V0", inputDat.getPropulsionVelocity()); // self-propulsion velocity
+    double phi = getEnvDouble("PHI", inputDat.getPackingFraction()); // packing fraction
+    double L = getL(phi, inputDat.getDiameters()); // system size
+
+    Parameters parameters(N, epsilon, v0, D, Dr, phi, L, dt); // class of simulation parameters
 
     // system
     SystemN system(
       init, Niter, dtMin, &dtMax, nMax, intMax,
         &time0, &deltat,
-      inputFilename, inputFrame, dt, seed, filename); // define system
+      inputFilename, inputFrame, &parameters, seed, filename); // define system
     simulate(&system);
   }
 

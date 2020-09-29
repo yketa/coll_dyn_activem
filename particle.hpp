@@ -5,6 +5,7 @@
 #include <string>
 #include <random>
 
+#include "dat.hpp"
 #include "maths.hpp"
 #include "readwrite.hpp"
 
@@ -32,9 +33,11 @@ class Particle {
 
     // CONSTRUCTORS
 
-    Particle(double d = 1);
+    Particle(double const& d = 1);
     Particle(
-      double x, double y, double ang, double px, double py, double d = 1);
+      double const& x, double const& y,
+      double const& ang, double const& px, double const& py,
+      double const& d = 1);
 
     // METHODS
 
@@ -91,7 +94,7 @@ class CellList {
     // METHODS
 
     int getNumberBoxes(); // return number of boxes in each dimension
-    std::vector<int>* getCell(int const &index); // return pointer to vector of indexes in cell
+    std::vector<int>* getCell(int const& index); // return pointer to vector of indexes in cell
 
     template<class SystemClass> void initialise(
       SystemClass* system, double const& rcut) {
@@ -177,6 +180,37 @@ class Parameters {
       Parameters const& parameters);
     Parameters( // copy other class
       Parameters* parameters);
+
+    Parameters( // copy .dat file
+      const Dat& inputDat, double dt = 0) :
+      Parameters(
+        inputDat.getNumberParticles(),
+        inputDat.getPersistenceLength(),
+        inputDat.getPackingFraction(),
+        dt > 0 ? dt : inputDat.getTimeStep(),
+        inputDat.getTorqueParameter()) {}
+    Parameters( // copy .dat0 file
+      const Dat0& inputDat, double dt = 0) :
+      Parameters(
+        inputDat.getNumberParticles(),
+        inputDat.getPotentialParameter(),
+        inputDat.getPropulsionVelocity(),
+        inputDat.getTransDiffusivity(),
+        inputDat.getRotDiffusivity(),
+        inputDat.getPackingFraction(),
+        inputDat.getSystemSize(),
+        dt > 0 ? dt : inputDat.getTimeStep()) {}
+    Parameters( // copy .datN files
+      const DatN& inputDat, double dt = 0) :
+      Parameters(
+        inputDat.getNumberParticles(),
+        inputDat.getPotentialParameter(),
+        inputDat.getPropulsionVelocity(),
+        inputDat.getTransDiffusivity(),
+        inputDat.getRotDiffusivity(),
+        inputDat.getPackingFraction(),
+        inputDat.getSystemSize(),
+        dt > 0 ? dt : inputDat.getTimeStep()) {}
 
     // METHODS
 
@@ -463,6 +497,7 @@ class System0 {
     // METHODS
 
     Parameters* getParameters(); // returns pointer to class of parameters
+    std::vector<double> getDiameters() const; // returns vector of diameters
 
     int getNumberParticles() const; // returns number of particles
     double getPotentialParameter() const; // returns coefficient parameter of potential
@@ -604,6 +639,11 @@ class SystemN {
         std::vector<int>* time0, std::vector<int>* deltat,
       std::string inputFilename, int inputFrame = 0, double dt = 0,
       int seed = 0, std::string filename = "");
+    SystemN(
+      int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+        std::vector<int>* time0, std::vector<int>* deltat,
+      std::string inputFilename, int inputFrame = 0, Parameters* parameters = 0,
+      int seed = 0, std::string filename = "");
 
     // DESTRUCTORS
 
@@ -614,6 +654,7 @@ class SystemN {
     std::vector<int> const* getFrames(); // returns pointer to vector of indices of frames to save
 
     Parameters* getParameters(); // returns pointer to class of parameters
+    std::vector<double> getDiameters() const; // returns vector of diameters
 
     int getNumberParticles() const; // returns number of particles
     double getPotentialParameter() const; // returns coefficient parameter of potential
@@ -1002,9 +1043,11 @@ template<class SystemClass> void WCA_force(
     + (system->getParticle(index2))->diameter())/2.0; // equivalent diameter
 
   if (dist/sigma < pow(2., 1./6.)) { // distance lower than cut-off
+  // if (dist/sigma < 1) {
 
     // compute force
     double coeff =
+      // (12.0/pow(dist/sigma, 14.0) - 12.0/pow(dist/sigma, 8.0))/pow(sigma, 2.0);
       (48.0/pow(dist/sigma, 14.0) - 24.0/pow(dist/sigma, 8.0))/pow(sigma, 2.0);
     for (int dim=0; dim < 2; dim++) {
       force[dim] = diffPeriodic<SystemClass>(system,
@@ -1047,6 +1090,9 @@ template<class SystemClass> void initPropulsionAOUP(SystemClass* system) {
       (system->getParticle(i))->propulsion()[dim] =
         (system->getRandomGenerator())->gauss(0, std);
     }
+    (system->getParticle(i))->orientation()[0] = getAngleVector(
+      (system->getParticle(i))->propulsion()[0],
+      (system->getParticle(i))->propulsion()[1]);
   }
 }
 
