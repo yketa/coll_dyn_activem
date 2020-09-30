@@ -97,10 +97,10 @@ class _Frame:
         self.ax.set_aspect('equal')
         self.ax.tick_params(axis='both', which='both', direction='in',
             bottom=True, top=True, left=True, right=True)
+        self.fig.subplots_adjust(top=0.80)
 
-        self.positions = dat.getPositions(frame, centre=centre)             # particles' positions at frame frame with centre as centre of frame
-        if dat._type != 'dat': self.diameters = dat.diameters               # particles' diameters
-        else: self.diameters = np.full((dat.N,), fill_value=1, dtype=float) # unit diameter by default
+        self.positions = dat.getPositions(frame, centre=centre) # particles' positions at frame frame with centre as centre of frame
+        self.diameters = dat.diameters                          # particles' diameters
 
         self.particles = [particle for particle in range(len(self.positions))
             if (np.abs(self.positions[particle]) <= box_size/2).all()]  # particles inside box of centre centre and length box_size
@@ -524,11 +524,13 @@ class Order(_Frame):
             arrow_head_width=arrow_head_width,
             arrow_head_length=arrow_head_length)    # initialise superclass
 
-        self.bondOrder = Positions(dat.filename).getBondOrderParameter(frame)
+        self.bondOrder = np.abs(
+            Positions(dat.filename).getBondOrderParameter(frame))
 
         self.colorbar(0, 1, cmap=plt.cm.inferno)    # add colorbar to figure
         self.colormap.set_label(                    # colorbar legend
-            r'$|\psi_{6,i}|$',
+            r'$|\psi_{6,i}|$' + ' '
+                + r'$(\left<|\psi_{6,i}|\right>=%.3f)$' % self.bondOrder.mean(),
             labelpad=pad, rotation=270)
 
         self.label = label  # write labels
@@ -540,12 +542,11 @@ class Order(_Frame):
         Plots figure.
         """
 
-        for particle, order in zip(
-            self.particles, np.abs(self.bondOrder)):    # for particle and particle's bond orientation order parameter norm in rendered box
+        for particle, order in zip(self.particles, self.bondOrder): # for particle and particle's bond orientation order parameter norm in rendered box
             self.draw_circle(particle,
                 color=self.scalarMap.to_rgba(order),
                 fill=True, border='black',
-                label=self.label)                       # draw particle circle with color corresponding to bond orientation order parameter norm
+                label=self.label)                                   # draw particle circle with color corresponding to bond orientation order parameter norm
 
 class Bare(_Frame):
     """
@@ -679,10 +680,10 @@ if __name__ == '__main__':  # executing as script
             Dr = 1/dat.lp
         else:
             suptitle = (
-                str(r'$N=%.2e, \phi=%1.4f, D=%.2e, D_r=%.2e,$'
+                str(r'$N=%.2e, \phi=%1.4f, D=%.2e, D_r=%.2e$'
         		% (dat.N, dat.phi, dat.D, dat.Dr))
-                + str(r'$\epsilon=%.2e, v_0=%.2e$'
-                % (dat.epsilon, dat.v0)))
+                + '\n' + str(r'$\epsilon=%.2e, v_0=%.2e, I=%.2f$'
+                % (dat.epsilon, dat.v0, dat.I)))
             Dr = dat.Dr
 
         suptitle += str(r'$, L=%.3e$' % dat.L)
