@@ -113,21 +113,30 @@ std::vector<int> CellList::getNeighbours(Particle *particle) {
 
 Parameters::Parameters() :
   numberParticles(0), potentialParameter(0), propulsionVelocity(0),
-    transDiffusivity(0), rotDiffusivity(0), persistenceLength(0),
-    packingFraction(0), systemSize(0), torqueParameter(0), timeStep(0) {}
+    transDiffusivity(0), rotDiffusivity(0),
+    persistenceLength(0),
+    packingFraction(0), systemSize(0),
+    torqueParameter(0),
+    timeStep(0) {}
 
 Parameters::Parameters(int N, double lp, double phi, double dt, double g) :
   numberParticles(N), potentialParameter(1.0), propulsionVelocity(1.0),
     transDiffusivity(1.0/(3.0*lp)), rotDiffusivity(1.0/lp),
-    persistenceLength(lp), packingFraction(phi),
-    systemSize(getL(phi, N, 1.0)), torqueParameter(g), timeStep(dt) {}
+    persistenceLength(lp),
+    packingFraction(phi), systemSize(getL_WCA(phi, N, 1.0)),
+    torqueParameter(g),
+    timeStep(dt) {}
 
 Parameters::Parameters(
-  int N, double epsilon, double v0, double D, double Dr, double phi, double L,
+  int N, double epsilon, double v0, double D, double Dr,
+    double phi, std::vector<double> const& diameters,
   double dt) :
   numberParticles(N), potentialParameter(epsilon), propulsionVelocity(v0),
-    transDiffusivity(D), rotDiffusivity(Dr), persistenceLength(v0/Dr),
-    packingFraction(phi), systemSize(L), torqueParameter(0), timeStep(dt) {}
+    transDiffusivity(D), rotDiffusivity(Dr),
+    persistenceLength(v0/Dr),
+    packingFraction(phi), systemSize(getL_WCA(phi, diameters)),
+    torqueParameter(0),
+    timeStep(dt) {}
 
 Parameters::Parameters(Parameters const& parameters) :
   numberParticles(parameters.getNumberParticles()),
@@ -719,11 +728,6 @@ System0::System0(
     orderSum {0, 0, 0} {
 
   // set diameters
-  if (
-    getL(getPackingFraction(), getNumberParticles(), 1) != getSystemSize() ) {
-    throw std::invalid_argument(
-      "Packing fraction, system size, and diameters are not consistent.");
-  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(1.0));
   }
@@ -785,10 +789,6 @@ System0::System0(
     orderSum {0, 0, 0} {
 
   // set diameters
-  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
-    throw std::invalid_argument(
-      "Packing fraction, system size, and diameters are not consistent.");
-  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -851,10 +851,6 @@ System0::System0(
 
   // set diameters
   std::vector<double> diameters = system->getDiameters();
-  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
-    throw std::invalid_argument(
-      "Packing fraction, system size, and diameters are not consistent.");
-  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -904,10 +900,6 @@ System0::System0(
     orderSum {0, 0, 0} {
 
   // set diameters
-  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
-    throw std::invalid_argument(
-      "Packing fraction, system size, and diameters are not consistent.");
-  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -962,10 +954,6 @@ System0::System0(
 
   // set diameters
   std::vector<double> diameters = inputDat.getDiameters();
-  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
-    throw std::invalid_argument(
-      "Packing fraction, system size, and diameters are not consistent.");
-  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -1324,11 +1312,6 @@ SystemN::SystemN(
   dumpFrame(-1) {
 
   // set diameters
-  if (
-    getL(getPackingFraction(), getNumberParticles(), 1) != getSystemSize() ) {
-    throw std::invalid_argument(
-      "Packing fraction, system size, and diameters are not consistent.");
-  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(1.0));
   }
@@ -1401,10 +1384,6 @@ SystemN::SystemN(
   dumpFrame(-1) {
 
   // set diameters
-  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
-    throw std::invalid_argument(
-      "Packing fraction, system size, and diameters are not consistent.");
-  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -1477,10 +1456,6 @@ SystemN::SystemN(
 
   // set diameters
   std::vector<double> diameters = system->getDiameters();
-  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
-    throw std::invalid_argument(
-      "Packing fraction, system size, and diameters are not consistent.");
-  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -1541,10 +1516,6 @@ SystemN::SystemN(
   dumpFrame(-1) {
 
   // set diameters
-  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
-    throw std::invalid_argument(
-      "Packing fraction, system size, and diameters are not consistent.");
-  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -1609,10 +1580,6 @@ SystemN::SystemN(
 
   // set diameters
   std::vector<double> diameters = inputDat.getDiameters();
-  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
-    throw std::invalid_argument(
-      "Packing fraction, system size, and diameters are not consistent.");
-  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -1691,10 +1658,6 @@ SystemN::SystemN(
 
   // set diameters
   std::vector<double> diameters = inputDat.getDiameters();
-  if ( getL(getPackingFraction(), diameters) != getSystemSize() ) {
-    throw std::invalid_argument(
-      "Packing fraction, system size, and diameters are not consistent.");
-  }
   for (int i=0; i < getNumberParticles(); i++) {
     particles.push_back(Particle(diameters[i]));
   }
@@ -2222,6 +2185,26 @@ void Rotors::saveNewState(std::vector<double>& newOrientations) {
 ///////////////
 // FUNCTIONS //
 ///////////////
+
+double getL_WCA(double phi, std::vector<double> const& diameters) {
+  // Returns the length of a square system with packing fraction `phi'
+  // containing particles with `diameters', considering the actual diameter
+  // as the WCA diameter of interaction.
+
+  double totalArea = 0.;
+  for (auto i = diameters.begin(); i != diameters.end(); i++) {
+    totalArea += M_PI*pow((*i)*pow(2., 1./6.), 2)/4.;
+  }
+  return sqrt(totalArea/phi);
+}
+
+double getL_WCA(double phi, int N, double diameter) {
+  // Returns the length of a square system with packing fraction `phi'
+  // containing  `N' particles with same `diameter', considering the actual
+  // diameter as the WCA diameter of interaction.
+
+  return getL_WCA(phi, std::vector<double>(N, diameter));
+}
 
 std::vector<double> getOrderParameter(std::vector<Particle>& particles) {
   // Returns order parameter.

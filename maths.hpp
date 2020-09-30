@@ -80,14 +80,6 @@ class Random {
 // PROTOTYPES //
 ////////////////
 
-double getL(double phi, std::vector<double> const& diameters);
-  // Returns the length of a square system with packing fraction `phi'
-  // containing particles with `diameters'.
-
-double getL(double phi, int N, double diameter);
-  // Returns the length of a square system with packing fraction `phi'
-  // containing  `N' particles with same `diameter'.
-
 double getAngle(double cosinus, double signSinus);
   // Returns angle in radians from its cosinus and sign of its sinus.
 

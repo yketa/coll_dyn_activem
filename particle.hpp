@@ -174,15 +174,16 @@ class Parameters {
     Parameters( // using custom dimensionless parameters relations
       int N, double lp, double phi, double dt, double g = 0);
     Parameters( // defining all parameters independently
-      int N, double epsilon, double v0, double D, double Dr, double phi,
-      double L, double dt);
+      int N, double epsilon, double v0, double D, double Dr,
+        double phi, std::vector<double> const& diameters,
+      double dt);
     Parameters( // copy other class
       Parameters const& parameters);
     Parameters( // copy other class
       Parameters* parameters);
 
     Parameters( // copy .dat file
-      const Dat& inputDat, double dt = 0) :
+      Dat const& inputDat, double dt = 0) :
       Parameters(
         inputDat.getNumberParticles(),
         inputDat.getPersistenceLength(),
@@ -190,7 +191,7 @@ class Parameters {
         dt > 0 ? dt : inputDat.getTimeStep(),
         inputDat.getTorqueParameter()) {}
     Parameters( // copy .dat0 file
-      const Dat0& inputDat, double dt = 0) :
+      Dat0 const& inputDat, double dt = 0) :
       Parameters(
         inputDat.getNumberParticles(),
         inputDat.getPotentialParameter(),
@@ -198,10 +199,10 @@ class Parameters {
         inputDat.getTransDiffusivity(),
         inputDat.getRotDiffusivity(),
         inputDat.getPackingFraction(),
-        inputDat.getSystemSize(),
+        inputDat.getDiameters(),
         dt > 0 ? dt : inputDat.getTimeStep()) {}
     Parameters( // copy .datN files
-      const DatN& inputDat, double dt = 0) :
+      DatN const& inputDat, double dt = 0) :
       Parameters(
         inputDat.getNumberParticles(),
         inputDat.getPotentialParameter(),
@@ -209,7 +210,7 @@ class Parameters {
         inputDat.getTransDiffusivity(),
         inputDat.getRotDiffusivity(),
         inputDat.getPackingFraction(),
-        inputDat.getSystemSize(),
+        inputDat.getDiameters(),
         dt > 0 ? dt : inputDat.getTimeStep()) {}
 
     // METHODS
@@ -871,6 +872,16 @@ class Rotors {
 // PROTOTYPES //
 ////////////////
 
+double getL_WCA(double phi, std::vector<double> const& diameters);
+  // Returns the length of a square system with packing fraction `phi'
+  // containing particles with `diameters', considering the actual diameter
+  // as the WCA diameter of interaction.
+
+double getL_WCA(double phi, int N, double diameter = 1);
+  // Returns the length of a square system with packing fraction `phi'
+  // containing  `N' particles with same `diameter', considering the actual
+  // diameter as the WCA diameter of interaction.
+
 std::vector<double> getOrderParameter(std::vector<Particle>& particles);
   // Returns order parameter.
 
@@ -1043,11 +1054,9 @@ template<class SystemClass> void WCA_force(
     + (system->getParticle(index2))->diameter())/2.0; // equivalent diameter
 
   if (dist/sigma < pow(2., 1./6.)) { // distance lower than cut-off
-  // if (dist/sigma < 1) {
 
     // compute force
     double coeff =
-      // (12.0/pow(dist/sigma, 14.0) - 12.0/pow(dist/sigma, 8.0))/pow(sigma, 2.0);
       (48.0/pow(dist/sigma, 14.0) - 24.0/pow(dist/sigma, 8.0))/pow(sigma, 2.0);
     for (int dim=0; dim < 2; dim++) {
       force[dim] = diffPeriodic<SystemClass>(system,

@@ -52,13 +52,13 @@ int main() {
     double Dr = getEnvDouble("DR", 1.0/2.0); // rotational diffusivity
     double epsilon = getEnvDouble("EPSILON", Dr/3.0); // coefficient parameter of potential
     double D = getEnvDouble("D", epsilon); // translational diffusivity
-    double v0 = getEnvDouble("V0",
+    double v0 =
       #if AOUP // simulation of AOUPs
-      0
+      sqrt(D*Dr)
       #else // simulation of ABPs (default)
-      1
+      getEnvDouble("V0", 1)
       #endif
-    ); // self-propulsion velocity
+    ; // self-propulsion velocity
     double phi = getEnvDouble("PHI", 0.02); // packing fraction
 
     // diameters
@@ -73,10 +73,9 @@ int main() {
     Random randomGenerator(seed);
     std::random_shuffle(diameters.begin(), diameters.end(),
       [&randomGenerator](int max) { return randomGenerator.randomInt(max); });
-    // system size
-    double L = getL(phi, diameters);
 
-    Parameters parameters(N, epsilon, v0, D, Dr, phi, L, dt); // class of simulation parameters
+    Parameters parameters(
+      N, epsilon, v0, D, Dr, phi, diameters, dt); // class of simulation parameters
 
     // system
     System0 system(
