@@ -114,9 +114,7 @@ if __name__ == '__main__':
         Dr = get_env('DR', default=_Dr, vartype=float)                  # rotational diffusivity
         epsilon = get_env('EPSILON', default=Dr/3., vartype=float)      # coefficient parameter of potential
         D = get_env('D', default=epsilon, vartype=float)                # translational diffusivity
-        v0 = get_env('V0',                                              # self-propulsion velocity
-            default=(0 if type == 'AOUP' else _v0),
-            vartype=float)
+        v0 = get_env('V0', default=_v0, vartype=float)                  # self-propulsion velocity
         phi = get_env('PHI', default=_phi, vartype=float)               # packing fraction
         I = get_env('I', default=_I, vartype=float)                     # polydispersity index
 
@@ -168,7 +166,8 @@ if __name__ == '__main__':
     proc = Popen(
         ['{ %s; }' % str(' ').join(['setsid', path.join(exec_dir, exec_name)])],
         stdout=DEVNULL, shell=True, env={
-            'N': str(N), 'EPSILON': str(epsilon), 'V0': str(v0), 'D': str(D),
+            'N': str(N), 'EPSILON': str(epsilon),
+                'V0': str(0 if type == 'AOUP' else v0), 'D': str(D),
                 'DR': str(Dr), 'PHI': str(phi), 'I': str(I),
             'INPUT_FILENAME': str(inputFilename),
             'INPUT_FRAME': str(inputFrame),
