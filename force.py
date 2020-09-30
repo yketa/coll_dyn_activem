@@ -341,10 +341,7 @@ class Force(Dat):
 
         dist, pos0, pos1 = self.getDistancePositions(time, particle0, particle1)
 
-        if self._type == 'dat':
-            sigma = 1
-        else:
-            sigma = (self.diameters[particle0] + self.diameters[particle1])/2
+        sigma = (self.diameters[particle0] + self.diameters[particle1])/2
 
         if dist/sigma >= 2**(1./6.): return force # distance greater than cut-off
 

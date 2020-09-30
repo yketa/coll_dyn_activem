@@ -120,6 +120,9 @@ class Dat(_Read):
                 self.dumpParticles = self._read('b')    # dump positions and orientations to output file
                 self.dumpPeriod = self._read('i')       # period of dumping of positions and orientations in number of frames
 
+                # DIAMETERS
+                self.diameters = np.full((self.N,), fill_value=1, dtype=float)  # array of diameters
+
                 # FILE PARTS LENGTHS
                 self.headerLength = self.file.tell()                        # length of header in bytes
                 self.particleLength = 5*self._bpe('d')*self.dumpParticles   # length the data of a single particle takes in a frame
@@ -293,8 +296,13 @@ class Dat(_Read):
 
         finally:
 
-            # COMPUTED NORMALISED RATE OF ACTIVE WORK
-            if hasattr(self, '_type'): self._loadWork(load=loadWork)
+            if hasattr(self, '_type'):
+
+                # POLYDISPERSITY
+                self.I = np.sqrt(self.diameters.var())/self.diameters.mean()
+
+                # COMPUTED NORMALISED RATE OF ACTIVE WORK
+                self._loadWork(load=loadWork)
 
     def getWork(self, time0, time1):
         """
