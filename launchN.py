@@ -87,10 +87,7 @@ if __name__ == '__main__':
 
     # INPUT FILE PARAMETERS
     inputFilename = get_env('INPUT_FILENAME', default='', vartype=str)  # input file from which to copy data
-    inputFrame = get_env('INPUT_FRAME', default=0, vartype=int)         # frame to copy as initial frame
-
-    # TYPE
-    type = get_env('TYPE', default='ABP', vartype=str)  # type of active particles
+    inputFrame = get_env('INPUT_FRAME', default=-1, vartype=int)        # frame to copy as initial frame
 
     if inputFilename == '':
 
@@ -114,7 +111,16 @@ if __name__ == '__main__':
             v0 = get_env('V0', default=dat.v0, vartype=float)                   # self-propulsion velocity
             phi = get_env('PHI', default=dat.phi, vartype=float)                # packing fraction
             I = -1                                                              # polydispersity index
+            if inputFrame < 0:
+                try:
+                    inputFrame = dat.frameIndices.max()
+                except AttributeError:
+                    inputFrame = dat.frames - 1
             del dat
+
+    # TYPE
+    type = get_env('TYPE', default='ABP', vartype=str)  # type of active particles
+    if type == 'AOUP': v0 = 0
 
     # SIMULATION PARAMETERS
     seed = get_env('SEED', default=_seed, vartype=int)          # random seed
@@ -151,8 +157,7 @@ if __name__ == '__main__':
     proc = Popen(
         ['{ %s; }' % str(' ').join(['setsid', path.join(exec_dir, exec_name)])],
         stdout=DEVNULL, shell=True, env={
-            'N': str(N), 'EPSILON': str(epsilon),
-                'V0': str(0 if type == 'AOUP' else v0), 'D': str(D),
+            'N': str(N), 'EPSILON': str(epsilon), 'V0': str(v0), 'D': str(D),
                 'DR': str(Dr), 'PHI': str(phi), 'I': str(I),
             'INPUT_FILENAME': str(inputFilename),
             'INPUT_FRAME': str(inputFrame),
