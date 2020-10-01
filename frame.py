@@ -548,6 +548,73 @@ class Order(_Frame):
                 fill=True, border='black',
                 label=self.label)                                   # draw particle circle with color corresponding to bond orientation order parameter norm
 
+class Density(_Frame):
+    """
+    Plotting class specific to 'density' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        arrow_width=_arrow_width,
+        arrow_head_width=_arrow_head_width,
+        arrow_head_length=_arrow_head_length,
+        pad=_colormap_label_pad,
+        label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+    		Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        arrow_width : float
+            Width of the arrows.
+        arrow_head_width : float
+            Width of the arrows' head.
+        arrow_head_length : float
+            Length of the arrows' head.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            arrow_width=arrow_width,
+            arrow_head_width=arrow_head_width,
+            arrow_head_length=arrow_head_length)    # initialise superclass
+
+        self.localDensity = np.abs(
+            Positions(dat.filename).getLocalDensity(frame))
+
+        self.colorbar(0, 1, cmap=plt.cm.inferno)    # add colorbar to figure
+        self.colormap.set_label(                    # colorbar legend
+            r'$\rho_{\mathrm{loc}}$' + ' '
+                + r'$(f_{\rho}=%.3f)$'
+                    % (self.localDensity.min()/self.localDensity.max()),
+            labelpad=pad, rotation=270)
+
+        self.label = label  # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        for particle, density in zip(self.particles, self.localDensity):    # for particle and particle's local density in rendered box
+            self.draw_circle(particle,
+                color=self.scalarMap.to_rgba(density),
+                fill=True, border='black',
+                label=self.label)                                           # draw particle circle with color corresponding to local density
+
 class Bare(_Frame):
     """
     Plotting class specific to 'bare' mode.
@@ -604,6 +671,8 @@ if __name__ == '__main__':  # executing as script
         plotting_object = Velocity
     elif mode == 'order':
         plotting_object = Order
+    elif mode == 'density':
+        plotting_object = Density
     elif mode == 'bare':
         plotting_object = Bare
     else: raise ValueError('Mode %s is not known.' % mode)  # mode is not known
