@@ -63,19 +63,9 @@ int main() {
 
     // diameters
     double I = getEnvDouble("I", 0); // polydispersity index
-    std::vector<double> diameters (N, 1.0); // array of diameters
-    if ( N > 1 ) {
-      for (int i=0; i < N; i++) {
-        diameters[i] = 1 - sqrt(3)*I + 2*sqrt(3)*I*i/(N - 1);
-      }
-    }
-    // randomisation of diameters order
-    Random randomGenerator(seed);
-    std::random_shuffle(diameters.begin(), diameters.end(),
-      [&randomGenerator](int max) { return randomGenerator.randomInt(max); });
+    std::vector<double> diameters = getDiametersI(N, I, seed); // diameters
 
-    Parameters parameters(
-      N, epsilon, v0, D, Dr, phi, diameters, dt); // class of simulation parameters
+    Parameters parameters(N, epsilon, v0, D, Dr, phi, diameters, dt); // class of simulation parameters
 
     // system
     System0 system(

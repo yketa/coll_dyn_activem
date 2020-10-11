@@ -63,16 +63,7 @@ int main() {
 
     // diameters
     double I = getEnvDouble("I", 0); // polydispersity index
-    std::vector<double> diameters (N, 1.0); // array of diameters
-    if ( N > 1 ) {
-      for (int i=0; i < N; i++) {
-        diameters[i] = 1 - sqrt(3)*I + 2*sqrt(3)*I*i/(N - 1);
-      }
-    }
-    // randomisation of diameters order
-    Random randomGenerator(seed);
-    std::random_shuffle(diameters.begin(), diameters.end(),
-      [&randomGenerator](int max) { return randomGenerator.randomInt(max); });
+    std::vector<double> diameters = getDiametersI(N, I, seed); // diameters
 
     Parameters parameters(N, epsilon, v0, D, Dr, phi, diameters, dt); // class of simulation parameters
 
@@ -112,15 +103,41 @@ int main() {
     ; // self-propulsion velocity
     double phi = getEnvDouble("PHI", inputDat.getPackingFraction()); // packing fraction
 
-    Parameters parameters(
-      N, epsilon, v0, D, Dr, phi, inputDat.getDiameters(), dt); // class of simulation parameters
+    // diameters
+    double I = getEnvDouble("I", -1); // polydispersity index
 
-    // system
-    SystemN system(
-      init, Niter, dtMin, &dtMax, nMax, intMax,
-        &time0, &deltat,
-      inputFilename, inputFrame, &parameters, seed, filename); // define system
-    simulate(&system);
+    if ( I >= 0 ) {
+
+      // change diameters
+      std::vector<double> diameters = getDiametersI(N, I, seed);
+      for (auto i=diameters.begin(); i!=diameters.end(); i++) std::cout << *i << std::endl;
+      Parameters parameters(
+        N, epsilon, v0, D, Dr, phi, diameters, dt); // class of simulation parameters
+
+      // system
+      SystemN system(
+        init, Niter, dtMin, &dtMax, nMax, intMax,
+          &time0, &deltat,
+        inputFilename, inputFrame, &parameters,
+          diameters,
+        seed, filename); // define system
+      simulate(&system);
+    }
+    else {
+
+      // keep diameters
+      std::vector<double> diameters = inputDat.getDiameters();
+      Parameters parameters(
+        N, epsilon, v0, D, Dr, phi, diameters, dt); // class of simulation parameters
+
+      // system
+      SystemN system(
+        init, Niter, dtMin, &dtMax, nMax, intMax,
+          &time0, &deltat,
+        inputFilename, inputFrame, &parameters,
+        seed, filename); // define system
+      simulate(&system);
+    }
   }
 
 }
