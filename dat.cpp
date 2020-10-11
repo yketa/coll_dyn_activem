@@ -12,7 +12,7 @@
 
 // CONSTRUCTORS
 
-Dat::Dat(std::string filename, bool loadWork) :
+Dat::Dat(std::string filename, bool loadWork, bool corruption) :
   numberParticles(), persistenceLength(), packingFraction(), systemSize(),
     torqueParameter(), randomSeed(), timeStep(), framesWork(), dumpParticles(),
     dumpPeriod(),
@@ -43,7 +43,7 @@ Dat::Dat(std::string filename, bool loadWork) :
     (input.getFileSize() - headerLength - numberWork*workLength)/frameLength;
 
   // FILE CORRUPTION CHECK
-  if ( input.getFileSize() !=
+  if ( !corruption && input.getFileSize() !=
     headerLength + frames*frameLength + numberWork*workLength ) {
     throw std::invalid_argument("Invalid file size.");
   }
@@ -146,7 +146,7 @@ double Dat::getVelocity(
 
 // CONSTRUCTORS
 
-Dat0::Dat0(std::string filename, bool loadWork) :
+Dat0::Dat0(std::string filename, bool loadWork, bool corruption) :
   numberParticles(), potentialParameter(), propulsionVelocity(),
     transDiffusivity(), rotDiffusivity(), persistenceLength(),
     packingFraction(), systemSize(), randomSeed(), timeStep(), framesWork(),
@@ -188,7 +188,7 @@ Dat0::Dat0(std::string filename, bool loadWork) :
     (input.getFileSize() - headerLength - numberWork*workLength)/frameLength;
 
   // FILE CORRUPTION CHECK
-  if ( input.getFileSize() !=
+  if ( !corruption && input.getFileSize() !=
     headerLength + frames*frameLength + numberWork*workLength ) {
     throw std::invalid_argument("Invalid file size.");
   }
@@ -299,7 +299,7 @@ double Dat0::getPropulsion(
 
 // CONSTRUCTORS
 
-DatN::DatN(std::string filename, bool loadWork) :
+DatN::DatN(std::string filename, bool loadWork, bool corruption) :
   numberParticles(), potentialParameter(), propulsionVelocity(),
     transDiffusivity(), rotDiffusivity(), persistenceLength(),
     packingFraction(), systemSize(), randomSeed(), timeStep(),
@@ -352,7 +352,7 @@ DatN::DatN(std::string filename, bool loadWork) :
   frameLength = numberParticles*particleLength;
 
   // FILE CORRUPTION CHECK
-  if ( input.getFileSize() !=
+  if ( !corruption && input.getFileSize() !=
     headerLength + (frames + 1)*frameLength ) {
     throw std::invalid_argument("Invalid file size.");
   }

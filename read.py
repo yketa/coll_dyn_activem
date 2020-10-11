@@ -97,6 +97,7 @@ class Dat(_Read):
 
         # FILE
         super().__init__(filename)
+        self.corruption = corruption
 
         try:
 
@@ -109,6 +110,7 @@ class Dat(_Read):
 
                 # HEADER INFORMATION
                 self.N = self._read('i')                # number of particles
+                self.epsilon = 1.                       # coefficient parameter of potential
                 self.lp = self._read('d')               # persistence length
                 self.phi = self._read('d')              # packing fraction
                 self.L = self._read('d')                # system size
@@ -141,7 +143,7 @@ class Dat(_Read):
                     - self.numberWork*self.workLength)//self.frameLength    # number of frames which the file contains
 
                 # FILE CORRUPTION CHECK
-                if corruption != 'dat' and self.fileSize != (
+                if self.corruption != 'dat' and self.fileSize != (
                     self.headerLength                   # header
                     + self.frames*self.frameLength      # frames
                     + self.numberWork*self.workLength): # work sums
@@ -204,7 +206,7 @@ class Dat(_Read):
                     - self.numberWork*self.workLength)//self.frameLength    # number of frames which the file contains
 
                 # FILE CORRUPTION CHECK
-                if corruption != 'dat0' and self.fileSize != (
+                if self.corruption != 'dat0' and self.fileSize != (
                     self.headerLength                   # header
                     + self.frames*self.frameLength      # frames
                     + self.numberWork*self.workLength): # work sums
@@ -275,7 +277,7 @@ class Dat(_Read):
                 self.workLength = 0*self._bpe('d')                          # length the data of a single work and order parameter dump takes in a file
 
                 # FILE CORRUPTION CHECK
-                if corruption != 'datN' and self.fileSize != (
+                if self.corruption != 'datN' and self.fileSize != (
                     self.headerLength                   # header
                     + self.frames*self.frameLength):    # frames
                     del self._type
