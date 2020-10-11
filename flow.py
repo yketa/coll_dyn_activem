@@ -27,7 +27,7 @@ class Displacements(Dat):
     (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
     """
 
-    def __init__(self, filename, skip=1):
+    def __init__(self, filename, skip=1, corruption=None):
         """
         Loads file.
 
@@ -39,9 +39,14 @@ class Displacements(Dat):
             Skip the `skip' first computed frames in the following calculations.
             (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+        corruption : str or None
+            Pass corruption test for given file type (see
+            coll_dyn_activem.read.Dat). (default: None)
+            NOTE: if corruption == None, then the file has to pass corruption
+                  tests.
         """
 
-        super().__init__(filename, loadWork=False) # initialise with super class
+        super().__init__(filename, loadWork=False, corruption=corruption)   # initialise with super class
 
         self.skip = skip    # skip the `skip' first frames (or blocks for .datN files) in the analysis
 
@@ -603,7 +608,7 @@ class Velocities(Dat):
     (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
     """
 
-    def __init__(self, filename, skip=1):
+    def __init__(self, filename, skip=1, corruption=None):
         """
         Loads file.
 
@@ -615,9 +620,14 @@ class Velocities(Dat):
             Skip the `skip' first computed frames in the following calculations.
             (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+        corruption : str or None
+            Pass corruption test for given file type (see
+            coll_dyn_activem.read.Dat). (default: None)
+            NOTE: if corruption == None, then the file has to pass corruption
+                  tests.
         """
 
-        super().__init__(filename, loadWork=False)  # initialise with super class
+        super().__init__(filename, loadWork=False, corruption=corruption)   # initialise with super class
 
         self.skip = skip    # skip the `skip' first frames in the analysis
 
@@ -774,7 +784,7 @@ class Orientations(Dat):
     (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
     """
 
-    def __init__(self, filename, skip=1):
+    def __init__(self, filename, skip=1, corruption=None):
         """
         Loads file.
 
@@ -786,9 +796,14 @@ class Orientations(Dat):
             Skip the `skip' first computed frames in the following calculations.
             (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+        corruption : str or None
+            Pass corruption test for given file type (see
+            coll_dyn_activem.read.Dat). (default: None)
+            NOTE: if corruption == None, then the file has to pass corruption
+                  tests.
         """
 
-        super().__init__(filename, loadWork=False)  # initialise with super class
+        super().__init__(filename, loadWork=False, corruption=corruption)   # initialise with super class
 
         self.skip = skip    # skip the `skip' first frames in the analysis
 
@@ -1034,7 +1049,7 @@ class Propulsions(Dat):
     (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
     """
 
-    def __init__(self, filename, skip=1):
+    def __init__(self, filename, skip=1, corruption=None):
         """
         Loads file.
 
@@ -1046,9 +1061,14 @@ class Propulsions(Dat):
             Skip the `skip' first computed frames in the following calculations.
             (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+        corruption : str or None
+            Pass corruption test for given file type (see
+            coll_dyn_activem.read.Dat). (default: None)
+            NOTE: if corruption == None, then the file has to pass corruption
+                  tests.
         """
 
-        super().__init__(filename, loadWork=False)  # initialise with super class
+        super().__init__(filename, loadWork=False, corruption=corruption)   # initialise with super class
 
         self.skip = skip    # skip the `skip' first frames in the analysis
 

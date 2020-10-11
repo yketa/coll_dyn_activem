@@ -11,6 +11,8 @@ from coll_dyn_activem.maths import g2Dto1D, g2Dto1Dgrid, wave_vectors_2D,\
 
 import numpy as np
 
+from operator import itemgetter
+
 from freud.locality import Voronoi
 from freud.box import Box
 
@@ -21,7 +23,7 @@ class Positions(Dat):
     (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
     """
 
-    def __init__(self, filename, skip=1):
+    def __init__(self, filename, skip=1, corruption=None):
         """
         Loads file.
 
@@ -33,9 +35,14 @@ class Positions(Dat):
             Skip the `skip' first computed frames in the following calculations.
             (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+        corruption : str or None
+            Pass corruption test for given file type (see
+            coll_dyn_activem.read.Dat). (default: None)
+            NOTE: if corruption == None, then the file has to pass corruption
+                  tests.
         """
 
-        super().__init__(filename, loadWork=False) # initialise with super class
+        super().__init__(filename, loadWork=False, corruption=corruption)   # initialise with super class
 
         self.skip = skip    # skip the `skip' first frames in the analysis
 
@@ -117,7 +124,7 @@ class Positions(Dat):
 
         return neighbours
 
-    def getBondOrderParameter(self, time):
+    def getBondOrderParameter(self, time, *particle):
         """
         Get bond orientational order parameter at `time'.
 
@@ -127,6 +134,9 @@ class Positions(Dat):
         ----------
         time : int
             Frame index.
+        particle : int
+            Indexes of particles.
+            NOTE: if none is given, then all particles are returned.
 
         Returns
         -------
@@ -144,7 +154,8 @@ class Positions(Dat):
                     self._diffPeriodic(positions[i][1], positions[j][1])))
             psi[i] /= len(neighbours[i])
 
-        return psi
+        if particle == (): return psi
+        return np.array(itemgetter(*particle)(psi))
 
     def nPositions(self, int_max=None):
         """

@@ -18,7 +18,7 @@ class ActiveWork(Dat):
     (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
     """
 
-    def __init__(self, filename, workPart='all', skip=1):
+    def __init__(self, filename, workPart='all', skip=1, corruption=None):
         """
         Loads file.
 
@@ -38,9 +38,14 @@ class ActiveWork(Dat):
             Skip the `skip' first computed values of the active work in the
             following calculations. (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+        corruption : str or None
+            Pass corruption test for given file type (see
+            coll_dyn_activem.read.Dat). (default: None)
+            NOTE: if corruption == None, then the file has to pass corruption
+                  tests.
         """
 
-        super().__init__(filename)  # initialise with super class
+        super().__init__(filename, loadWork=True, corruption=corruption)    # initialise with super class
 
         self.workDict = {   # hash table of active work parts
             'all': self.activeWork,

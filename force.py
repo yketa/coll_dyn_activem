@@ -6,6 +6,7 @@ correlations with orientation.
 import numpy as np
 
 from collections import OrderedDict
+from operator import itemgetter
 
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.maths import linspace, logspace, mean_sterr
@@ -15,7 +16,7 @@ class Force(Dat):
     Compute and analyse force from simulation data.
     """
 
-    def __init__(self, filename, skip=1):
+    def __init__(self, filename, skip=1, from_velocity=False, corruption=None):
         """
         Loads file.
 
@@ -27,13 +28,23 @@ class Force(Dat):
             Skip the `skip' first computed values of the active work in the
             following calculations. (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+        from_velocity : bool
+            Use the velocity as a proxy to the force by substracting it the
+            self-propulsion (this is exact if there is no translational noise).
+            (default: False)
+        corruption : str or None
+            Pass corruption test for given file type (see
+            coll_dyn_activem.read.Dat). (default: None)
+            NOTE: if corruption == None, then the file has to pass corruption
+                  tests.
         """
 
-        super().__init__(filename, loadWork=False)  # initialise with super class
+        super().__init__(filename, loadWork=False, corruption=corruption)   # initialise with super class
 
-        self.skip = skip    # skip the `skip' first measurements of the active work in the analysis
+        self.skip = skip                    # skip the `skip' first measurements of the active work in the analysis
+        self.from_velocity = from_velocity  # compute force from velocity
 
-    def getForce(self, time):
+    def getForce(self, time, *particle, norm=False):
         """
         Returns forces exerted on every particles at time `time'.
 
@@ -41,20 +52,37 @@ class Force(Dat):
         ----------
         time : int
             Index of the frame.
+        particle : int
+            Indexes of particles.
+            NOTE: if none is given, then all particles are returned.
+        norm : bool
+            Return norm of forces rather than 2D force.
+            (default: False)
 
         Returns
         -------
-        forces : (self.N, 2) float numpy array
+        forces : [not(norm)] (self.N, 2) float numpy array
+                 [norm] (self.N,) float numpy array
             Forces exerted on every particles.
         """
 
-        forces = np.full((self.N, 2), fill_value=0, dtype='float64')
-        for i in range(self.N):
-            for j in range(1, self.N):
-                force = self._WCA(time, i, j)
-                forces[i] += force
-                forces[j] -= force
+        if particle == (): particle = range(self.N)
 
+        if self.from_velocity:
+            forces = (
+                self.getVelocities(time, *particle)
+                - self.getPropulsions(time, *particle))
+
+        else:
+            forces = np.full((self.N, 2), fill_value=0, dtype='float64')
+            for i in range(self.N):
+                for j in range(1 + i, self.N):
+                    force = self._WCA(time, i, j)
+                    forces[i] += force
+                    forces[j] -= force
+            forces = np.array(itemgetter(*particle)(forces))
+
+        if norm: return np.sqrt((forces**2).sum(axis=-1))
         return forces
 
     def corForceForce(self,
@@ -349,4 +377,4 @@ class Force(Dat):
             np.array([
                 self._diffPeriodic(pos1[0], pos0[0]),
                 self._diffPeriodic(pos1[1], pos0[1])]))
-        return force
+        return self.epsilon*force
