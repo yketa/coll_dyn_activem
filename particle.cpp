@@ -242,7 +242,7 @@ System::System(
   }
 
   // initialise cell list
-  cellList.initialise<System>(this, pow(2., 1./6.));
+  cellList.initialise<System>(this);
 }
 
 System::System(
@@ -278,7 +278,7 @@ System::System(
   output.close();
 
   // initialise cell list
-  cellList.initialise<System>(this, pow(2., 1./6.));
+  cellList.initialise<System>(this);
   // copy positions and orientations and update cell list
   copyState(system);
   // copy dumps
@@ -342,7 +342,7 @@ System::System(
   output.close();
 
   // initialise cell list
-  cellList.initialise<System>(this, pow(2., 1./6.));
+  cellList.initialise<System>(this);
 }
 
 // DESTRUCTORS
@@ -352,6 +352,9 @@ System::~System() {}
 // METHODS
 
 Parameters* System::getParameters() { return &param; }
+std::vector<double> System::getDiameters() const {
+  return std::vector<double> (getNumberParticles(), 1.0);
+}
 
 int System::getNumberParticles() const {
   return param.getNumberParticles(); }
@@ -769,8 +772,7 @@ System0::System0(
   }
 
   // initialise cell list
-  double maxDiameter = 1.0; // maximum diameter
-  cellList.initialise<System0>(this, pow(2.0*maxDiameter, 1./6.));
+  cellList.initialise<System0>(this);
 }
 
 System0::System0(
@@ -830,8 +832,7 @@ System0::System0(
   }
 
   // initialise cell list
-  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
-  cellList.initialise<System0>(this, pow(2.0*maxDiameter, 1./6.));
+  cellList.initialise<System0>(this);
 }
 
 System0::System0(
@@ -876,8 +877,7 @@ System0::System0(
   }
 
   // initialise cell list
-  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
-  cellList.initialise<System0>(this, pow(2.0*maxDiameter, 1./6.));
+  cellList.initialise<System0>(this);
   // copy positions, orientations, and self-propulsion vectors, and update cell list
   copyState(system);
   // copy dumps
@@ -925,8 +925,7 @@ System0::System0(
   }
 
   // initialise cell list
-  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
-  cellList.initialise<System0>(this, pow(2.0*maxDiameter, 1./6.));
+  cellList.initialise<System0>(this);
   // copy positions, orientations, and self-propulsion vectors, and update cell list
   copyState(system);
   // copy dumps
@@ -997,8 +996,7 @@ System0::System0(
   }
 
   // initialise cell list
-  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
-  cellList.initialise<System0>(this, pow(2.0*maxDiameter, 1./6.));
+  cellList.initialise<System0>(this);
 }
 
 // DESTRUCTORS
@@ -1205,6 +1203,15 @@ void System0::saveNewState(std::vector<Particle>& newParticles) {
 
     // DUMP
 
+    // VELOCITIES
+    if ( dumpParticles && (dumpFrame - 1) % dumpPeriod == 0 ) {
+      for (int dim=0; dim < 2; dim++) {
+        output.write<double>(
+          particles[i].velocity()[dim],
+          velocitiesDumps[i] + dim*sizeof(double));
+      }
+    }
+
     if ( dumpParticles && dumpFrame % dumpPeriod == 0 ) {
       // WRAPPED POSITION
       for (int dim=0; dim < 2; dim++) {
@@ -1225,15 +1232,6 @@ void System0::saveNewState(std::vector<Particle>& newParticles) {
       for (int dim=0; dim < 2; dim++) {
         output.write<double>(newParticles[i].position()[dim]
           + particles[i].cross()[dim]*getSystemSize());
-      }
-    }
-
-    // VELOCITIES
-    if ( dumpParticles && (dumpFrame - 1) % dumpPeriod == 0 ) {
-      for (int dim=0; dim < 2; dim++) {
-        output.write<double>(
-          particles[i].velocity()[dim],
-          velocitiesDumps[i] + dim*sizeof(double));
       }
     }
   }
@@ -1365,8 +1363,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  double maxDiameter = 1.0; // maximum diameter
-  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+  cellList.initialise<SystemN>(this);
 }
 
 SystemN::SystemN(
@@ -1437,8 +1434,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
-  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+  cellList.initialise<SystemN>(this);
 }
 
 SystemN::SystemN(
@@ -1493,8 +1489,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
-  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+  cellList.initialise<SystemN>(this);
   // copy positions, orientations, and self-propulsion vectors, and update cell list
   copyState(system);
   // copy dumps
@@ -1553,8 +1548,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
-  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+  cellList.initialise<SystemN>(this);
   // copy positions, orientations, and self-propulsion vectors, and update cell list
   copyState(system);
   // copy dumps
@@ -1635,8 +1629,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
-  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+  cellList.initialise<SystemN>(this);
 }
 
 SystemN::SystemN(
@@ -1655,6 +1648,7 @@ SystemN::SystemN(
 
   // load data
   DatN inputDat(inputFilename, false); // data object
+  double ratioSystemSize = getSystemSize()/inputDat.getSystemSize(); // ratio from old to new system size
 
   // set diameters
   std::vector<double> diameters = inputDat.getDiameters();
@@ -1669,7 +1663,8 @@ SystemN::SystemN(
   for (int i=0; i < getNumberParticles(); i++) {
     // positions
     for (int dim=0; dim < 2; dim++) {
-      particles[i].position()[dim] = inputDat.getPosition(inputFrame, i, dim);
+      particles[i].position()[dim] =
+        ratioSystemSize*inputDat.getPosition(inputFrame, i, dim);
     }
     // orientations
     particles[i].orientation()[0] = inputDat.getOrientation(inputFrame, i);
@@ -1719,8 +1714,95 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  double maxDiameter = *std::max_element(diameters.begin(), diameters.end()); // maximum diameter
-  cellList.initialise<SystemN>(this, pow(2.0*maxDiameter, 1./6.));
+  cellList.initialise<SystemN>(this);
+}
+
+SystemN::SystemN(
+  int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+    std::vector<int>* time0, std::vector<int>* deltat,
+  std::string inputFilename, int inputFrame, Parameters* parameters,
+    std::vector<double> const diameters,
+  int seed, std::string filename) :
+  frameIndices(
+    getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
+  param(parameters),
+  randomSeed(seed), randomGenerator(randomSeed),
+  particles(0),
+  cellList(),
+  output(filename), velocitiesDumps(0),
+  dumpFrame(-1) {
+
+  // load data
+  DatN inputDat(inputFilename, false); // data object
+  double ratioSystemSize = getSystemSize()/inputDat.getSystemSize(); // ratio from old to new system size
+
+  // set diameters
+  if ( getL_WCA(getPackingFraction(), diameters) != getSystemSize() ) {
+    throw std::invalid_argument("Unconsistent diameters.");
+  }
+  for (int i=0; i < getNumberParticles(); i++) {
+    particles.push_back(Particle(diameters[i]));
+  }
+
+  // resize velocity dumps
+  velocitiesDumps.resize(getNumberParticles()); // resize vector of locations of velocity dumps
+
+  // set positions and orientations
+  for (int i=0; i < getNumberParticles(); i++) {
+    // positions
+    for (int dim=0; dim < 2; dim++) {
+      particles[i].position()[dim] =
+        ratioSystemSize*inputDat.getPosition(inputFrame, i, dim);
+    }
+    // orientations
+    particles[i].orientation()[0] = inputDat.getOrientation(inputFrame, i);
+    // self-propulsion vector
+    for (int dim=0; dim < 2; dim++) {
+      particles[i].propulsion()[dim] =
+        inputDat.getPropulsion(inputFrame, i, dim);
+    }
+  }
+  #if AOUP // system of AOUPs
+  if ( getTransDiffusivity() != inputDat.getTransDiffusivity()
+    || getRotDiffusivity() != inputDat.getRotDiffusivity() ) {
+    initPropulsionAOUP<SystemN>(this);
+  }
+  #endif
+
+  // write header with system parameters to output file
+  output.write<int>(getNumberParticles());
+  output.write<double>(getPotentialParameter());
+  output.write<double>(getPropulsionVelocity());
+  output.write<double>(getTransDiffusivity());
+  output.write<double>(getRotDiffusivity());
+  output.write<double>(getPersistenceLength());
+  output.write<double>(getPackingFraction());
+  output.write<double>(getSystemSize());
+  output.write<int>(randomSeed);
+  output.write<double>(getTimeStep());
+
+  // write frames
+  output.write<int>(time0->size()); // number of initial frames
+  for (auto t0 = time0->begin(); t0 != time0->end(); t0++) {
+    output.write<int>(*t0); // frame index
+  }
+  output.write<int>(deltat->size()); // number of lag times
+  for (auto t = deltat->begin(); t != deltat->end(); t++) {
+    output.write<int>(*t); // lag time
+  }
+  output.write<int>(frameIndices.size()); // number of frames
+  for (std::vector<int>::const_iterator frame = frameIndices.begin();
+    frame != frameIndices.end(); frame++) {
+    output.write<int>(*frame); // frame index
+  }
+
+  // write particles' diameters
+  for (int i=0; i < getNumberParticles(); i++) {
+    output.write<double>(getParticle(i)->diameter());
+  }
+
+  // initialise cell list
+  cellList.initialise<SystemN>(this);
 }
 
 // DESTRUCTORS
@@ -1882,6 +1964,15 @@ void SystemN::saveNewState(std::vector<Particle>& newParticles) {
 
     // DUMP
 
+    // VELOCITIES
+    if ( isInSortedVec<int>(&frameIndices, dumpFrame - 1) || dumpFrame == 1 ) {
+      for (int dim=0; dim < 2; dim++) {
+        output.write<double>(
+          particles[i].velocity()[dim],
+          velocitiesDumps[i] + dim*sizeof(double));
+      }
+    }
+
     if ( isInSortedVec<int>(&frameIndices, dumpFrame) ) {
       // WRAPPED POSITION
       for (int dim=0; dim < 2; dim++) {
@@ -1905,14 +1996,6 @@ void SystemN::saveNewState(std::vector<Particle>& newParticles) {
       }
     }
 
-    // VELOCITIES
-    if ( isInSortedVec<int>(&frameIndices, dumpFrame - 1) ) {
-      for (int dim=0; dim < 2; dim++) {
-        output.write<double>(
-          particles[i].velocity()[dim],
-          velocitiesDumps[i] + dim*sizeof(double));
-      }
-    }
   }
 
   /////////////
@@ -2204,6 +2287,25 @@ double getL_WCA(double phi, int N, double diameter) {
   // diameter as the WCA diameter of interaction.
 
   return getL_WCA(phi, std::vector<double>(N, diameter));
+}
+
+std::vector<double> getDiametersI(int N, double I, int seed) {
+  // Returns vector of `N' uniformly distributed diameters with polydispersity
+  // index `I'.
+
+  // array of diameters
+  std::vector<double> diameters (N, 1.0);
+  if ( N > 1 ) {
+    for (int i=0; i < N; i++) {
+      diameters[i] = 1 - sqrt(3)*I + 2*sqrt(3)*I*i/(N - 1);
+    }
+  }
+  // randomisation of diameters order
+  Random randomGenerator(seed);
+  std::random_shuffle(diameters.begin(), diameters.end(),
+    [&randomGenerator](int max) { return randomGenerator.randomInt(max); });
+
+  return diameters;
 }
 
 std::vector<double> getOrderParameter(std::vector<Particle>& particles) {

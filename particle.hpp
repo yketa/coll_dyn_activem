@@ -96,12 +96,13 @@ class CellList {
     int getNumberBoxes(); // return number of boxes in each dimension
     std::vector<int>* getCell(int const& index); // return pointer to vector of indexes in cell
 
-    template<class SystemClass> void initialise(
-      SystemClass* system, double const& rcut) {
+    template<class SystemClass> void initialise(SystemClass* system) {
       // Initialise cell list.
 
       // parameters of cell list
-      cutOff = rcut;
+      std::vector<double> diameters = system->getDiameters();
+      cutOff = (*std::max_element(diameters.begin(), diameters.end()))
+        *pow(2.0, 1./6.);
       numberBoxes = std::max((int) (system->getSystemSize()/cutOff), 1);
       sizeBox = system->getSystemSize()/numberBoxes;
 
@@ -321,6 +322,7 @@ class System {
     // METHODS
 
     Parameters* getParameters(); // returns pointer to class of parameters
+    std::vector<double> getDiameters() const; // returns vector of diameters
 
     int getNumberParticles() const; // returns number of particles
     double getPersistenceLength() const; // returns dimensionless persistence length
@@ -645,6 +647,12 @@ class SystemN {
         std::vector<int>* time0, std::vector<int>* deltat,
       std::string inputFilename, int inputFrame = 0, Parameters* parameters = 0,
       int seed = 0, std::string filename = "");
+    SystemN(
+      int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+        std::vector<int>* time0, std::vector<int>* deltat,
+      std::string inputFilename, int inputFrame = 0, Parameters* parameters = 0,
+        std::vector<double> const diameters = {0},
+      int seed = 0, std::string filename = "");
 
     // DESTRUCTORS
 
@@ -881,6 +889,10 @@ double getL_WCA(double phi, int N, double diameter = 1);
   // Returns the length of a square system with packing fraction `phi'
   // containing  `N' particles with same `diameter', considering the actual
   // diameter as the WCA diameter of interaction.
+
+std::vector<double> getDiametersI(int N, double I, int seed = 0);
+  // Returns vector of `N' uniformly distributed diameters with polydispersity
+  // index `I'.
 
 std::vector<double> getOrderParameter(std::vector<Particle>& particles);
   // Returns order parameter.
