@@ -9,6 +9,7 @@ from coll_dyn_activem.init import get_env, mkdir
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.maths import normalise1D, amplogwidth
 from coll_dyn_activem.structure import Positions
+from coll_dyn_activem.force import Force
 
 from os import getcwd
 from os import environ as envvar
@@ -99,11 +100,13 @@ class _Frame:
             bottom=True, top=True, left=True, right=True)
         self.fig.subplots_adjust(top=0.80)
 
-        self.positions = dat.getPositions(frame, centre=centre) # particles' positions at frame frame with centre as centre of frame
-        self.diameters = dat.diameters                          # particles' diameters
+        self.dat = dat
+        self.positions = self.dat.getPositions(frame, centre=centre)    # particles' positions at frame frame with centre as centre of frame
+        self.diameters = self.dat.diameters                             # particles' diameters
 
         self.particles = [particle for particle in range(len(self.positions))
-            if (np.abs(self.positions[particle]) <= box_size/2).all()]  # particles inside box of centre centre and length box_size
+            if (np.abs(self.positions[particle]) <= self.box_size/2
+                + self.diameters.reshape((self.dat.N, 1))/2).all()] # particles inside box of centre centre and length box_size
 
         self.arrow_width = arrow_width
         self.arrow_head_width = arrow_head_width
@@ -160,11 +163,17 @@ class _Frame:
 
         for dim in range(2):
             if (np.abs(self.positions[particle][dim]) >
-                self.box_size/2 - self.diameters[particle]/2):
+                self.dat.L/2 - self.diameters[particle]/2):
                 newPosition = self.positions[particle].copy()
                 newPosition[dim] -= (np.sign(self.positions[particle][dim])
-                    *self.box_size)
+                    *self.dat.L)
                 _draw_circle(newPosition)
+        if (np.abs(self.positions[particle]) >
+            self.dat.L/2 - self.diameters[particle]/2).all():
+            newPosition = self.positions[particle].copy()
+            newPosition -= (np.sign(self.positions[particle])
+                *self.dat.L)
+            _draw_circle(newPosition)
 
         if label:
             self.ax.annotate(
@@ -482,6 +491,95 @@ class Velocity(_Frame):
             self.draw_arrow(particle,
                 *normalise1D(velocity)*0.75*self.diameters[particle])   # draw velocity direction arrow
 
+class Interaction(_Frame):
+    """
+    Plotting class specific to 'interaction' mode.
+
+    Uses the velocity as a proxy to the force (exact if there is no
+    translational noise.)
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        arrow_width=_arrow_width,
+        arrow_head_width=_arrow_head_width,
+        arrow_head_length=_arrow_head_length,
+        pad=_colormap_label_pad,
+        label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+    		Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        arrow_width : float
+            Width of the arrows.
+        arrow_head_width : float
+            Width of the arrows' head.
+        arrow_head_length : float
+            Length of the arrows' head.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        vmin : float
+            Minimum value of the colorbar.
+        vmax : float
+            Maximum value of the colorbar.
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            arrow_width=arrow_width,
+            arrow_head_width=arrow_head_width,
+            arrow_head_length=arrow_head_length)    # initialise superclass
+
+        self.forces = Force(dat.filename,
+            from_velocity=True, corruption=dat.corruption).getForce(
+                frame, *self.particles) # particles' forces at frame
+
+        self.vmin, self.vmax = amplogwidth(self.forces)
+        try:
+            self.vmin = np.log10(kwargs['vmin'])
+        except (KeyError, AttributeError, TypeError): pass  # 'vmin' not in keyword arguments or None
+        try:
+            self.vmax = np.log10(kwargs['vmax'])
+        except (KeyError, AttributeError, TypeError): pass  # 'vmax' not in keyword arguments or None
+
+        self.colorbar(self.vmin, self.vmax) # add colorbar to figure
+        self.colormap.set_label(            # colorbar
+            r'$\log_{10}||\vec{F}_i(t)||$',
+            # r'$\log_{10}||\boldsymbol{v}_i(t)||$',
+            labelpad=pad, rotation=270)
+
+        self.label = label  # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        for particle, force in zip(
+            self.particles, self.forces):                           # for particle and particle's force in rendered box
+            self.draw_circle(particle,
+                color=self.scalarMap.to_rgba(
+                    np.log10(np.linalg.norm(force))),
+                fill=True,
+                label=self.label)                                   # draw particle circle with color corresponding to velocity amplitude
+            self.draw_arrow(particle,
+                *normalise1D(force)*0.75*self.diameters[particle])  # draw velocity direction arrow
+
 class Order(_Frame):
     """
     Plotting class specific to 'order' mode.
@@ -525,7 +623,9 @@ class Order(_Frame):
             arrow_head_length=arrow_head_length)    # initialise superclass
 
         self.bondOrder = np.abs(
-            Positions(dat.filename).getBondOrderParameter(frame))
+            Positions(
+                dat.filename, corruption=dat.corruption).getBondOrderParameter(
+                    frame, *self.particles))
 
         self.colorbar(0, 1, cmap=plt.cm.inferno)    # add colorbar to figure
         self.colormap.set_label(                    # colorbar legend
@@ -591,7 +691,8 @@ class Density(_Frame):
             arrow_head_length=arrow_head_length)    # initialise superclass
 
         self.localDensity = np.abs(
-            Positions(dat.filename).getLocalDensity(frame))
+            Positions(
+                dat.filename, corruption=dat.corruption).getLocalDensity(frame))
 
         self.colorbar(0, 1, cmap=plt.cm.inferno)    # add colorbar to figure
         self.colormap.set_label(                    # colorbar legend
@@ -669,6 +770,8 @@ if __name__ == '__main__':  # executing as script
         plotting_object = Displacement
     elif mode == 'velocity':
         plotting_object = Velocity
+    elif mode == 'interaction':
+        plotting_object = Interaction
     elif mode == 'order':
         plotting_object = Order
     elif mode == 'density':
@@ -678,7 +781,8 @@ if __name__ == '__main__':  # executing as script
     else: raise ValueError('Mode %s is not known.' % mode)  # mode is not known
 
     dat_file = get_env('DAT_FILE', default=joinpath(getcwd(), 'out.dat'))   # data file
-    dat = Dat(dat_file, loadWork=False)                                     # data object
+    dat = Dat(dat_file, loadWork=False,
+        corruption=get_env('CORRUPTION', default=None, vartype=str))        # data object
 
     init_frame = get_env('INITIAL_FRAME', default=-1, vartype=int)  # initial frame to render
 
@@ -689,8 +793,13 @@ if __name__ == '__main__':  # executing as script
     centre = (get_env('X_ZERO', default=0, vartype=float),
         get_env('Y_ZERO', default=0, vartype=float))                # centre of the box
 
-    Nentries = dat.frames - 1
-    init_frame = int(Nentries/2) if init_frame < 0 else init_frame    # initial frame to draw
+    try:
+        Nentries = dat.frameIndices[-1]
+        init_frame = dat.frameIndices[-1] if init_frame < 0 else init_frame # initial frame to draw
+        dat._getFrameIndex(init_frame)                                      # throws IndexError if init_frame not in file
+    except AttributeError:
+        Nentries = dat.frames - 1
+        init_frame = int(Nentries/2) if init_frame < 0 else init_frame      # initial frame to draw
 
     # FIGURE PARAMETERS
 
@@ -775,8 +884,12 @@ if __name__ == '__main__':  # executing as script
 
     if get_env('PLOT', default=False, vartype=bool):    # PLOT mode
 
-        Nframes = Nentries - init_frame  # number of frames available for the calculation
-        if mode == 'displacement': dt = Nframes + dt if dt < 0 else dt
+        if mode == 'displacement':
+            try:
+                dt = dt if dt >= 0 else dat.frameIndices[
+                    dat.frameIndices.tolist().index(init_frame) + dt]
+            except AttributeError:
+                dt = dt if dt >=0 else Nentries - init_frame + dt
         else: dt = None
 
         figure = plotting_object(dat, init_frame, box_size, centre,
@@ -821,7 +934,9 @@ if __name__ == '__main__':  # executing as script
             del figure                                      # delete (close) figure
 
         subprocess.call([
-            'ffmpeg', '-r', '5', '-f', 'image2', '-s', '1280x960', '-i',
+            'ffmpeg',
+            '-r', str(get_env('FRAME_RATE', default=5, vartype=int)),
+            '-f', 'image2', '-s', '1280x960', '-i',
             joinpath(movie_dir , 'frames', '%10d.png'),
             '-pix_fmt', 'yuv420p', '-y',
             joinpath(movie_dir, get_env('FIGURE_NAME', default='out.mp4'))
