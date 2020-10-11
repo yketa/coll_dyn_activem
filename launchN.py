@@ -110,7 +110,7 @@ if __name__ == '__main__':
             D = get_env('D', default=dat.D, vartype=float)                      # translational diffusivity
             v0 = get_env('V0', default=dat.v0, vartype=float)                   # self-propulsion velocity
             phi = get_env('PHI', default=dat.phi, vartype=float)                # packing fraction
-            I = -1                                                              # polydispersity index
+            I = get_env('I', default=-1, vartype=float)                         # polydispersity index
             if inputFrame < 0:
                 try:
                     inputFrame = dat.frameIndices.max()
@@ -131,6 +131,17 @@ if __name__ == '__main__':
     dtMax = get_env('LAGMAX', default=_dtMax, vartype=int)      # maximum lag time
     nMax = get_env('NMAX', default=_nMax, vartype=int)          # maximum number of lag times
     intMax = get_env('INTMAX', default=_intMax, vartype=int)    # maximum number of initial times
+    period = get_env('LINEAR', default=None, vartype=int)       # save linearly spaced frames
+    if period != None:
+        if Niter % period:
+            raise ValueError(
+                "No integer multiple of %i frames in a total of %i."
+                    % (period, Niter))
+        else:
+            dtMin = 0
+            dtMax = period
+            nMax = 0
+            intMax = Niter//period
 
     # FIRE ALGORITHM PARAMETERS
     Emin = get_env('EMIN', default=_Emin, vartype=float)            # minimum energy at which to stop the minimisation
