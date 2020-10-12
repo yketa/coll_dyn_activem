@@ -46,64 +46,6 @@ double* Particle::forcep() { return &fp[0]; }; // returns pointer to force appli
 double* Particle::torque() { return &gamma; } // returns pointer to aligning torque (ABP)
 
 
-/*************
- * CELL LIST *
- *************/
-
-// CONSTRUCTORS
-
-CellList::CellList() {}
-
-// DESTRUCTORS
-
-CellList::~CellList() {}
-
-// METHODS
-
-int CellList::getNumberBoxes() { return numberBoxes; } // return number of boxes in each dimension
-std::vector<int>* CellList::getCell(int const &index) {
-  return &cellList[index]; } // return pointer to vector of indexes in cell
-
-int CellList::index(Particle *particle) {
-  // Index of the box corresponding to a given particle.
-
-  int x = (int) ((particle->position())[0]/sizeBox);
-  int y = (int) ((particle->position())[1]/sizeBox);
-  // check values are in {0, ..., numberBoxes - 1}
-  while ( x < 0 ) x += numberBoxes;
-  while ( x >= numberBoxes ) x -= numberBoxes;
-  while ( y < 0 ) y += numberBoxes;
-  while ( y >= numberBoxes ) y -= numberBoxes;
-
-  return x + numberBoxes*y;
-}
-
-std::vector<int> CellList::getNeighbours(Particle *particle) {
-  // Returns vector of indexes of neighbouring particles.
-
-  std::vector<int> neighbours; // vector of neighbouring particles
-
-  int indexParticle = index(particle);
-  int x = indexParticle%numberBoxes;
-  int y = indexParticle/numberBoxes;
-
-  int neighbourIndex;
-  for (int dx=dmin; dx < 2; dx++) {
-    for (int dy=dmin; dy < 2; dy++) {
-      neighbourIndex =
-        (numberBoxes + (x + dx))%numberBoxes
-          + numberBoxes*((numberBoxes + (y + dy))%numberBoxes); // index of neighbouring cell
-      neighbours.insert(
-        std::end(neighbours),
-        std::begin(cellList[neighbourIndex]),
-        std::end(cellList[neighbourIndex])); // add particle indexes of neighbouring cell
-    }
-  }
-
-  return neighbours;
-}
-
-
 /**************
  * PARAMETERS *
  **************/
@@ -186,7 +128,7 @@ System::System() :
   param(new Parameters()),
   randomSeed(0), randomGenerator(),
   particles(0),
-  cellList(),
+  cellList(this),
   output(""), velocitiesDumps(),
   framesWork(0), dumpParticles(0), dumpPeriod(0),
   torqueParameter(0),
@@ -203,7 +145,7 @@ System::System(
   param(parameters),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(parameters->getNumberParticles()),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(parameters->getNumberParticles()),
   framesWork(nWork > 0 ? nWork : (int)
     parameters->getPersistenceLength()/(parameters->getTimeStep()*period)),
@@ -241,7 +183,7 @@ System::System(
   }
 
   // initialise cell list
-  cellList.initialise<System>(this);
+  cellList.initialise();
 }
 
 System::System(
@@ -250,7 +192,7 @@ System::System(
   param(system->getParameters()),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(system->getNumberParticles()),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(system->getNumberParticles()),
   framesWork(nWork > 0 ? nWork : (int)
     system->getPersistenceLength()/(system->getTimeStep()*period)),
@@ -277,7 +219,7 @@ System::System(
   output.close();
 
   // initialise cell list
-  cellList.initialise<System>(this);
+  cellList.initialise();
   // copy positions and orientations and update cell list
   copyState(system);
   // copy dumps
@@ -291,7 +233,7 @@ System::System(
   param(Dat(inputFilename, false), dt),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(0),
   framesWork(nWork > 0 ? nWork : (int)
     getPersistenceLength()/(getTimeStep()*period)),
@@ -341,7 +283,7 @@ System::System(
   output.close();
 
   // initialise cell list
-  cellList.initialise<System>(this);
+  cellList.initialise();
 }
 
 // DESTRUCTORS
@@ -375,7 +317,7 @@ void System::setGenerator(std::default_random_engine rndeng) {
 Particle* System::getParticle(int const& index) { return &(particles[index]); }
 std::vector<Particle> System::getParticles() { return particles; }
 
-CellList* System::getCellList() { return &cellList; }
+CellList<System>* System::getCellList() { return &cellList; }
 
 void System::flushOutputFile() { output.flush(); }
 std::string System::getOutputFile() const { return output.getOutputFile(); }
@@ -464,7 +406,7 @@ void System::copyState(std::vector<Particle>& newParticles) {
   }
 
   // UPDATING CELL LIST
-  cellList.update<System>(this);
+  cellList.update();
 }
 
 void System::copyState(System* system) {
@@ -485,7 +427,7 @@ void System::copyState(System* system) {
   }
 
   // UPDATING CELL LIST
-  cellList.update<System>(this);
+  cellList.update();
 }
 
 void System::saveInitialState() {
@@ -707,7 +649,7 @@ System0::System0() :
   param(new Parameters()),
   randomSeed(0), randomGenerator(),
   particles(0),
-  cellList(),
+  cellList(this),
   output(""), velocitiesDumps(),
   framesWork(0), dumpParticles(0), dumpPeriod(0),
   dumpFrame(-1),
@@ -720,7 +662,7 @@ System0::System0(
   param(parameters),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(parameters->getNumberParticles()),
   framesWork(nWork > 0 ? nWork : (int)
     1/(parameters->getRotDiffusivity()*parameters->getTimeStep()*period)),
@@ -771,7 +713,7 @@ System0::System0(
   }
 
   // initialise cell list
-  cellList.initialise<System0>(this);
+  cellList.initialise();
 }
 
 System0::System0(
@@ -780,7 +722,7 @@ System0::System0(
   param(parameters),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(parameters->getNumberParticles()),
   framesWork(nWork > 0 ? nWork : (int)
     1/(parameters->getRotDiffusivity()*parameters->getTimeStep()*period)),
@@ -831,7 +773,7 @@ System0::System0(
   }
 
   // initialise cell list
-  cellList.initialise<System0>(this);
+  cellList.initialise();
 }
 
 System0::System0(
@@ -840,7 +782,7 @@ System0::System0(
   param(system->getParameters()),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(system->getNumberParticles()),
   framesWork(nWork > 0 ? nWork : (int)
     1/(system->getRotDiffusivity()*system->getTimeStep()*period)),
@@ -876,7 +818,7 @@ System0::System0(
   }
 
   // initialise cell list
-  cellList.initialise<System0>(this);
+  cellList.initialise();
   // copy positions, orientations, and self-propulsion vectors, and update cell list
   copyState(system);
   // copy dumps
@@ -889,7 +831,7 @@ System0::System0(
   param(system->getParameters()),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(system->getNumberParticles()),
   framesWork(nWork > 0 ? nWork : (int)
     1/(system->getRotDiffusivity()*system->getTimeStep()*period)),
@@ -924,7 +866,7 @@ System0::System0(
   }
 
   // initialise cell list
-  cellList.initialise<System0>(this);
+  cellList.initialise();
   // copy positions, orientations, and self-propulsion vectors, and update cell list
   copyState(system);
   // copy dumps
@@ -938,7 +880,7 @@ System0::System0(
   param(Dat0(inputFilename, false), dt),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(0),
   framesWork(nWork > 0 ? nWork : (int)
     1/(getRotDiffusivity()*getTimeStep()*period)),
@@ -995,7 +937,7 @@ System0::System0(
   }
 
   // initialise cell list
-  cellList.initialise<System0>(this);
+  cellList.initialise();
 }
 
 // DESTRUCTORS
@@ -1038,7 +980,7 @@ Random* System0::getRandomGenerator() { return &randomGenerator; }
 Particle* System0::getParticle(int const& index) { return &(particles[index]); }
 std::vector<Particle> System0::getParticles() { return particles; }
 
-CellList* System0::getCellList() { return &cellList; }
+CellList<System0>* System0::getCellList() { return &cellList; }
 
 std::string System0::getOutputFile() const { return output.getOutputFile(); }
 
@@ -1100,7 +1042,7 @@ void System0::copyState(std::vector<Particle>& newParticles) {
   }
 
   // UPDATING CELL LIST
-  cellList.update<System0>(this);
+  cellList.update();
 }
 
 void System0::copyState(System0* system) {
@@ -1121,7 +1063,7 @@ void System0::copyState(System0* system) {
   }
 
   // UPDATING CELL LIST
-  cellList.update<System0>(this);
+  cellList.update();
 }
 
 void System0::saveInitialState() {
@@ -1291,7 +1233,7 @@ SystemN::SystemN() :
   param(new Parameters()),
   randomSeed(0), randomGenerator(),
   particles(0),
-  cellList(),
+  cellList(this),
   output(""), velocitiesDumps(),
   dumpFrame(-1) {}
 
@@ -1304,7 +1246,7 @@ SystemN::SystemN(
   param(parameters),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(parameters->getNumberParticles()),
   dumpFrame(-1) {
 
@@ -1362,7 +1304,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  cellList.initialise<SystemN>(this);
+  cellList.initialise();
 }
 
 SystemN::SystemN(
@@ -1375,7 +1317,7 @@ SystemN::SystemN(
   param(parameters),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(parameters->getNumberParticles()),
   dumpFrame(-1) {
 
@@ -1433,7 +1375,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  cellList.initialise<SystemN>(this);
+  cellList.initialise();
 }
 
 SystemN::SystemN(
@@ -1445,7 +1387,7 @@ SystemN::SystemN(
   param(system->getParameters()),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(system->getNumberParticles()),
   dumpFrame(-1) {
 
@@ -1488,7 +1430,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  cellList.initialise<SystemN>(this);
+  cellList.initialise();
   // copy positions, orientations, and self-propulsion vectors, and update cell list
   copyState(system);
   // copy dumps
@@ -1505,7 +1447,7 @@ SystemN::SystemN(
   param(system->getParameters()),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(system->getNumberParticles()),
   dumpFrame(-1) {
 
@@ -1547,7 +1489,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  cellList.initialise<SystemN>(this);
+  cellList.initialise();
   // copy positions, orientations, and self-propulsion vectors, and update cell list
   copyState(system);
   // copy dumps
@@ -1564,7 +1506,7 @@ SystemN::SystemN(
   param(DatN(inputFilename, false), dt),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(0),
   dumpFrame(-1) {
 
@@ -1628,7 +1570,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  cellList.initialise<SystemN>(this);
+  cellList.initialise();
 }
 
 SystemN::SystemN(
@@ -1641,7 +1583,7 @@ SystemN::SystemN(
   param(parameters),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(0),
   dumpFrame(-1) {
 
@@ -1713,7 +1655,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  cellList.initialise<SystemN>(this);
+  cellList.initialise();
 }
 
 SystemN::SystemN(
@@ -1727,7 +1669,7 @@ SystemN::SystemN(
   param(parameters),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
-  cellList(),
+  cellList(this),
   output(filename), velocitiesDumps(0),
   dumpFrame(-1) {
 
@@ -1801,7 +1743,7 @@ SystemN::SystemN(
   }
 
   // initialise cell list
-  cellList.initialise<SystemN>(this);
+  cellList.initialise();
 }
 
 // DESTRUCTORS
@@ -1846,7 +1788,7 @@ Random* SystemN::getRandomGenerator() { return &randomGenerator; }
 Particle* SystemN::getParticle(int const& index) { return &(particles[index]); }
 std::vector<Particle> SystemN::getParticles() { return particles; }
 
-CellList* SystemN::getCellList() { return &cellList; }
+CellList<SystemN>* SystemN::getCellList() { return &cellList; }
 
 std::string SystemN::getOutputFile() const { return output.getOutputFile(); }
 
@@ -1883,7 +1825,7 @@ void SystemN::copyState(std::vector<Particle>& newParticles) {
   }
 
   // UPDATING CELL LIST
-  cellList.update<SystemN>(this);
+  cellList.update();
 }
 
 void SystemN::copyState(SystemN* system) {
@@ -1904,7 +1846,7 @@ void SystemN::copyState(SystemN* system) {
   }
 
   // UPDATING CELL LIST
-  cellList.update<SystemN>(this);
+  cellList.update();
 }
 
 void SystemN::saveInitialState() {

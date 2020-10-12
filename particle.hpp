@@ -14,7 +14,7 @@
 /////////////
 
 class Particle;
-class CellList;
+template<class> class CellList;
 class Parameters;
 class System;
 class System0;
@@ -79,24 +79,27 @@ class Particle {
  *  Speed up computation by storing closest neighbours.
  */
 
-class CellList {
+template<class SystemClass> class CellList {
 
   public:
 
     // CONSTRUCTORS
 
-    CellList();
+    CellList(SystemClass* sys) : system(sys),
+      cutOff(), numberBoxes(), sizeBox(), dmin(), cellList() {}
 
     // DESTRUCTORS
 
-    ~CellList();
+    ~CellList() {;}
 
     // METHODS
 
-    int getNumberBoxes(); // return number of boxes in each dimension
-    std::vector<int>* getCell(int const& index); // return pointer to vector of indexes in cell
+    int getNumberBoxes() {return numberBoxes; } // return number of boxes in each dimension
+    std::vector<int>* getCell(int const& index) { return &cellList[index]; } // return pointer to vector of indexes in cell
+    Particle* getParticle(int const& index) // return pointer to particle
+      { return system->getParticle(index); }
 
-    template<class SystemClass> void initialise(SystemClass* system) {
+    void initialise() {
       // Initialise cell list.
 
       // parameters of cell list
@@ -107,6 +110,7 @@ class CellList {
       sizeBox = system->getSystemSize()/numberBoxes;
 
       // set size of cell list
+      cellList.clear();
       for (int i=0; i < pow(numberBoxes, 2); i++) {
         cellList.push_back(std::vector<int>());
       }
@@ -117,10 +121,10 @@ class CellList {
       else { dmin = -1; }
 
       // put particles in the boxes
-      update(system);
+      update();
     }
 
-    template<class SystemClass> void update(SystemClass* system) {
+    void update() {
       // Put particles in the cell list.
 
       #ifdef USE_CELL_LIST // this is not useful when not using cell lists
@@ -132,21 +136,58 @@ class CellList {
 
       // create new lists
       for (int i=0; i < system->getNumberParticles(); i++) {
-        cellList[index(system->getParticle(i))].push_back(i); // particles are in increasing order of indexes
+        cellList[index(i)].push_back(i); // particles are in increasing order of indexes
       }
 
       #endif
     }
 
-    int index(Particle *particle);
+    int index(int const& particleIndex) {
       // Index of the box corresponding to a given particle.
 
-    std::vector<int> getNeighbours(Particle *particle);
+      Particle* particle = getParticle(particleIndex);
+
+      int x = (int) ((particle->position())[0]/sizeBox);
+      int y = (int) ((particle->position())[1]/sizeBox);
+      // check values are in {0, ..., numberBoxes - 1}
+      while ( x < 0 ) x += numberBoxes;
+      while ( x >= numberBoxes ) x -= numberBoxes;
+      while ( y < 0 ) y += numberBoxes;
+      while ( y >= numberBoxes ) y -= numberBoxes;
+
+      return x + numberBoxes*y;
+    }
+
+    std::vector<int> getNeighbours(int const& particleIndex) {
       // Returns vector of indexes of neighbouring particles.
+
+      std::vector<int> neighbours; // vector of neighbouring particles
+
+      int indexParticle = index(particleIndex);
+      int x = indexParticle%numberBoxes;
+      int y = indexParticle/numberBoxes;
+
+      int neighbourIndex;
+      for (int dx=dmin; dx < 2; dx++) {
+        for (int dy=dmin; dy < 2; dy++) {
+          neighbourIndex =
+            (numberBoxes + (x + dx))%numberBoxes
+              + numberBoxes*((numberBoxes + (y + dy))%numberBoxes); // index of neighbouring cell
+          neighbours.insert(
+            std::end(neighbours),
+            std::begin(cellList[neighbourIndex]),
+            std::end(cellList[neighbourIndex])); // add particle indexes of neighbouring cell
+        }
+      }
+
+      return neighbours;
+    }
 
   private:
 
     // ATTRIBUTES
+
+    SystemClass* system; // pointer to system
 
     double cutOff; // cut-off radius of the interactions
 
@@ -337,7 +378,7 @@ class System {
     Particle* getParticle(int const& index); // returns pointer to given particle
     std::vector<Particle> getParticles(); // returns vector of particles
 
-    CellList* getCellList(); // returns pointer to CellList object
+    CellList<System>* getCellList(); // returns pointer to CellList object
 
     void flushOutputFile(); // flush output file
     std::string getOutputFile() const; // returns output file name
@@ -401,7 +442,7 @@ class System {
 
     std::vector<Particle> particles; // vector of particles
 
-    CellList cellList; // cell list
+    CellList<System> cellList; // cell list
 
     Write output; // output class
     std::vector<long int> velocitiesDumps; // locations in output file to dump velocities
@@ -518,7 +559,7 @@ class System0 {
     Particle* getParticle(int const& index); // returns pointer to given particle
     std::vector<Particle> getParticles(); // returns vector of particles
 
-    CellList* getCellList(); // returns pointer to CellList object
+    CellList<System0>* getCellList(); // returns pointer to CellList object
 
     std::string getOutputFile() const; // returns output file name
 
@@ -564,7 +605,7 @@ class System0 {
 
     std::vector<Particle> particles; // vector of particles
 
-    CellList cellList; // cell list
+    CellList<System0> cellList; // cell list
 
     Write output; // output class
     std::vector<long int> velocitiesDumps; // locations in output file to dump velocities
@@ -681,7 +722,7 @@ class SystemN {
     Particle* getParticle(int const& index); // returns pointer to given particle
     std::vector<Particle> getParticles(); // returns vector of particles
 
-    CellList* getCellList(); // returns pointer to CellList object
+    CellList<SystemN>* getCellList(); // returns pointer to CellList object
 
     std::string getOutputFile() const; // returns output file name
 
@@ -718,7 +759,7 @@ class SystemN {
 
     std::vector<Particle> particles; // vector of particles
 
-    CellList cellList; // cell list
+    CellList<SystemN> cellList; // cell list
 
     Write output; // output class
     std::vector<long int> velocitiesDumps; // locations in output file to dump velocities
