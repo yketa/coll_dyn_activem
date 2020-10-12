@@ -93,7 +93,6 @@ std::vector<int> CellList::getNeighbours(Particle *particle) {
       neighbourIndex =
         (numberBoxes + (x + dx))%numberBoxes
           + numberBoxes*((numberBoxes + (y + dy))%numberBoxes); // index of neighbouring cell
-      std::cout << neighbourIndex << std::endl;
       neighbours.insert(
         std::end(neighbours),
         std::begin(cellList[neighbourIndex]),

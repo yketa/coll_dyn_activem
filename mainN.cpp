@@ -110,7 +110,6 @@ int main() {
 
       // change diameters
       std::vector<double> diameters = getDiametersI(N, I, seed);
-      for (auto i=diameters.begin(); i!=diameters.end(); i++) std::cout << *i << std::endl;
       Parameters parameters(
         N, epsilon, v0, D, Dr, phi, diameters, dt); // class of simulation parameters
 
