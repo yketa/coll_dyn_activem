@@ -44,7 +44,7 @@ class Force(Dat):
         self.skip = skip                    # skip the `skip' first measurements of the active work in the analysis
         self.from_velocity = from_velocity  # compute force from velocity
 
-    def getForce(self, time, *particle, norm=False):
+    def getForce(self, time, *particle, norm=False, Heun=False):
         """
         Returns forces exerted on every particles at time `time'.
 
@@ -56,34 +56,54 @@ class Force(Dat):
             Indexes of particles.
             NOTE: if none is given, then all particles are returned.
         norm : bool
-            Return norm of forces rather than 2D force.
-            (default: False)
+            Return norm of forces rather than 2D force. (default: False)
+        Heun : bool
+            Compute correction to forces from Hein integration. (default: False)
+            NOTE: Translational noise is neglected.
 
         Returns
         -------
         forces : [not(norm)] (self.N, 2) float numpy array
-                 [norm] (self.N,) float numpy array
+                 [norm and not(Heun)] (self.N,) float numpy array
             Forces exerted on every particles.
+        corrForces [Heun] : (self.N, 2) float numpy array
+            Correction to forces from Heun integration.
         """
 
         if particle == (): particle = range(self.N)
 
         if self.from_velocity:
-            forces = (
-                self.getVelocities(time, *particle)
-                - self.getPropulsions(time, *particle))
-
+            forces = self.getVelocities(time) - self.getPropulsions(time)
         else:
             forces = np.full((self.N, 2), fill_value=0, dtype='float64')
             for i in range(self.N):
                 for j in range(1 + i, self.N):
-                    force = self._WCA(time, i, j)
+                    force = self._WCA(time, i, j, positions=None)
                     forces[i] += force
                     forces[j] -= force
+
+        if not(Heun):
+
             forces = np.array(itemgetter(*particle)(forces))
 
-        if norm: return np.sqrt((forces**2).sum(axis=-1))
-        return forces
+            if norm: return np.sqrt((forces**2).sum(axis=-1))
+            return forces
+
+        else:   # Heun correction
+
+            newPositions = self.getPositions(time) + self.dt*(
+                self.getPropulsions(time, norm=False) + forces)
+            newForces = np.full((self.N, 2), fill_value=0, dtype='float64')
+            for i in range(self.N):
+                for j in range(1 + i, self.N):
+                    force = self._WCA(time, i, j, positions=newPositions)
+                    newForces[i] += force
+                    newForces[j] -= force
+
+            forces = np.array(itemgetter(*particle)(forces))
+            newForces = np.array(itemgetter(*particle)(newForces))
+
+            return forces, (newForces - forces)/2
 
     def corForceForce(self,
         n_max=100, int_max=None, min=1, max=None, log=False):
@@ -344,7 +364,7 @@ class Force(Dat):
             *(self.getForce(time),
                 self.getDirections(time)))))
 
-    def _WCA(self, time, particle0, particle1):
+    def _WCA(self, time, particle0, particle1, positions=None):
         """
         Returns force derived from WCA potential applied on `particle0' by
         `particle1' at time `time'.
@@ -357,6 +377,10 @@ class Force(Dat):
             Index of the first particle.
         particle1 : int
             Index of the second particle.
+        positions : (self.N, 2) float array-like or None
+            Custom positions from which to compute distances. (default: None)
+            NOTE: if positions == None, actual positions of particles at `time'
+                  are considered.
 
         Returns
         -------
@@ -367,7 +391,8 @@ class Force(Dat):
 
         if particle0 == particle1: return force # same particle
 
-        dist, pos0, pos1 = self.getDistancePositions(time, particle0, particle1)
+        dist, pos0, pos1 = self.getDistancePositions(
+            time, particle0, particle1, positions=positions)
 
         sigma = (self.diameters[particle0] + self.diameters[particle1])/2
 
