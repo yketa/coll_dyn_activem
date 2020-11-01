@@ -61,8 +61,8 @@ _init = 1000            # default initialisation number of iterations
 _Niter = 10000          # default number of production iterations
 _dtMin = 1              # default minimum lag time
 _dtMax = 100            # default maximum lag time
-_nMax = 10              # default maxium number of lag times
-_intMax = 100           # default maximum number of initial times
+_nMax = 100             # default maxium number of lag times
+_intMax = 10            # default maximum number of initial times
 
 _Emin = 1   # default minimum energy at which to stop the minimisation
 
