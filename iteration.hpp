@@ -13,9 +13,13 @@ template<class SystemClass> void system_WCA(SystemClass* system) {
   // Compute interactions with WCA potentials between all particles of the
   // system.
 
+  double force[2];
+  double diff[2];
   pairs_system<SystemClass>(system,
-    [&system](int index1, int index2)
-      { add_WCA_force<SystemClass>(system, index1, index2); });
+    [&system, &force, &diff](int index1, int index2)
+      { add_WCA_force<SystemClass>(system, index1, index2,
+          &force[0], &diff[0]);
+        });
 }
 
 template<class SystemClass, typename F, typename G> void aligningTorque(
