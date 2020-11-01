@@ -8,6 +8,8 @@ import numpy as np
 import os
 import pickle
 
+from operator import itemgetter
+
 from coll_dyn_activem.init import get_env
 from coll_dyn_activem.maths import relative_positions, angle
 
@@ -48,6 +50,11 @@ class _Read:
         ----------
         type : string
             Type of value to read.
+
+        Returns
+        -------
+        bpe : int
+            Number of bytes corresponding to type.
         """
 
         return struct.calcsize(type)
@@ -60,9 +67,38 @@ class _Read:
         ----------
         type : string
             Type of value to read.
+
+        Returns
+        -------
+        element : type
+            Element from file.
         """
 
         return struct.unpack(type, self.file.read(self._bpe(type)))[0]
+
+    def _read_at(self, type, target):
+        """
+        Read element from file with type at target.
+
+        Parameters
+        ----------
+        type : string
+            Type of value to read.
+        target : int
+            Stream position byte offset.
+
+        Returns
+        -------
+        element : type
+            Element from file.
+        """
+
+        init_target = self.file.tell()  # initial stream position byte offset
+        self.file.seek(target)
+        element = self._read(type)
+        self.file.seek(init_target)
+
+        return element
 
 class Dat(_Read):
     """
@@ -430,7 +466,8 @@ class Dat(_Read):
         if norm: return np.sqrt(np.sum(displacements**2, axis=-1))
         return displacements
 
-    def getDistancePositions(self, time, particle0, particle1):
+    def getDistancePositions(self, time, particle0, particle1,
+        positions=None):
         """
         Returns distance between particles with indexes `particle0' and
         `particle1' at time `time' and their respective positions.
@@ -443,6 +480,10 @@ class Dat(_Read):
             Index of first particle.
         particle1 : int
             Index of second particle.
+        positions : (self.N, 2) float array-like or None
+            Custom positions from which to compute distances. (default: None)
+            NOTE: if positions == None, actual positions of particles at `time'
+                  are considered.
 
         Returns
         -------
@@ -454,12 +495,15 @@ class Dat(_Read):
             Position of particle1.
         """
 
-        pos0, pos1 = self.getPositions(time, particle0, particle1)
+        if type(positions) is type(None):
+            pos0, pos1 = self.getPositions(time, particle0, particle1)
+        else:
+            pos0, pos1 = itemgetter(particle0, particle1)(positions)
         return np.sqrt(
             self._diffPeriodic(pos0[0], pos1[0])**2
             + self._diffPeriodic(pos0[1], pos1[1])**2), pos0, pos1
 
-    def getDistance(self, time, particle0, particle1):
+    def getDistance(self, time, particle0, particle1, positions=None):
         """
         Returns distance between particles with indexes `particle0' and
         `particle1' at time `time'.
@@ -472,6 +516,10 @@ class Dat(_Read):
             Index of first particle.
         particle1 : int
             Index of second particle.
+        positions : (self.N, 2) float array-like or None
+            Custom positions from which to compute distances. (default: None)
+            NOTE: if positions == None, actual positions of particles at `time'
+                  are considered.
 
         Returns
         -------
@@ -479,7 +527,8 @@ class Dat(_Read):
             Distance between particles.
         """
 
-        return self.getDistancePositions(time, particle0, particle1)[0]
+        return self.getDistancePositions(
+            time, particle0, particle1, positions=positions)[0]
 
     def getOrientations(self, time, *particle):
         """
@@ -1228,10 +1277,7 @@ class Dat(_Read):
 
         diff = x1 - x0
         if np.abs(diff) <= self.L/2: return diff
-
-        diff = (1 - 2*(diff > 0))*np.min([
-            np.abs(x0) + np.abs(self.L - x1), np.abs(self.L - x0) + np.abs(x1)])
-        return diff
+        return (2*(diff > 0) - 1)*(np.abs(diff) - self.L)
 
     def _getFrameIndex(self, frame):
         """
