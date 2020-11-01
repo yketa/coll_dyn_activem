@@ -94,13 +94,15 @@ template<class SystemClass> class CellList {
 
     // METHODS
 
-    int getNumberBoxes() {return numberBoxes; } // return number of boxes in each dimension
+    int getNumberBoxes() { return numberBoxes; } // return number of boxes in each dimension
     std::vector<int>* getCell(int const& index) { return &cellList[index]; } // return pointer to vector of indexes in cell
     Particle* getParticle(int const& index) // return pointer to particle
       { return system->getParticle(index); }
 
     void initialise() {
       // Initialise cell list.
+
+      #ifdef USE_CELL_LIST // this is not useful when not using cell lists
 
       // parameters of cell list
       std::vector<double> diameters = system->getDiameters();
@@ -122,6 +124,8 @@ template<class SystemClass> class CellList {
 
       // put particles in the boxes
       update();
+
+      #endif
     }
 
     void update() {
@@ -136,7 +140,7 @@ template<class SystemClass> class CellList {
 
       // create new lists
       for (int i=0; i < system->getNumberParticles(); i++) {
-        cellList[index(i)].push_back(i); // particles are in increasing order of indexes
+        cellList[index(i)].push_back(i); // particles are in increasing order of indices
       }
 
       #endif
@@ -766,6 +770,9 @@ class SystemN {
 
     int dumpFrame; // number of frames dumped since last reset
 
+    double kineticEnergy = 0; // sum of squared velocities
+    double kineticEnergyFactor = 1e3; // threshold in units of squared self-propulsion velocity not to exceed for mean squared velocities
+
 };
 
 
@@ -1061,22 +1068,24 @@ template<class SystemClass> double diffPeriodic(
 }
 
 template<class SystemClass> double getDistance(
-  SystemClass* system, int const& index1, int const& index2) {
+  SystemClass* system, int const& index1, int const& index2, double* diff) {
   // Returns distance between two particles in a given system.
 
   return dist2DPeriod(
     (system->getParticle(index1))->position(),
     (system->getParticle(index2))->position(),
-    system->getSystemSize());
+    system->getSystemSize(),
+    diff);
 }
 
 template<class SystemClass> double WCA_potential(SystemClass* system) {
   // Returns WCA potential of a given system.
 
   double potential = 0.0;
-  auto addPotential = [&system, &potential](int index1, int index2) {
+  double diff[2];
+  auto addPotential = [&system, &potential, &diff](int index1, int index2) {
 
-    double dist = getDistance<SystemClass>(system, index1, index2); // dimensionless distance between particles
+    double dist = getDistance<SystemClass>(system, index1, index2, &diff[0]); // dimensionless distance between particles
     double sigma =
       ((system->getParticle(index1))->diameter()
       + (system->getParticle(index2))->diameter())/2.0; // equivalent diameter
@@ -1094,14 +1103,15 @@ template<class SystemClass> double WCA_potential(SystemClass* system) {
 }
 
 template<class SystemClass> void WCA_force(
-  SystemClass* system, int const& index1, int const& index2, double* force) {
+  SystemClass* system, int const& index1, int const& index2,
+  double* force, double* diff) {
   // Writes to `force' the force deriving from the WCA potential between
   // particles `index1' and `index2' in `system'.
 
   force[0] = 0.0;
   force[1] = 0.0;
 
-  double dist = getDistance<SystemClass>(system, index1, index2); // distance between particles
+  double dist = getDistance<SystemClass>(system, index1, index2, diff); // distance between particles
   double sigma =
     ((system->getParticle(index1))->diameter()
     + (system->getParticle(index2))->diameter())/2.0; // equivalent diameter
@@ -1110,25 +1120,22 @@ template<class SystemClass> void WCA_force(
 
     // compute force
     double coeff =
-      (48.0/pow(dist/sigma, 14.0) - 24.0/pow(dist/sigma, 8.0))/pow(sigma, 2.0);
+      (48.0/pow(dist/sigma, 14) - 24.0/pow(dist/sigma, 8))/pow(sigma, 2);
     for (int dim=0; dim < 2; dim++) {
-      force[dim] = diffPeriodic<SystemClass>(system,
-          (system->getParticle(index2))->position()[dim],
-          (system->getParticle(index1))->position()[dim])
-        *coeff;
+      force[dim] = -diff[dim]*coeff;
     }
   }
 }
 
 template<class SystemClass> void add_WCA_force(
-  SystemClass* system, int const& index1, int const& index2) {
+  SystemClass* system, int const& index1, int const& index2,
+  double* force, double* diff) {
   // Compute WCA forces between particles[index1] and particles[index2],
   // and add to the corresponding force lists in system.
 
   if ( index1 != index2 ) { // only consider different particles
 
-    double force[2];
-    WCA_force<SystemClass>(system, index1, index2, &force[0]);
+    WCA_force<SystemClass>(system, index1, index2, force, diff);
 
     for (int dim=0; dim < 2; dim++) {
       if ( force[dim] != 0 ) {

@@ -8,8 +8,6 @@
 #include "particle.hpp"
 #include "maths.hpp"
 
-#include <iostream>
-
 /////////////
 // CLASSES //
 /////////////
@@ -1890,11 +1888,14 @@ void SystemN::saveNewState(std::vector<Particle>& newParticles) {
   // SAVING //
   ////////////
 
+  kineticEnergy = 0;
   for (int i=0; i < getNumberParticles(); i++) {
 
     // COMPUTATION
 
     for (int dim=0; dim < 2; dim++) {
+      // KINETIC ENERGY
+      kineticEnergy += pow(particles[i].velocity()[dim], 2.0);
       // COORDINATES
       // compute crossings
       cross = wrapCoordinate<SystemN>(this, newParticles[i].position()[dim]);
@@ -1937,6 +1938,17 @@ void SystemN::saveNewState(std::vector<Particle>& newParticles) {
       }
     }
 
+  }
+
+  //////////////
+  // CHECKING //
+  //////////////
+
+  if (
+    kineticEnergy > kineticEnergyFactor
+      *getNumberParticles()*pow(getPropulsionVelocity(), 2.0) ) {
+    throw std::invalid_argument("Exceeded kinetic energy limit. <v^2> = "
+      + std::to_string(kineticEnergy/getNumberParticles()));
   }
 
   /////////////
@@ -2319,24 +2331,63 @@ std::vector<int> getLogFrames(
   // Saves in `time0' the initial frames and in `dt' the lag times.
   // NOTE: `dtMax' may be modified according to other parameters.
 
-  dtMax[0] = std::min(dtMax[0], Niter - (intMax - 1));
-
-  time0->clear();
-  for (int i=0; i < intMax; i++) {
-    time0->push_back((int) init + i*(Niter - dtMax[0])/(intMax - 1));
-  }
-  sortVec(time0);
-
-  dt->clear();
-  dt->push_back(dtMin);
-  for (int i=1; i < nMax - 1; i++) {
-    dt->push_back((int) dtMin + exp(i*log(dtMax[0] - dtMin)/(nMax - 1)));
-  }
-  dt->push_back(dtMax[0]);
-  sortVec(dt);
-
   std::vector<int> frames;
-	for (auto t0 = time0->begin(); t0 != time0->end(); t0++) {
+  double t;
+
+  if ( dtMin == 0 && nMax == 0 ) {
+    // LINEARLY SPACED FRAMES
+
+    if ( Niter % dtMax[0] != 0 ) {
+      throw std::invalid_argument(
+        "No integer multiple of " + std::to_string(dtMax[0])
+        + "in a total of " + std::to_string(Niter) + ".");
+    }
+
+    time0->clear();
+    if ( intMax == 1 ) {
+      time0->push_back((int) init);
+    }
+    else {
+      for (int i=0; i < intMax; i++) {
+        time0->push_back((int) init + i*dtMax[0]);
+      }
+    }
+    sortVec(time0);
+
+    dt->clear();
+    dt->push_back(dtMin);
+    dt->push_back(dtMax[0]);
+    sortVec(dt);
+
+  }
+  else {
+    // LOGARITHMICALLY SPACED FRAMES
+
+    dtMax[0] = std::min(dtMax[0], Niter - (intMax - 1));
+
+    time0->clear();
+    if ( intMax == 1 ) {
+      time0->push_back((int) init);
+    }
+    else {
+      for (int i=0; i < intMax; i++) {
+        t = init + i*(Niter - dtMax[0])/(intMax - 1);
+        time0->push_back((int) t);
+      }
+    }
+    sortVec(time0);
+
+    dt->clear();
+    dt->push_back(dtMin);
+    for (int i=1; i < nMax - 1; i++) {
+      dt->push_back((int) dtMin + exp(i*log(dtMax[0] - dtMin)/(nMax - 1)));
+    }
+    dt->push_back(dtMax[0]);
+    sortVec(dt);
+
+  }
+
+  for (auto t0 = time0->begin(); t0 != time0->end(); t0++) {
     frames.push_back(*t0);
     for (auto t = dt->begin(); t != dt->end(); t++) {
       frames.push_back(*t0 + *t);
@@ -2348,14 +2399,15 @@ std::vector<int> getLogFrames(
 }
 
 template<> void WCA_force<System>(
-  System* system, int const& index1, int const& index2, double* force) {
+  System* system, int const& index1, int const& index2,
+  double* force, double* diff) {
   // Writes to `force' the force deriving from the WCA potential between
   // particles `index1' and `index2' in `system'.
 
   force[0] = 0.0;
   force[1] = 0.0;
 
-  double dist = getDistance<System>(system, index1, index2); // dimensionless distance between particles
+  double dist = getDistance<System>(system, index1, index2, diff); // dimensionless distance between particles
 
   if (dist < pow(2., 1./6.)) { // distance lower than cut-off
 
