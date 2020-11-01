@@ -7,6 +7,8 @@ This repository contains scripts, for simulation and analysis purposes, develope
 
 Simulation and cloning scripts are written in C++. Wrapper scripts to launch the latter are written in Python, and other Python classes and functions are available to read and analyse the generated data.
 
+A library of C++ functions ([`pycpp.cpp`](https://github.com/yketa/coll_dyn_activem/blob/master/pycpp.cpp)) is implemented in [`pycpp.py`](https://github.com/yketa/coll_dyn_activem/blob/master/pycpp.py), given that `_pycpp.so` is compiled.
+
 While C++ files can be quite cumbersome, Python wrappers are hopefully more readable and commented enough so that their functioning can be easily understood.
 
 ## Requirements
