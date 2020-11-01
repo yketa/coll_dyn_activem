@@ -2,16 +2,20 @@
 Module flow provides classes to compute and analyse positions to characterise
 the structure of systems of ABPs.
 
+(see https://yketa.github.io/PhD_Wiki/#Structure%20characteristics)
 (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#ABP%20structure%20characteristics)
 """
 
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.maths import g2Dto1D, g2Dto1Dgrid, wave_vectors_2D,\
-    DictList, angle
+    DictList, angle, linspace, Histogram, mean_sterr
+import coll_dyn_activem.pycpp as pycpp
 
 import numpy as np
 
 from operator import itemgetter
+
+from multiprocessing import Pool
 
 from freud.locality import Voronoi
 from freud.box import Box
@@ -195,13 +199,38 @@ class Positions(Dat):
 
         Returns
         -------
-        rho : (*, self.N) float numpy array
-            Array of computed positions.
+        rho : (*, nBoxes, nBoxes) float numpy array
+            Array of particle density grids.
         """
 
         return np.array(list(map(
             lambda time0: self.getParticleDensity(time0, nBoxes=nBoxes),
             self._time0(int_max=int_max))))
+
+    def nDistances(self, int_max=None, scale_diameter=False):
+        """
+        Returns distances between the particles of the system.
+
+        Parameters
+        ----------
+        int_max : int or None
+            Maximum number of frames to consider. (default: None)
+            NOTE: If int_max == None, then take the maximum number of frames.
+                  WARNING: This can be very big.
+        scale_diameter : bool
+            Divide the distance between pairs of particles by the sum of the
+            radii of the particles in the pair. (default: False)
+
+        Returns
+        -------
+        distances : (*, self.N(self.N - 1)/2) float Numpy array
+            Array of computed distances.
+        """
+
+        return np.array(
+            [pycpp.getDistances(self.getPositions(t), self.L,
+                diameters=(self.diameters if scale_diameter else None))
+            for t in self._time0(int_max=int_max)])
 
     def structureFactor(self, int_max=None, nBoxes=None):
         """
@@ -225,10 +254,8 @@ class Positions(Dat):
             factor at wavevector k.
         """
 
-        if nBoxes == None: nBoxes = np.sqrt(self.N)
-        nBoxes = int(nBoxes)
-
         particleDensity = self.nParticleDensity(int_max=int_max, nBoxes=nBoxes)
+        nBoxes = particleDensity.shape[1]
 
         _S2D = np.array(list(map(
             lambda _rho:
@@ -247,7 +274,7 @@ class Positions(Dat):
         (assuming isotropy).
 
         NOTE: Correlations are computed with FFT.
-              (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Fourier%20transform%20field%20correlation)
+              (see https://yketa.github.io/PhD_Wiki/#Fourier%20transform%20field%20correlation)
 
         Parameters
         ----------
@@ -268,14 +295,64 @@ class Positions(Dat):
         """
 
         particleDensity = self.nParticleDensity(int_max=int_max, nBoxes=nBoxes)
+        nBoxes = particleDensity.shape[1]
 
         _G2D = np.array(list(map(
             lambda _rho:
-                (lambda FFT: np.real(np.fft.ifft2(np.conj(FFT)*FFT)))
-                    (np.fft.fft2(_rho - self.rho)),
-            particleDensity)))/(nBoxes**2)
+                (lambda G2D: G2D*(self.rho/(G2D[0, 0]*((self.L/nBoxes)**2))))(
+                    (lambda FFT: np.real(np.fft.ifft2(np.conj(FFT)*FFT)))
+                        (np.fft.fft2(_rho - self.N/(nBoxes**2)))),
+            particleDensity)))
 
         return g2Dto1D(_G2D.mean(axis=0), self.L)
+
+    def pairDistribution(self, Nbins, max=None, int_max=None,
+        scale_diameter=False):
+        """
+        Returns pair distribution function as an histogram of distances between
+        pairs of particles.
+
+        Parameters
+        ----------
+        Nbins : int
+            Number of histogram bins.
+        max : float or None
+            Maximum excluded value for histogram bins. (default: None)
+            NOTE: if max == None then maximum possible value is taken.
+            NOTE: values greater or equal to vmax will be ignored.
+            NOTE: if not(max == None), the normalisation may not be correct.
+        int_max : int or None
+            Maximum number of frames to consider. (default: None)
+            NOTE: If int_max == None, then take the maximum number of frames.
+                  WARNING: This can be very big.
+        scale_diameter : bool
+            Divide the distance between pairs of particles by the sum of the
+            radii of the particles in the pair. (default: False)
+
+        Returns
+        -------
+        gp : float Numpy array
+            Array of (r, gp(r), errgp(r)) with gp(r) the proportion of pairs at
+            distance r and errgp(r) the standard error on this measure.
+        """
+
+        histogram = Histogram(Nbins,
+            0, self.L/2 if max == None else max,
+            log=False)
+        hist = np.array(list(map(
+            lambda t: (lambda h: h/h.sum())(pycpp.getHistogramLinear(
+                pycpp.getDistances(self.getPositions(t), self.L,
+                    diameters=(self.diameters if scale_diameter else None)),
+                histogram.Nbins, histogram.vmin, histogram.vmax)),
+            self._time0(int_max=int_max))))
+
+        bins = histogram.bins[1:]
+        histErr = np.array([mean_sterr(h) for h in np.transpose(hist)])[1:]
+
+        histErr *= ((np.pi/4)*(self.L**2))/(
+            (histogram.vmax - histogram.vmin)/histogram.Nbins)
+
+        return np.array([[b, *h/(2*np.pi*b)] for b, h in zip(bins, histErr)])
 
     def _time0(self, int_max=None):
         """
@@ -294,9 +371,14 @@ class Positions(Dat):
             Array of frames.
         """
 
-        if int_max == None: return np.array(range(self.skip, self.frames - 1))
-        return np.linspace(
-            self.skip, self.frames - 1, int(int_max), endpoint=False, dtype=int)
+        if self._type == 'datN':
+            time0 = self.time0
+        else:
+            time0 = np.array(range(self.skip, self.frames))
+
+        if int_max == None: return time0
+        indexes = linspace(0, time0.size, int_max, endpoint=False)
+        return np.array(itemgetter(*indexes)(time0), ndmin=1)
 
     def _voronoi(self, time):
         """
