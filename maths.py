@@ -11,6 +11,7 @@ from collections import OrderedDict
 from scipy import optimize
 
 from coll_dyn_activem.scde import PDF
+import coll_dyn_activem.pycpp as pycpp
 
 #####################
 ### MISCELLANEOUS ###
@@ -329,7 +330,8 @@ def angle(dx, dy):
         Corresponding angle in radians.
     """
 
-    return math.atan2(dy, dx)
+    norm = np.sqrt(dx**2 + dy**2)
+    return math.atan2(dy/norm, dx/norm)
 
 def angleVec(vec1, vec2):
     """
@@ -967,6 +969,7 @@ class Histogram:
         self.vmin = vmin
         self.vmax = vmax
 
+        self.log = log
         if log:
             self.bins = np.logspace(np.log10(self.vmin), np.log10(self.vmax),
                 self.Nbins, endpoint=False, base=10)    # histogram bins
@@ -1009,12 +1012,12 @@ class Histogram:
             Values of the histogram at self.bins.
         """
 
-        for bin in range(self.bins.size):
-            bin_inf = self.bins[bin]
-            try: bin_sup = self.bins[bin + 1]
-            except IndexError: bin_sup = self.vmax
-            self.hist[bin] = np.sum(
-                (self.values >= bin_inf)*(self.values < bin_sup))
+        if self.log:
+            self.hist = pycpp.getHistogram(
+                self.values, self.bins.tolist() + [self.vmax])
+        else:
+            self.hist = pycpp.getHistogramLinear(
+                self.values, self.Nbins, self.vmin, self.vmax)
 
         binned_values = np.sum(self.hist)
         if binned_values == 0: return self.hist # no binned value
@@ -1181,7 +1184,7 @@ def wave_vectors_2D(nx, ny, d=1):
         np.fft.fftfreq(nx, d=d),
         np.fft.fftfreq(ny, d=d))
 
-def g2Dto1D(g2D, L):
+def g2Dto1D(g2D, L, g2Derr=None):
     """
     Returns cylindrical average of 2D grid.
 
@@ -1194,6 +1197,10 @@ def g2Dto1D(g2D, L):
     L : float or float array
         Length of the box represented by the grid in one dimension or all
         dimensions.
+    g2Derr : 2D array or None
+        Error on grid so that the cylindrical error can be computed.
+        (default: None)
+        NOTE: if g2Derr == None then no error is computed.
 
     Returns
     -------
@@ -1207,14 +1214,23 @@ def g2Dto1D(g2D, L):
 
     g1D_dic = DictList()    # hash table of radii and values at radii
 
+    err = not(type(g2Derr) is type(None))   # compute cylindrical error
+    if err: g1Derr_dic = DictList()         # hash table of error
+
     for i in range(g2D.shape[0]):
         for j in range(g2D.shape[1]):
             radius = np.sqrt(np.sum((np.array((i, j))*dL)**2))  # radius corresponding to coordinates [i, j], [-i, j], [i, -j], [-i, -j]
             if radius <= r_max:
-                g1D_dic[radius] += [g2D[i, j], g2D[-i, j], g2D[i, -j],
-                    g2D[-i, -j]]
+                g1D_dic[radius] += [
+                    g2D[i, j], g2D[-i, j], g2D[i, -j], g2D[-i, -j]]
+                if err: g1Derr_dic[radius] += [
+                    g2Derr[i, j], g2Derr[-i, j], g2Derr[i, -j], g2Derr[-i, -j]]
 
-    return np.array(list(map(
+    if err: return np.array(list(map(
+        lambda radius: [radius, np.mean(g1D_dic[radius]),
+            np.sqrt((np.array(g1Derr_dic[radius])**2).sum())],
+        sorted(g1D_dic))))
+    else: return np.array(list(map(
         lambda radius: [radius, np.mean(g1D_dic[radius])],
         sorted(g1D_dic))))
 
