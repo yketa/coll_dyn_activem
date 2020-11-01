@@ -49,7 +49,7 @@ def v0_AOUP(D, Dr):
     Returns mean self-propulsion vector norm for an OU process with rotational
     diffusivity Dr and translational diffusivity D.
 
-    (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
+    (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
 
     Parameters
     ----------
