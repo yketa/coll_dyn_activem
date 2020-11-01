@@ -67,7 +67,8 @@ class _Frame:
     def __init__(self, dat, frame, box_size, centre,
         arrow_width=_arrow_width,
         arrow_head_width=_arrow_head_width,
-        arrow_head_length=_arrow_head_length):
+        arrow_head_length=_arrow_head_length,
+        WCA_diameter=False):
         """
         Initialises figure.
 
@@ -87,6 +88,8 @@ class _Frame:
             Width of the arrows' head.
         arrow_head_length : float
             Length of the arrows' head.
+        WCA_diameter : bool
+            Multiply diameters by 2^(1/6). (default: False)
         """
 
         self.fig, self.ax = plt.subplots()
@@ -101,8 +104,8 @@ class _Frame:
         self.fig.subplots_adjust(top=0.80)
 
         self.dat = dat
-        self.positions = self.dat.getPositions(frame, centre=centre)    # particles' positions at frame frame with centre as centre of frame
-        self.diameters = self.dat.diameters                             # particles' diameters
+        self.positions = self.dat.getPositions(frame, centre=centre)            # particles' positions at frame frame with centre as centre of frame
+        self.diameters = self.dat.diameters*(2**(1./6.) if WCA_diameter else 1) # particles' diameters
 
         self.particles = [particle for particle in range(len(self.positions))
             if (np.abs(self.positions[particle]) <= self.box_size/2
@@ -795,7 +798,8 @@ if __name__ == '__main__':  # executing as script
 
     try:
         Nentries = dat.frameIndices[-1]
-        init_frame = dat.frameIndices[-1] if init_frame < 0 else init_frame # initial frame to draw
+        init_frame = (dat.frameIndices[init_frame] if init_frame < 0
+            else init_frame)                                                # initial frame to draw
         dat._getFrameIndex(init_frame)                                      # throws IndexError if init_frame not in file
     except AttributeError:
         Nentries = dat.frames - 1
