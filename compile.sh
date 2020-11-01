@@ -6,7 +6,10 @@
 cd "$( dirname "${BASH_SOURCE[0]}" )"
 
 # use Heun's integrations scheme
-USE_HEUN=no
+USE_HEUN=yes
+
+# python/C++ interface
+make clean && make _pycpp.so
 
 # ROTORS
 make clean && ROTORS=yes HEUN=$USE_HEUN make;

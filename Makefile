@@ -103,7 +103,8 @@ ifeq ($(TYPE),AOUP)
 # AOUPs
 	CFLAGS+=-DAOUP
 	EXEC:=$(EXEC)OU
-else
+endif
+ifeq ($(TYPE),ABP)
 # ABPs
 	CFLAGS+=-DABP
 endif
@@ -125,8 +126,8 @@ ifeq ($(CELLLIST),yes)
 	CFLAGS+=-DUSE_CELL_LIST
 endif
 
-# HEUN'S SCHEEM
-ifeq ($(HEUN),yes)
+# HEUN'S SCHEME
+ifneq ($(HEUN),no)
 	CFLAGS+=-DHEUN=true
 endif
 
@@ -136,7 +137,7 @@ ifneq ($(EXEC_NAME),)
 endif
 
 MAIN=main.cpp main0.cpp mainN.cpp mainR.cpp cloning.cpp cloningR.cpp test.cpp																	# files with main()
-SRC=$(filter-out $(filter-out $(CPP), $(MAIN)), $(filter-out $(wildcard old*), $(wildcard *.cpp)))	# compile all files but the ones with wrong main()
+SRC=$(filter-out $(filter-out $(CPP), $(MAIN) pycpp.cpp), $(filter-out $(wildcard old*), $(wildcard *.cpp)))	# compile all files but the ones with wrong main()
 
 OBJ=$(addprefix $(OB)/, $(SRC:.cpp=.o))
 
@@ -193,11 +194,31 @@ $(OB)/mainR.o: mainR.cpp env.hpp iteration.hpp particle.hpp
 $(OB)/test.o: test.cpp
 	$(CC) -o $(OB)/test.o -c test.cpp $(CFLAGS)
 
+##
+
+$(OB)/pycpp.o: dir pycpp.cpp pycpp.hpp maths.hpp
+	$(CC) -o $(OB)/pycpp.o -c pycpp.cpp $(CFLAGS)
+
+_pycpp.so: CFLAGS+=-fPIC
+_pycpp.so: $(OB)/pycpp.o $(OB)/maths.o
+	$(CC) -o _pycpp.so -shared $(OB)/pycpp.o $(OB)/maths.o $(LDFLAGS)
+
+#### GPROF ####
+
+gprof: dir $(OBJ)
+	$(CC) -pg -o $(EXEC) $(OBJ) $(LDFLAGS)
+	GMON_OUT_PREFIX=$(BU)/gmon.out $(EXEC)
+	gprof $(EXEC) `ls -t $(BU)/gmon.out.* | head -n1` > $(BU)/gprof_analysis.txt
+
 #### VALGRIND ####
+
+callgrind: dir $(OBJ)
+	$(CC) -o $(EXEC) $(OBJ) $(LDFLAGS)
+	valgrind --tool=callgrind --callgrind-out-file=$(BU)/callgrind.%p.output $(EXEC)
 
 memcheck: dir $(OBJ)
 	$(CC) -g -o $(EXEC) $(OBJ) $(LDFLAGS)
-	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes --log-file=$(BU)/memcheck.output $(EXEC)
+	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes --log-file=$(BU)/memcheck.%p.output $(EXEC)
 
 massif: dir $(OBJ)
 	$(CC) -g -o $(EXEC) $(OBJ) $(LDFLAGS)
