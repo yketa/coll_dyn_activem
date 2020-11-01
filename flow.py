@@ -3,6 +3,7 @@ Module flow provides classes to compute and analyse displacements, velocities,
 and orientations in order to characterise the flow of systems of active
 particles.
 
+(see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#ABP%20flow%20characteristics)
 """
 
@@ -14,7 +15,8 @@ from operator import itemgetter
 
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.maths import Distribution, JointDistribution,\
-    wave_vectors_2D, g2Dto1D, g2Dto1Dgrid, mean_sterr, linspace, logspace
+    wave_vectors_2D, g2Dto1D, g2Dto1Dgrid, mean_sterr, linspace, logspace,\
+    angle, divide_arrays
 from coll_dyn_activem.rotors import nu_pdf_th as nu_pdf_th_ABP
 
 # CLASSES
@@ -537,9 +539,15 @@ class Displacements(Dat):
             Array of initial times.
         """
 
-        time0 = np.linspace(
-            self.skip, self.frames - 1, int((self.frames - 1 - self.skip)//dt),
-            endpoint=False, dtype=int)
+        if self._type == 'datN':
+            if not(dt in self.deltat):
+                raise ValueError("Lag time %i not in file." % dt)
+            time0 = self.time0
+        else:
+            time0 = np.linspace(
+                self.skip, self.frames - 1,
+                int((self.frames - 1 - self.skip)//dt),
+                endpoint=False, dtype=int)
         if int_max == None: return time0
         indexes = list(OrderedDict.fromkeys(
             np.linspace(0, time0.size, int_max, endpoint=False, dtype=int)))
@@ -755,6 +763,132 @@ class Velocities(Dat):
             wave_vectors*np.mean(FFTsq, axis=0), wave_vectors,
             average_grid=False)
 
+    def velocitiesCor(self, int_max=None, nBoxes=None, cylindrical=True):
+        """
+        Compute spatial correlations of particles' velocities (and density).
+
+        NOTE: Correlations are computed with FFT.
+              (see https://yketa.github.io/PhD_Wiki/#Fourier%20transform%20field%20correlation)
+
+        Parameters
+        ----------
+        int_max : int or None
+            Maximum number of frames to consider. (default: None)
+            NOTE: If int_max == None, then take the maximum number of frames.
+                  WARNING: This can be very big.
+        nBoxes : int
+            Number of grid boxes in each direction. (default: None)
+            NOTE: if nBoxes==None, then None is passed to self.toGrid.
+        cylindrical : bool
+            Return cylindrical average of correlations.
+
+        Returns
+        -------
+        [cylindrical]
+        Cvv : (*, 2) float Numpy array
+            Array of (r, Cvv(r)) with Cvv(r) the cylindrically averaged spatial
+            correlations of velocity.
+        Cdd : (*, 2) float Numpy array
+            Array of (r, Cdd(r)) with Cdd(r) the cylindrically averaged spatial
+            correlations of density.
+        [not(cylindrical)]
+        Cvv : (*, *) float Numpy array
+            2D grid of spatial velocity correlation.
+        Cdd : (*, *) float Numpy array
+            2D grid of spatial density correlation.
+        """
+
+        grids = list(map(
+            lambda time, velocities: list(map(
+                lambda grid:
+                    self.toGrid(time, grid, nBoxes=nBoxes,
+                        box_size=self.L, centre=None, average=False),   # do not average but sum
+                (velocities, np.full((self.N,), fill_value=1)))),
+            *(self._time0(int_max=int_max),
+                self.nVelocities(int_max=int_max, norm=False))))
+        velocityGrids = np.array([_[0] for _ in grids])                 # grids of velocity at different times
+        densityGrids = np.array([_[1] for _ in grids])                  # grids of density at different times
+
+        cor = (lambda grid: # returns correlation grid of a 2D grid
+            (lambda FFT: np.real(np.fft.ifft2(np.conj(FFT)*FFT)))
+                (np.fft.fft2(grid)))
+
+        _Cvv2D = list(map(
+            lambda dim: list(map(cor, velocityGrids[:, :, :, dim])), range(2)))
+        Cvv2D = np.sum(
+            [np.mean(grid, axis=0) for grid in _Cvv2D],
+            axis=0)
+        errCvv2D = np.sqrt(np.sum(
+            [np.var(grid, axis=0)/velocityGrids.shape[0] for grid in _Cvv2D],
+            axis=0))
+
+        _Cdd2D = np.array(list(map(cor, densityGrids)))
+        Cdd2D = _Cdd2D.mean(axis=0)
+        errCdd2D = _Cdd2D.std(axis=0)/np.sqrt(densityGrids.shape[0])
+
+        if cylindrical: # cylindrical average
+            return [g2Dto1D(C2D/C2D[0, 0], self.L, g2Derr=C2Derr/C2D[0, 0])
+                for C2D, C2Derr in zip((Cvv2D, Cdd2D), (errCvv2D, errCdd2D))]
+        else:           # 2D grid
+            return [
+                np.concatenate(
+                    (C2D.reshape((*C2D.shape, 1)),
+                    C2Derr.reshape((*C2Derr.shape, 1))),
+                    axis=-1)
+                for C2D, C2Derr in zip((Cvv2D, Cdd2D), (errCvv2D, errCdd2D))]
+
+    def velocitiesOriCor(self, int_max=None):
+        """
+        Compute spatial correlations of particles' velocity orientation (see
+        https://yketa.github.io/PhD_Wiki/#Flow%20characteristics).
+
+        Parameters
+        ----------
+        int_max : int or None
+            Maximum number of frames to consider. (default: None)
+            NOTE: If int_max == None, then take the maximum number of frames.
+                  WARNING: This can be very big.
+
+        Returns
+        -------
+        Cvv : (*, 3) float Numpy array
+            Array of (r, Cvv(r), errCvv(r)) with Cvv(r) the cylindrically
+            averaged spatial correlations of velocity orientation, and
+            errCvv(r) the standard error on this quantity.
+        """
+
+        dij = (
+            lambda t, i, j:
+                (lambda psii, psij:
+                    (lambda abspsiij: np.min([abspsiij, 2*np.pi - abspsiij]))(
+                        np.abs(psii - psij)))(
+                *tuple(map(lambda _: angle(*_),
+                    [self._velocity(t, __) for __ in (i, j)]))))
+
+        meanDiameter = self.diameters.mean()
+        r = np.array(range(1, int((self.L/2)/meanDiameter) + 1))
+        distMax = r.max()*meanDiameter
+
+        _Q = []
+        for t in self._time0(int_max=int_max):
+            Qi = np.zeros((self.N, r.size))
+            Vi = np.zeros((self.N, r.size))
+            for i in range(self.N):
+                for j in range(i + 1, self.N):
+                    dist = self.getDistance(t, i, j)
+                    if dist > distMax: continue
+                    shellIndex = int(dist//meanDiameter)
+                    _dij = dij(t, i, j)
+                    Qi[i, shellIndex] += _dij
+                    Vi[i, shellIndex] += 1
+                    Qi[j, shellIndex] += _dij
+                    Vi[j, shellIndex] += 1
+            _Q += [1 - 2*divide_arrays(Qi, Vi).mean(axis=0)/np.pi]
+        Q = np.array([mean_sterr(_q) for _q in np.transpose(_Q)])
+
+        return np.array([[index*meanDiameter, q, errq]
+            for index, (q, errq) in zip(r, Q)])
+
     def _time0(self, int_max=None):
         """
         Returns array of frames at which to compute velocities.
@@ -772,9 +906,15 @@ class Velocities(Dat):
             Array of frames.
         """
 
-        if int_max == None: return np.array(range(self.skip, self.frames - 1))
-        return np.linspace(
-            self.skip, self.frames - 1, int(int_max), endpoint=False, dtype=int)
+        if self._type == 'datN':
+            time0 = self.time0[self.time0 != self.frameIndices[-1]]
+        else:
+            time0 = np.array(range(self.skip, self.frames - 1))
+        # NOTE: It is important to remove the last frame since the velocities are 0.
+
+        if int_max == None: return time0
+        indexes = linspace(0, time0.size, int_max, endpoint=False)
+        return np.array(itemgetter(*indexes)(time0), ndmin=1)
 
 class Orientations(Dat):
     """
@@ -937,7 +1077,7 @@ class Orientations(Dat):
         Compute spatial correlations of particles' orientations (and density).
 
         NOTE: Correlations are computed with FFT.
-              (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Fourier%20transform%20field%20correlation)
+              (see https://yketa.github.io/PhD_Wiki/#Fourier%20transform%20field%20correlation)
 
         Parameters
         ----------
@@ -1037,9 +1177,14 @@ class Orientations(Dat):
             Array of frames.
         """
 
-        if int_max == None: return np.array(range(self.skip, self.frames - 1))
-        return np.linspace(
-            self.skip, self.frames - 1, int(int_max), endpoint=False, dtype=int)
+        if self._type == 'datN':
+            time0 = self.time0
+        else:
+            time0 = np.array(range(self.skip, self.frames))
+
+        if int_max == None: return time0
+        indexes = linspace(0, time0.size, int_max, endpoint=False)
+        return np.array(itemgetter(*indexes)(time0), ndmin=1)
 
 class Propulsions(Dat):
     """
@@ -1339,9 +1484,14 @@ class Propulsions(Dat):
             Array of frames.
         """
 
-        if int_max == None: return np.array(range(self.skip, self.frames - 1))
-        return np.linspace(
-            self.skip, self.frames - 1, int(int_max), endpoint=False, dtype=int)
+        if self._type == 'datN':
+            time0 = self.time0
+        else:
+            time0 = np.array(range(self.skip, self.frames))
+
+        if int_max == None: return time0
+        indexes = linspace(0, time0.size, int_max, endpoint=False)
+        return np.array(itemgetter(*indexes)(time0), ndmin=1)
 
 # FUNCTIONS
 
