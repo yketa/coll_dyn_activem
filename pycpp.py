@@ -17,6 +17,8 @@ _pycpp = ctypes.CDLL(os.path.join(
 
 ##########
 
+# HISTOGRAMS
+
 def getHistogram(values, bins):
     """
     Build an histogram counting the occurences of `values' in the
@@ -108,6 +110,8 @@ def getHistogramLinear(values, nBins, vmin, vmax):
 
     return histogram
 
+# DISTANCES
+
 def getDistances(positions, L, diameters=None):
     """
     Compute distances between the particles with `positions' of a system of size
@@ -116,12 +120,12 @@ def getDistances(positions, L, diameters=None):
 
     Parameters
     ----------
-    positions : float array-like
+    positions : (*, 2) float array-like
         Positions of the particles.
     L : float
         Size of the system box.
     diameters : float array-like or None
-        Diameters of the particles.
+        Diameters of the particles. (default: None)
 
     Returns
     -------
@@ -158,3 +162,131 @@ def getDistances(positions, L, diameters=None):
         scale_diameter)
 
     return distances
+
+# CORRELATIONS
+
+def getRadialCorrelations(positions, L, values, nBins, min=None, max=None):
+    """
+    Compute radial correlations between `values' associated to each of the
+    `positions' of a system of size `L'.
+
+    Parameters
+    ----------
+    positions : (*, 2) float array-like
+        Positions of the particles.
+    L : float
+        Size of the system box.
+    values : (*, **)  float array-like
+        Values to compute the correlations of.
+        NOTE: if these values are 1D arrays, the sum of the correlation on each
+              axis is returned.
+    nBins : int
+        Number of intervals of distances on which to compute the correlations.
+    min : float or None
+        Minimum distance (included) at which to compute the correlations.
+        (default: None)
+        NOTE: if min == None then min = 0.
+    max : float or None
+        Maximum distance (excluded) at which to compute the correlations.
+        (default: None)
+        NOTE: if max == None then max = L/2.
+
+    Returns
+    -------
+    correlations : (nBins, 2) float Numpy array
+        Array of (r, C(r)) where r is the lower bound of the bin and C(r) the
+        radial correlation computed for this bin.
+    """
+
+    positions = np.array(positions, dtype=np.float64)
+    N = len(positions)
+    assert positions.shape == (N, 2)
+    assert values.shape[0] == N
+    assert values.ndim <= 2
+    if values.ndim == 1: values = values.reshape(values.shape + (1,))
+    nBins = int(nBins)
+    min = 0 if min == None else min
+    max = L/2 if max == None else max
+    correlations = np.empty((nBins,), dtype=np.float64)
+
+    _pycpp.getRadialCorrelations.argtypes = [
+        ctypes.c_int,
+        ctypes.c_double,
+        np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS'),
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.POINTER(ctypes.c_double)),
+        ctypes.c_int,
+        ctypes.c_double,
+        ctypes.c_double,
+        np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS')]
+    _pycpp.getRadialCorrelations(
+        N,
+        L,
+        np.ascontiguousarray(positions[:, 0]),
+        np.ascontiguousarray(positions[:, 1]),
+        values.shape[1],
+        (ctypes.POINTER(ctypes.c_double)*N)(
+            *[np.ctypeslib.as_ctypes(value) for value in values]),
+        nBins,
+        min,
+        max,
+        np.ascontiguousarray(correlations))
+
+    return np.array([[min + bin*(max - min)/nBins, correlations[bin]]
+        for bin in range(nBins)])
+
+def getVelocitiesOriCor(positions, L, velocities, sigma=1):
+    """
+    Compute radial correlation of orientations of `velocities' associated to
+    each of the `positions' of a system of size `L'.
+
+    (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+
+    Parameters
+    ----------
+    positions : (*, 2) float array-like
+        Positions of the particles.
+    L : float
+        Size of the system box.
+    velocities : (*, 2)  float array-like
+        Velocities of the particles.
+    sigma : float
+        Mean radius. (default: 1)
+
+    Returns
+    -------
+    correlations : (*, 2) float Numpy array
+        Array of (r, C(r)) where r is the upper bound of the bin and C(r) the
+        radial correlation of orientations of velocities computed for this bin.
+    """
+
+    positions = np.array(positions, dtype=np.float64)
+    N = len(positions)
+    assert positions.shape == (N, 2)
+    velocities = np.array(velocities, dtype=np.float64)
+    assert velocities.shape == (N, 2)
+    nBins = int((L/2)/sigma);
+    correlations = np.empty((nBins,), dtype=np.float64)
+
+    _pycpp.getVelocitiesOriCor.argtypes = [
+        ctypes.c_int,
+        ctypes.c_double,
+        np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS'),
+        ctypes.c_double]
+    _pycpp.getVelocitiesOriCor(
+        N,
+        L,
+        np.ascontiguousarray(positions[:, 0]),
+        np.ascontiguousarray(positions[:, 1]),
+        np.ascontiguousarray(velocities[:, 0]),
+        np.ascontiguousarray(velocities[:, 1]),
+        np.ascontiguousarray(correlations),
+        sigma)
+
+    return np.array([[1 + bin*sigma, correlations[bin]]
+        for bin in range(nBins)])

@@ -11,7 +11,7 @@ import pickle
 from operator import itemgetter
 
 from coll_dyn_activem.init import get_env
-from coll_dyn_activem.maths import relative_positions, angle
+from coll_dyn_activem.maths import pycpp, relative_positions, angle
 
 class _Read:
     """
@@ -867,6 +867,40 @@ class Dat(_Read):
         if average: return np.divide(grid, sumN,
             out=np.zeros(grid.shape), where=sumN!=0)
         return grid
+
+    def getRadialCorrelations(self, time, array, nBins, min=None, max=None):
+        """
+        Computes radial correlations of field `array' associated to particles
+        at `time'.
+
+        Parameters
+        ----------
+        time : int
+            Frame index.
+        array : (self.N, *) float array-like
+            Array of values to compute the radial correlation from.
+        nBins : int
+            Number of intervals of distances on which to compute the
+            correlations.
+        min : float or None
+            Minimum distance (included) at which to compute the correlations.
+            (default: None)
+            NOTE: if min == None then min = 0.
+        max : float or None
+            Maximum distance (excluded) at which to compute the correlations.
+            (default: None)
+            NOTE: if max == None then max = self.L/2.
+
+        Returns
+        -------
+        correlations : (nBins, 2) float Numpy array
+            Array of (r, C(r)) where r is the lower bound of the bin and C(r)
+            the radial correlation computed for this bin.
+        """
+
+        return pycpp.getRadialCorrelations(
+            self.getPositions(time), self.L, array, nBins,
+            min=0 if min == None else min, max=self.L/2 if max == None else max)
 
     def _loadWork(self, load=True):
         """

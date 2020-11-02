@@ -14,7 +14,7 @@ from collections import OrderedDict
 from operator import itemgetter
 
 from coll_dyn_activem.read import Dat
-from coll_dyn_activem.maths import Distribution, JointDistribution,\
+from coll_dyn_activem.maths import pycpp, Distribution, JointDistribution,\
     wave_vectors_2D, g2Dto1D, g2Dto1Dgrid, mean_sterr, linspace, logspace,\
     angle, divide_arrays
 from coll_dyn_activem.rotors import nu_pdf_th as nu_pdf_th_ABP
@@ -763,83 +763,53 @@ class Velocities(Dat):
             wave_vectors*np.mean(FFTsq, axis=0), wave_vectors,
             average_grid=False)
 
-    def velocitiesCor(self, int_max=None, nBoxes=None, cylindrical=True):
+    def velocitiesCor(self, nBins, int_max=None, min=None, max=None):
         """
         Compute spatial correlations of particles' velocities (and density).
 
-        NOTE: Correlations are computed with FFT.
-              (see https://yketa.github.io/PhD_Wiki/#Fourier%20transform%20field%20correlation)
+        (see self.getRadialCorrelations)
 
         Parameters
         ----------
+        nBins : int
+            Number of intervals of distances on which to compute the
+            correlations.
         int_max : int or None
             Maximum number of frames to consider. (default: None)
             NOTE: If int_max == None, then take the maximum number of frames.
                   WARNING: This can be very big.
-        nBoxes : int
-            Number of grid boxes in each direction. (default: None)
-            NOTE: if nBoxes==None, then None is passed to self.toGrid.
-        cylindrical : bool
-            Return cylindrical average of correlations.
+        min : float or None
+            Minimum distance (included) at which to compute the correlations.
+            (default: None)
+            NOTE: if min == None then min = 0.
+        max : float or None
+            Maximum distance (excluded) at which to compute the correlations.
+            (default: None)
+            NOTE: if max == None then max = self.L/2.
 
         Returns
         -------
-        [cylindrical]
         Cvv : (*, 2) float Numpy array
-            Array of (r, Cvv(r)) with Cvv(r) the cylindrically averaged spatial
-            correlations of velocity.
-        Cdd : (*, 2) float Numpy array
-            Array of (r, Cdd(r)) with Cdd(r) the cylindrically averaged spatial
-            correlations of density.
-        [not(cylindrical)]
-        Cvv : (*, *) float Numpy array
-            2D grid of spatial velocity correlation.
-        Cdd : (*, *) float Numpy array
-            2D grid of spatial density correlation.
+            Array of (r, Cvv(r), errCvv(r)) with Cvv(r) the cylindrically
+            averaged spatial correlations of velocity and errCvv(r) the standard
+            error on this measure.
         """
 
-        grids = list(map(
-            lambda time, velocities: list(map(
-                lambda grid:
-                    self.toGrid(time, grid, nBoxes=nBoxes,
-                        box_size=self.L, centre=None, average=False),   # do not average but sum
-                (velocities, np.full((self.N,), fill_value=1)))),
-            *(self._time0(int_max=int_max),
-                self.nVelocities(int_max=int_max, norm=False))))
-        velocityGrids = np.array([_[0] for _ in grids])                 # grids of velocity at different times
-        densityGrids = np.array([_[1] for _ in grids])                  # grids of density at different times
+        correlations = np.array([
+            (lambda v:
+                self.getRadialCorrelations(
+                    t, v/np.sqrt((v**2).sum(axis=-1).mean()),
+                    nBins, min=min, max=max))(
+                self.getVelocities(t, norm=False))
+            for t in self._time0(int_max=int_max)])
 
-        cor = (lambda grid: # returns correlation grid of a 2D grid
-            (lambda FFT: np.real(np.fft.ifft2(np.conj(FFT)*FFT)))
-                (np.fft.fft2(grid)))
-
-        _Cvv2D = list(map(
-            lambda dim: list(map(cor, velocityGrids[:, :, :, dim])), range(2)))
-        Cvv2D = np.sum(
-            [np.mean(grid, axis=0) for grid in _Cvv2D],
-            axis=0)
-        errCvv2D = np.sqrt(np.sum(
-            [np.var(grid, axis=0)/velocityGrids.shape[0] for grid in _Cvv2D],
-            axis=0))
-
-        _Cdd2D = np.array(list(map(cor, densityGrids)))
-        Cdd2D = _Cdd2D.mean(axis=0)
-        errCdd2D = _Cdd2D.std(axis=0)/np.sqrt(densityGrids.shape[0])
-
-        if cylindrical: # cylindrical average
-            return [g2Dto1D(C2D/C2D[0, 0], self.L, g2Derr=C2Derr/C2D[0, 0])
-                for C2D, C2Derr in zip((Cvv2D, Cdd2D), (errCvv2D, errCdd2D))]
-        else:           # 2D grid
-            return [
-                np.concatenate(
-                    (C2D.reshape((*C2D.shape, 1)),
-                    C2Derr.reshape((*C2Derr.shape, 1))),
-                    axis=-1)
-                for C2D, C2Derr in zip((Cvv2D, Cdd2D), (errCvv2D, errCdd2D))]
+        return np.array([
+            [correlations[0, bin, 0], *mean_sterr(correlations[:, bin, 1])]
+            for bin in range(nBins)])
 
     def velocitiesOriCor(self, int_max=None):
         """
-        Compute spatial correlations of particles' velocity orientation (see
+        Compute radial correlations of particles' velocity orientation (see
         https://yketa.github.io/PhD_Wiki/#Flow%20characteristics).
 
         Parameters
@@ -857,37 +827,15 @@ class Velocities(Dat):
             errCvv(r) the standard error on this quantity.
         """
 
-        dij = (
-            lambda t, i, j:
-                (lambda psii, psij:
-                    (lambda abspsiij: np.min([abspsiij, 2*np.pi - abspsiij]))(
-                        np.abs(psii - psij)))(
-                *tuple(map(lambda _: angle(*_),
-                    [self._velocity(t, __) for __ in (i, j)]))))
+        correlations = np.array([
+            pycpp.getVelocitiesOriCor(
+                self.getPositions(t), self.L, self.getVelocities(t, norm=False),
+                sigma=self.diameters.mean())
+            for t in self._time0(int_max=int_max)])
 
-        meanDiameter = self.diameters.mean()
-        r = np.array(range(1, int((self.L/2)/meanDiameter) + 1))
-        distMax = r.max()*meanDiameter
-
-        _Q = []
-        for t in self._time0(int_max=int_max):
-            Qi = np.zeros((self.N, r.size))
-            Vi = np.zeros((self.N, r.size))
-            for i in range(self.N):
-                for j in range(i + 1, self.N):
-                    dist = self.getDistance(t, i, j)
-                    if dist > distMax: continue
-                    shellIndex = int(dist//meanDiameter)
-                    _dij = dij(t, i, j)
-                    Qi[i, shellIndex] += _dij
-                    Vi[i, shellIndex] += 1
-                    Qi[j, shellIndex] += _dij
-                    Vi[j, shellIndex] += 1
-            _Q += [1 - 2*divide_arrays(Qi, Vi).mean(axis=0)/np.pi]
-        Q = np.array([mean_sterr(_q) for _q in np.transpose(_Q)])
-
-        return np.array([[index*meanDiameter, q, errq]
-            for index, (q, errq) in zip(r, Q)])
+        return np.array([
+            [correlations[0, bin, 0], *mean_sterr(correlations[:, bin, 1])]
+            for bin in range(correlations.shape[1])])
 
     def _time0(self, int_max=None):
         """
@@ -1072,72 +1020,46 @@ class Orientations(Dat):
             nBins, vmin=vmin, vmax=vmax, log=log,
             rescaled_to_max=rescaled_to_max)
 
-    def orientationsCor(self, int_max=None, nBoxes=None, cylindrical=True):
+    def orientationsCor(self, nBins, int_max=None, min=None, max=None):
         """
         Compute spatial correlations of particles' orientations (and density).
 
-        NOTE: Correlations are computed with FFT.
-              (see https://yketa.github.io/PhD_Wiki/#Fourier%20transform%20field%20correlation)
+        (see self.getRadialCorrelations)
 
         Parameters
         ----------
+        nBins : int
+            Number of intervals of distances on which to compute the
+            correlations.
         int_max : int or None
             Maximum number of frames to consider. (default: None)
             NOTE: If int_max == None, then take the maximum number of frames.
                   WARNING: This can be very big.
-        nBoxes : int
-            Number of grid boxes in each direction. (default: None)
-            NOTE: if nBoxes==None, then None is passed to self.toGrid.
-        cylindrical : bool
-            Return cylindrical average of correlations.
+        min : float or None
+            Minimum distance (included) at which to compute the correlations.
+            (default: None)
+            NOTE: if min == None then min = 0.
+        max : float or None
+            Maximum distance (excluded) at which to compute the correlations.
+            (default: None)
+            NOTE: if max == None then max = self.L/2.
 
         Returns
         -------
-        [cylindrical]
         Cuu : (*, 2) float Numpy array
-            Array of (r, Cuu(r)) with Cuu(r) the cylindrically averaged spatial
-            correlations of orientation.
-        Cdd : (*, 2) float Numpy array
-            Array of (r, Cdd(r)) with Cdd(r) the cylindrically averaged spatial
-            correlations of density.
-        [not(cylindrical)]
-        Cuu : (*, *) float Numpy array
-            2D grid of spatial orientation correlation.
-        Cdd : (*, *) float Numpy array
-            2D grid of spatial density correlation.
+            Array of (r, Cuu(r), errCuu(r)) with Cuu(r) the cylindrically
+            averaged spatial correlations of orientation and errCuu(r) the
+            standard error on this measure.
         """
 
-        grids = list(map(
-            lambda time, orientations: list(map(
-                lambda grid:
-                    self.toGrid(time, grid, nBoxes=nBoxes,
-                        box_size=self.L, centre=None, average=False),   # do not average but sum
-                (orientations, np.full((self.N,), fill_value=1)))),
-            *(self._time0(int_max=int_max), self.nDirections(int_max=int_max))))
-        orientationGrids = np.array([_[0] for _ in grids])              # grids of orientation at different times
-        densityGrids = np.array([_[1] for _ in grids])                  # grids of density at different times
+        correlations = np.array([
+            self.getRadialCorrelations(t, self.getDirections(t),
+                nBins, min=min, max=max)
+            for t in self._time0(int_max=int_max)])
 
-        cor = (lambda grid: # returns correlation grid of a 2D grid
-            (lambda FFT: np.real(np.fft.ifft2(np.conj(FFT)*FFT)))
-                (np.fft.fft2(grid)))
-
-        Cuu2D = np.sum(
-            list(map(
-                lambda dim:     # sum over dimensions
-                    np.mean(    # mean correlation over time
-                        list(map(cor, orientationGrids[:, :, :, dim])),
-                        axis=0),
-                range(2))),
-            axis=0)
-        Cdd2D = np.mean(        # mean correlation over time
-            list(map(cor, densityGrids)),
-            axis=0)
-
-        return tuple(map(
-            lambda C2D:
-                g2Dto1D(C2D/C2D[0, 0], self.L) if cylindrical   # cylindrical average
-                else C2D/C2D[0, 0],                             # 2D grid
-            (Cuu2D, Cdd2D)))
+        return np.array([
+            [correlations[0, bin, 0], *mean_sterr(correlations[:, bin, 1])]
+            for bin in range(nBins)])
 
     def nu_pdf_th_ABP(self, *nu):
         """
