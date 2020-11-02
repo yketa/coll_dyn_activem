@@ -124,7 +124,8 @@ class Write {
 
     Write(std::string filename) :
       outputFile(filename),
-      outputStream(outputFile.c_str(), std::ios::out | std::ios::binary) {}
+      outputStream(outputFile.c_str(),
+        std::ios::out | std::ios::binary | std::ios::trunc) {}
     Write() : Write("") {}
 
     // DESTRUCTORS
