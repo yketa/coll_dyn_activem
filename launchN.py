@@ -105,6 +105,7 @@ if __name__ == '__main__':
         # SYSTEM PARAMETERS
         with Dat(inputFilename, loadWork=False) as dat:                         # data object
             N = get_env('N', default=dat.N, vartype=float)                      # number of particles in the system
+            ratioN = N/dat.N                                                    # ratio of number of particles
             Dr = get_env('DR', default=dat.Dr, vartype=float)                   # rotational diffusivity
             epsilon = get_env('EPSILON', default=dat.epsilon, vartype=float)    # coefficient parameter of potential
             D = get_env('D', default=dat.D, vartype=float)                      # translational diffusivity
@@ -117,6 +118,9 @@ if __name__ == '__main__':
                 except AttributeError:
                     inputFrame = dat.frames - 1
             del dat
+        if ratioN != round(sqrt(ratioN))**2:
+            raise ValueError(
+                "Ratio of number of particles is not a perfect square.")
 
     # TYPE
     type = get_env('TYPE', default='ABP', vartype=str)  # type of active particles
