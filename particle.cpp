@@ -1587,12 +1587,23 @@ SystemN::SystemN(
 
   // load data
   DatN inputDat(inputFilename, false); // data object
-  double ratioSystemSize = getSystemSize()/inputDat.getSystemSize(); // ratio from old to new system size
+  int ratioNumberParticles = getNumberParticles()/inputDat.getNumberParticles(); // ratio of number of particles
+  int nCopyCells = round(sqrt(ratioNumberParticles));
+  if ( ratioNumberParticles != nCopyCells*nCopyCells ) {
+    // ratio of number of particles has to be a perfect square to copy correctly
+    throw std::invalid_argument(
+      "Ratio of number of particles is not a perfect square.");
+  }
+  double ratioSystemSize = getSystemSize()/inputDat.getSystemSize()/nCopyCells; // ratio from old to new system size
+  auto mapParticleIndex = // mapping from particle index to input particle index
+    [&inputDat](int i){ return i%inputDat.getNumberParticles(); };
+  auto copyCellIndex = // mapping from particle to index of copy cell
+    [&inputDat](int i){ return i/inputDat.getNumberParticles(); };
 
   // set diameters
   std::vector<double> diameters = inputDat.getDiameters();
   for (int i=0; i < getNumberParticles(); i++) {
-    particles.push_back(Particle(diameters[i]));
+    particles.push_back(Particle(diameters[mapParticleIndex(i)]));
   }
 
   // resize velocity dumps
@@ -1603,19 +1614,25 @@ SystemN::SystemN(
     // positions
     for (int dim=0; dim < 2; dim++) {
       particles[i].position()[dim] =
-        ratioSystemSize*inputDat.getPosition(inputFrame, i, dim);
+        ratioSystemSize*(
+          inputDat.getPosition(
+            inputFrame, mapParticleIndex(i), dim)
+          + inputDat.getSystemSize()*(dim == 0 ?
+            copyCellIndex(i) % nCopyCells : copyCellIndex(i) / nCopyCells));
     }
     // orientations
-    particles[i].orientation()[0] = inputDat.getOrientation(inputFrame, i);
+    particles[i].orientation()[0] =
+      inputDat.getOrientation(inputFrame, mapParticleIndex(i));
     // self-propulsion vector
     for (int dim=0; dim < 2; dim++) {
       particles[i].propulsion()[dim] =
-        inputDat.getPropulsion(inputFrame, i, dim);
+        inputDat.getPropulsion(inputFrame, mapParticleIndex(i), dim);
     }
   }
   #if AOUP // system of AOUPs
   if ( getTransDiffusivity() != inputDat.getTransDiffusivity()
-    || getRotDiffusivity() != inputDat.getRotDiffusivity() ) {
+    || getRotDiffusivity() != inputDat.getRotDiffusivity()
+    || getNumberParticles() != inputDat.getNumberParticles() ) {
     initPropulsionAOUP<SystemN>(this);
   }
   #endif
@@ -1673,7 +1690,18 @@ SystemN::SystemN(
 
   // load data
   DatN inputDat(inputFilename, false); // data object
-  double ratioSystemSize = getSystemSize()/inputDat.getSystemSize(); // ratio from old to new system size
+  int ratioNumberParticles = getNumberParticles()/inputDat.getNumberParticles(); // ratio of number of particles
+  int nCopyCells = round(sqrt(ratioNumberParticles));
+  if ( ratioNumberParticles != nCopyCells*nCopyCells ) {
+    // ratio of number of particles has to be a perfect square to copy correctly
+    throw std::invalid_argument(
+      "Ratio of number of particles is not a perfect square.");
+  }
+  double ratioSystemSize = getSystemSize()/inputDat.getSystemSize()/nCopyCells; // ratio from old to new system size
+  auto mapParticleIndex = // mapping from particle index to input particle index
+    [&inputDat](int i){ return i%inputDat.getNumberParticles(); };
+  auto copyCellIndex = // mapping from particle to index of copy cell
+    [&inputDat](int i){ return i/inputDat.getNumberParticles(); };
 
   // set diameters
   if ( getL_WCA(getPackingFraction(), diameters) != getSystemSize() ) {
@@ -1691,19 +1719,25 @@ SystemN::SystemN(
     // positions
     for (int dim=0; dim < 2; dim++) {
       particles[i].position()[dim] =
-        ratioSystemSize*inputDat.getPosition(inputFrame, i, dim);
+        ratioSystemSize*(
+          inputDat.getPosition(
+            inputFrame, mapParticleIndex(i), dim)
+          + inputDat.getSystemSize()*(dim == 0 ?
+            copyCellIndex(i) % nCopyCells : copyCellIndex(i) / nCopyCells));
     }
     // orientations
-    particles[i].orientation()[0] = inputDat.getOrientation(inputFrame, i);
+    particles[i].orientation()[0] =
+      inputDat.getOrientation(inputFrame, mapParticleIndex(i));
     // self-propulsion vector
     for (int dim=0; dim < 2; dim++) {
       particles[i].propulsion()[dim] =
-        inputDat.getPropulsion(inputFrame, i, dim);
+        inputDat.getPropulsion(inputFrame, mapParticleIndex(i), dim);
     }
   }
   #if AOUP // system of AOUPs
   if ( getTransDiffusivity() != inputDat.getTransDiffusivity()
-    || getRotDiffusivity() != inputDat.getRotDiffusivity() ) {
+    || getRotDiffusivity() != inputDat.getRotDiffusivity()
+    || getNumberParticles() != inputDat.getNumberParticles() ) {
     initPropulsionAOUP<SystemN>(this);
   }
   #endif

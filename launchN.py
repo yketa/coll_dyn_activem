@@ -104,7 +104,7 @@ if __name__ == '__main__':
 
         # SYSTEM PARAMETERS
         with Dat(inputFilename, loadWork=False) as dat:                         # data object
-            N = dat.N                                                           # number of particles in the system
+            N = get_env('N', default=dat.N, vartype=float)                      # number of particles in the system
             Dr = get_env('DR', default=dat.Dr, vartype=float)                   # rotational diffusivity
             epsilon = get_env('EPSILON', default=dat.epsilon, vartype=float)    # coefficient parameter of potential
             D = get_env('D', default=dat.D, vartype=float)                      # translational diffusivity

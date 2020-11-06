@@ -90,7 +90,7 @@ int main() {
     int inputFrame = getEnvInt("INPUT_FRAME", 0); // frame to copy as initial frame
 
     // physical parameters
-    int N = inputDat.getNumberParticles(); // number of particles in the system
+    int N = getEnvInt("N", inputDat.getNumberParticles()); // number of particles in the system
     double Dr = getEnvDouble("DR", inputDat.getRotDiffusivity()); // rotational diffusivity
     double epsilon = getEnvDouble("EPSILON", inputDat.getPotentialParameter()); // coefficient parameter of potential
     double D = getEnvDouble("D", inputDat.getTransDiffusivity()); // translational diffusivity
@@ -125,7 +125,11 @@ int main() {
     else {
 
       // keep diameters
-      std::vector<double> diameters = inputDat.getDiameters();
+      std::vector<double> inputDiameters = inputDat.getDiameters();
+      std::vector<double> diameters(N, 0);
+      for (int i=0; i < N; i++) {
+        diameters[i] = inputDiameters[i%inputDat.getNumberParticles()];
+      }
       Parameters parameters(
         N, epsilon, v0, D, Dr, phi, diameters, dt); // class of simulation parameters
 
