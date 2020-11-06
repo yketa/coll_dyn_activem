@@ -306,7 +306,7 @@ class Positions(Dat):
 
         return g2Dto1D(_G2D.mean(axis=0), self.L)
 
-    def pairDistribution(self, Nbins, max=None, int_max=None,
+    def pairDistribution(self, Nbins, min=None, max=None, int_max=None,
         scale_diameter=False):
         """
         Returns pair distribution function as an histogram of distances between
@@ -316,11 +316,14 @@ class Positions(Dat):
         ----------
         Nbins : int
             Number of histogram bins.
+        min : float or None
+            Minimum included value for histogram bins. (default: None)
+            NOTE: if min == None then 0 is taken.
+            NOTE: values lesser than to min will be ignored.
         max : float or None
             Maximum excluded value for histogram bins. (default: None)
-            NOTE: if max == None then maximum possible value is taken.
-            NOTE: values greater or equal to vmax will be ignored.
-            NOTE: if not(max == None), the normalisation may not be correct.
+            NOTE: if max == None then self.L/2 is taken.
+            NOTE: values greater than or equal to max will be ignored.
         int_max : int or None
             Maximum number of frames to consider. (default: None)
             NOTE: If int_max == None, then take the maximum number of frames.
@@ -336,21 +339,21 @@ class Positions(Dat):
             distance r and errgp(r) the standard error on this measure.
         """
 
-        histogram = Histogram(Nbins,
-            0, self.L/2 if max == None else max,
-            log=False)
+        if min == None: min = 0
+        if max == None: max = self.L/2
+
         hist = np.array(list(map(
-            lambda t: (lambda h: h/h.sum())(pycpp.getHistogramLinear(
-                pycpp.getDistances(self.getPositions(t), self.L,
-                    diameters=(self.diameters if scale_diameter else None)),
-                histogram.Nbins, histogram.vmin, histogram.vmax)),
+            lambda t: (lambda dist: pycpp.getHistogramLinear(dist,
+                Nbins, min, max)/dist.size)(
+                    pycpp.getDistances(self.getPositions(t), self.L,
+                        diameters=(
+                            self.diameters if scale_diameter else None))),
             self._time0(int_max=int_max))))
 
-        bins = histogram.bins[1:]
+        bins = np.array([min + b*(max - min)/Nbins for b in range(1, Nbins)])
         histErr = np.array([mean_sterr(h) for h in np.transpose(hist)])[1:]
 
-        histErr *= ((np.pi/4)*(self.L**2))/(
-            (histogram.vmax - histogram.vmin)/histogram.Nbins)
+        histErr *= (self.L**2)/((max - min)/Nbins)
 
         return np.array([[b, *h/(2*np.pi*b)] for b, h in zip(bins, histErr)])
 
