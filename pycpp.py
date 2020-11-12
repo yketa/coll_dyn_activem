@@ -165,7 +165,8 @@ def getDistances(positions, L, diameters=None):
 
 # CORRELATIONS
 
-def getRadialCorrelations(positions, L, values, nBins, min=None, max=None):
+def getRadialCorrelations(positions, L, values, nBins, min=None, max=None,
+    rescale_pair_distribution=False):
     """
     Compute radial correlations between `values' associated to each of the
     `positions' of a system of size `L'.
@@ -190,6 +191,8 @@ def getRadialCorrelations(positions, L, values, nBins, min=None, max=None):
         Maximum distance (excluded) at which to compute the correlations.
         (default: None)
         NOTE: if max == None then max = L/2.
+    rescale_pair_distribution : bool
+        Rescale correlations by pair distribution function. (default: False)
 
     Returns
     -------
@@ -219,7 +222,8 @@ def getRadialCorrelations(positions, L, values, nBins, min=None, max=None):
         ctypes.c_int,
         ctypes.c_double,
         ctypes.c_double,
-        np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS')]
+        np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS'),
+        ctypes.c_bool]
     _pycpp.getRadialCorrelations(
         N,
         L,
@@ -231,7 +235,8 @@ def getRadialCorrelations(positions, L, values, nBins, min=None, max=None):
         nBins,
         min,
         max,
-        np.ascontiguousarray(correlations))
+        np.ascontiguousarray(correlations),
+        rescale_pair_distribution)
 
     return np.array([[min + bin*(max - min)/nBins, correlations[bin]]
         for bin in range(nBins)])

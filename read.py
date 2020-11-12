@@ -868,10 +868,13 @@ class Dat(_Read):
             out=np.zeros(grid.shape), where=sumN!=0)
         return grid
 
-    def getRadialCorrelations(self, time, array, nBins, min=None, max=None):
+    def getRadialCorrelations(self, time, array, nBins, min=None, max=None,
+        rescale_pair_distribution=False):
         """
         Computes radial correlations of field `array' associated to particles
         at `time'.
+
+        (see coll_dyn_activem.pycpp.getRadialCorrelations)
 
         Parameters
         ----------
@@ -890,6 +893,8 @@ class Dat(_Read):
             Maximum distance (excluded) at which to compute the correlations.
             (default: None)
             NOTE: if max == None then max = self.L/2.
+        rescale_pair_distribution : bool
+            Rescale correlations by pair distribution function. (default: False)
 
         Returns
         -------
@@ -900,7 +905,8 @@ class Dat(_Read):
 
         return pycpp.getRadialCorrelations(
             self.getPositions(time), self.L, array, nBins,
-            min=0 if min == None else min, max=self.L/2 if max == None else max)
+            min=0 if min == None else min, max=self.L/2 if max == None else max,
+            rescale_pair_distribution=rescale_pair_distribution)
 
     def _loadWork(self, load=True):
         """

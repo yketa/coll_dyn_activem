@@ -40,12 +40,15 @@ extern "C" void getDistances(
 
 extern "C" void getRadialCorrelations(
   int N, double L, double* x, double* y, int dim, double** values,
-  int nBins, double rmin, double rmax, double* correlations);
+  int nBins, double rmin, double rmax, double* correlations,
+  bool rescale_pair_distribution = false);
   // Compute radial correlations between the (`dim',) float arrays `values'
   // associated to each of the `N' particles of a system of size `L', with
   // x-axis positions given by `x' and y-axis positions given by `y'.
   // Correlations are computed on the interval between `rmin' (included) and
   // `rmax' (excluded) with `nBins' bins.
+  // Correlations are rescaled by pair distribution function (for bins > 0) if
+  // `rescale_pair_distribution'.
 
 extern "C" void getVelocitiesOriCor(
   int N, double L, double* x, double* y, double* vx, double* vy,

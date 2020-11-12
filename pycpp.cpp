@@ -87,20 +87,25 @@ extern "C" void getDistances(
 
 extern "C" void getRadialCorrelations(
   int N, double L, double* x, double* y, int dim, double** values,
-  int nBins, double rmin, double rmax, double* correlations) {
+  int nBins, double rmin, double rmax, double* correlations,
+  bool rescale_pair_distribution) {
   // Compute radial correlations between the (`dim',) float arrays `values'
   // associated to each of the `N' particles of a system of size `L', with
   // x-axis positions given by `x' and y-axis positions given by `y'.
   // Correlations are computed on the interval between `rmin' (included) and
   // `rmax' (excluded) with `nBins' bins.
+  // Correlations are rescaled by pair distribution function (for bins > 0) if
+  // `rescale_pair_distribution'.
 
   for (int i=0; i < nBins; i++) { correlations[i] = 0; }
   std::vector<int> occupancy(nBins, 0);
+  int nPairs = 0; // number of pairs
 
   int bin;
   double dbin = (rmax - rmin)/nBins;
   for (int i=0; i < N; i++) {
     for (int j=i; j < N; j++) {
+      if ( i != j ) { nPairs++; }
       bin = (getDistance(x[i], y[i], x[j], y[j], L) - rmin)/dbin;
       if ( bin < 0 || bin >= nBins ) { continue; }
       for (int d=0; d < dim; d++) {
@@ -111,7 +116,17 @@ extern "C" void getRadialCorrelations(
   }
 
   for (int i=0; i < nBins; i++) {
-    if ( occupancy[i] > 0 ) { correlations[i] /= occupancy[i]; }
+    if ( occupancy[i] > 0 ) {
+      // mean over computed values
+      correlations[i] /= occupancy[i];
+      // correction by pair distribution function
+      if ( ! rescale_pair_distribution ) { continue; }
+      if ( i == 0 && rmin == 0 ) { continue; } // do not consider 0th bin
+      correlations[i] /=
+        ((double) occupancy[i]/nPairs) // histogram value
+        *pow(L, 2)/((rmax - rmin)/nBins) // normalisation
+        /(2*M_PI*(rmin + i*(rmax - rmin)/nBins)); // radial projection
+    }
   }
 }
 
