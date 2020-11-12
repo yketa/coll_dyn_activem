@@ -274,7 +274,7 @@ class Positions(Dat):
         (assuming isotropy).
 
         NOTE: Correlations are computed with FFT.
-              (see https://yketa.github.io/PhD_Wiki/#Fourier%20transform%20field%20correlation)
+              (see https://yketa.github.io/PhD_Wiki/#Field%20correlation)
 
         Parameters
         ----------
