@@ -14,6 +14,7 @@ from collections import OrderedDict
 from operator import itemgetter
 
 from coll_dyn_activem.read import Dat
+from coll_dyn_activem.structure import Positions
 from coll_dyn_activem.maths import pycpp, Distribution, JointDistribution,\
     wave_vectors_2D, g2Dto1D, g2Dto1Dgrid, mean_sterr, linspace, logspace,\
     angle, divide_arrays
@@ -21,7 +22,7 @@ from coll_dyn_activem.rotors import nu_pdf_th as nu_pdf_th_ABP
 
 # CLASSES
 
-class Displacements(Dat):
+class Displacements(Positions):
     """
     Compute and analyse displacements from simulation data.
 
@@ -48,11 +49,73 @@ class Displacements(Dat):
                   tests.
         """
 
-        super().__init__(filename, loadWork=False, corruption=corruption)   # initialise with super class
+        super().__init__(filename, skip=skip, corruption=corruption)    # initialise with super class
 
-        self.skip = skip    # skip the `skip' first frames (or blocks for .datN files) in the analysis
+    def getDisplacements(self, time0, time1, *particle, jump=1, norm=False,
+        cage_relative=False, neighbours=None):
+        """
+        Returns displacements of particles between `time0' and `time1'.
 
-    def nDisplacements(self, dt, int_max=None, jump=1, norm=False):
+        Parameters
+        ----------
+        time0 : int
+            Initial frame.
+        time1 : int
+            Final frame.
+        particle : int
+            Indexes of particles.
+            NOTE: if none is given, then all particles are returned.
+        jump : int
+            Period in number of frames at which to check if particles have
+            crossed any boundary. (default: 1)
+            NOTE: `jump' must be chosen so that particles do not move a distance
+                  greater than half the box size during this time.
+            NOTE: This is only relevant for .dat files since these do not embed
+                  unfolded positions.
+        norm : bool
+            Return norm of displacements rather than 2D displacements.
+            (default: False)
+        cage_relative : bool
+            Remove displacement of the centre of mass given by nearest
+            neighbours determined by Voronoi tesselation at `time0'.
+            (default: False)
+        neighbours : coll_dyn_activem.maths.DictList or None
+            Neighbour list (see self.getNeighbourList) to use if
+            `cage_relative'. (default: None)
+            NOTE: if neighbours == None, then it is computed with
+                  self.getNeighbourList.
+
+        Returns
+        -------
+        displacements : [not(norm)] (*, 2) float Numpy array
+                        [norm] (*,) float Numpy array
+            Displacements between `time0' and `time1'.
+        """
+
+        if particle == (): particle = range(self.N)
+
+        if not(cage_relative):
+            return super().getDisplacements(
+                time0, time1, *particle, jump=jump, norm=norm)
+
+        origDisplacements = super().getDisplacements(
+            time0, time1, jump=jump, norm=False)
+        if type(neighbours) == type(None):
+            neighbours = self.getNeighbourList(time0)
+
+        displacements = np.array(
+            itemgetter(*particle)(origDisplacements.copy()))
+        for i, index in zip(particle, range(len(particle))):
+            if not(i in neighbours): continue   # no neighbours
+            nNeighbours = len(neighbours[i])
+            for (j, _) in neighbours[i]:
+                displacements[index] -= origDisplacements[j]/nNeighbours
+
+        if norm: return np.sqrt(np.sum(displacements**2, axis=-1))
+        return displacements
+
+    def nDisplacements(self, dt, int_max=None, jump=1, norm=False,
+        cage_relative=False):
         """
         Returns array of displacements with lag time `dt'.
 
@@ -71,6 +134,10 @@ class Displacements(Dat):
         norm : bool
             Return norm of displacements rather than 2D displacement.
             (default: False)
+        cage_relative : bool
+            Remove displacement of the centre of mass given by nearest
+            neighbours at initial time. (default: False)
+            (see self.getDisplacements)
 
         Returns
         -------
@@ -82,12 +149,13 @@ class Displacements(Dat):
         displacements = []
         for time0 in self._time0(dt, int_max=int_max):
             displacements += [
-                self.getDisplacements(time0, time0 + dt, jump=jump, norm=norm)]
+                self.getDisplacements(time0, time0 + dt, jump=jump, norm=norm,
+                    cage_relative=cage_relative)]
         displacements = np.array(displacements)
 
         return displacements
 
-    def displacementsPDF(self, dt, int_max=None, jump=1):
+    def displacementsPDF(self, dt, int_max=None, jump=1, cage_relative=False):
         """
         Returns probability density function of displacement norm over lag time
         `dt'.
@@ -104,6 +172,10 @@ class Displacements(Dat):
             crossed any boundary. (default: 1)
             NOTE: `jump' must be chosen so that particles do not move a distance
                   greater than half the box size during this time.
+        cage_relative : bool
+            Remove displacement of the centre of mass given by nearest
+            neighbours at initial time. (default: False)
+            (see self.getDisplacements)
 
         Returns
         -------
@@ -113,10 +185,13 @@ class Displacements(Dat):
             Values of the probability density function.
         """
 
-        return Distribution(self.nDisplacements(
-            dt, int_max=int_max, jump=jump, norm=True)).pdf()
+        return Distribution(
+            self.nDisplacements(
+                dt, int_max=int_max, jump=jump, norm=True,
+                cage_relative=cage_relative)).pdf()
 
-    def displacementsHist(self, dt, nBins, int_max=None, jump=1,
+    def displacementsHist(self,
+        dt, nBins, int_max=None, jump=1, cage_relative=False,
         vmin=None, vmax=None, log=False, rescaled_to_max=False):
         """
         Returns histogram with `nBins' bins of displacement norm over lag time
@@ -136,6 +211,10 @@ class Displacements(Dat):
             crossed any boundary. (default: 1)
             NOTE: `jump' must be chosen so that particles do not move a distance
                   greater than half the box size during this time.
+        cage_relative : bool
+            Remove displacement of the centre of mass given by nearest
+            neighbours at initial time. (default: False)
+            (see self.getDisplacements)
         vmin : float
             Minimum value of the bins. (default: minimum computed displacement)
         vmax : float
@@ -155,11 +234,13 @@ class Displacements(Dat):
         """
 
         return Distribution(self.nDisplacements(
-            dt, int_max=int_max, jump=jump, norm=True)).hist(
+            dt, int_max=int_max, jump=jump, norm=True,
+            cage_relative=cage_relative)).hist(
                 nBins, vmin=vmin, vmax=vmax, log=log,
                 rescaled_to_max=rescaled_to_max)
 
-    def dtDisplacements(self, dt, int_max=100, jump=1, norm=False):
+    def dtDisplacements(self, dt, int_max=100, jump=1, norm=False,
+        cage_relative=False):
         """
         Returns array of displacements with lag times `dt'.
 
@@ -177,6 +258,10 @@ class Displacements(Dat):
         norm : bool
             Return norm of displacements rather than 2D displacement.
             (default: False)
+        cage_relative : bool
+            Remove displacement of the centre of mass given by nearest
+            neighbours at initial time. (default: False)
+            (see self.getDisplacements)
 
         Returns
         -------
@@ -208,23 +293,30 @@ class Displacements(Dat):
                             displacements[i][j - 1]     # displacements between time0[i] and time0[i] + dt[j - 1]
                             + self.getDisplacements(    # displacements between time0[i] + dt[j - 1] and time0[i] + dt[j]
                                 time0[i] + dt[j - 1], time0[i] + dt[j],
-                                jump=jump))
+                                jump=jump, cage_relative=cage_relative))
                 else:
                     for i in range(time0.size):
                         displacements[i][0] = self.getDisplacements(    # displacements between time0[i] and time0[i] + dt[0]
                             time0[i], time0[i] + dt[0],
-                            jump=jump)
+                            jump=jump, cage_relative=cage_relative)
 
         else:
 
-            displacements = np.array(
-                [[self.getDisplacements(t0, t0 + t) for t in dt]
-                    for t0 in time0])
+            displacements = []
+            for t0 in time0:
+                if cage_relative: neighbours = self.getNeighbourList(t0)
+                else: neighbours = None
+                displacements += [[
+                    self.getDisplacements(t0, t0 + t,
+                        cage_relative=cage_relative, neighbours=neighbours)
+                    for t in dt]]
+            displacements = np.array(displacements)
 
         if norm: return np.sqrt(np.sum(displacements**2, axis=-1))
         return displacements
 
-    def msd(self, n_max=100, int_max=100, min=None, max=None, jump=1):
+    def msd(self, n_max=100, int_max=100, min=None, max=None, jump=1,
+        cage_relative=False):
         """
         Compute mean square displacement.
 
@@ -250,6 +342,10 @@ class Displacements(Dat):
             Compute displacements by treating frames in packs of `jump'. This
             can speed up calculation but also give unaccuracies if
             `jump'*self.dt is of the order of the system size. (default: 1)
+        cage_relative : bool
+            Remove displacement of the centre of mass given by nearest
+            neighbours at initial time. (default: False)
+            (see self.getDisplacements)
 
         Returns
         -------
@@ -261,7 +357,8 @@ class Displacements(Dat):
         """
 
         dt, displacements = self._displacements(
-            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump)
+            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump,
+            cage_relative=cage_relative)
 
         return self._msd(dt, displacements)
 
@@ -345,7 +442,7 @@ class Displacements(Dat):
         return msd_th_AOUP(self.D, self.Dr, dt)
 
     def overlap(self, n_max=100, int_max=100, min=None, max=None, jump=1,
-        a=1):
+        a=1, cage_relative=False):
         """
         Compute dynamical overlap function.
 
@@ -373,6 +470,10 @@ class Displacements(Dat):
             `jump'*self.dt is of the order of the system size. (default: 1)
         a : float
             Parameter of the dynamical overlap function. (default: 1)
+        cage_relative : bool
+            Remove displacement of the centre of mass given by nearest
+            neighbours at initial time. (default: False)
+            (see self.getDisplacements)
 
         Returns
         -------
@@ -384,7 +485,8 @@ class Displacements(Dat):
         """
 
         dt, displacements = self._displacements(
-            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump)
+            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump,
+            cage_relative=cage_relative)
 
         return self._overlap(dt, displacements, a=a)
 
@@ -445,7 +547,7 @@ class Displacements(Dat):
         return np.array(Q)
 
     def susceptibility(self, n_max=100, int_max=100, min=None, max=None, jump=1,
-        a=1):
+        a=1, cage_relative=False):
         """
         Compute dynamical susceptibility.
 
@@ -473,6 +575,10 @@ class Displacements(Dat):
             `jump'*self.dt is of the order of the system size. (default: 1)
         a : float
             Parameter of the dynamical susceptibility. (default: 1)
+        cage_relative : bool
+            Remove displacement of the centre of mass given by nearest
+            neighbours at initial time. (default: False)
+            (see self.getDisplacements)
 
         Returns
         -------
@@ -483,7 +589,8 @@ class Displacements(Dat):
         """
 
         dt, displacements = self._displacements(
-            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump)
+            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump,
+            cage_relative=cage_relative)
 
         return self._susceptiblity(dt, displacements, a=a)
 
@@ -554,7 +661,7 @@ class Displacements(Dat):
         return np.array(itemgetter(*indexes)(time0), ndmin=1)
 
     def _displacements(self, n_max=100, int_max=100, min=None, max=None,
-        jump=1):
+        jump=1, cage_relative=False):
         """
         Returns arrays of lag times and displacements evaluated over these lag
         times.
@@ -578,6 +685,10 @@ class Displacements(Dat):
             Compute displacements by treating frames in packs of `jump'. This
             can speed up calculation but also give unaccuracies if
             `jump'*self.dt is of the order of the system size. (default: 1)
+        cage_relative : bool
+            Remove displacement of the centre of mass given by nearest
+            neighbours at initial time. (default: False)
+            (see self.getDisplacements)
 
         Returns
         -------
@@ -604,7 +715,7 @@ class Displacements(Dat):
             dt = logspace(min, max, n_max)
 
         displacements = self.dtDisplacements(dt,    # array of displacements for different initial times and lag times
-            int_max=int_max, jump=jump, norm=False)
+            int_max=int_max, jump=jump, norm=False, cage_relative=cage_relative)
 
         return np.array(dt), displacements
 
@@ -763,7 +874,8 @@ class Velocities(Dat):
             wave_vectors*np.mean(FFTsq, axis=0), wave_vectors,
             average_grid=False)
 
-    def velocitiesCor(self, nBins, int_max=None, min=None, max=None):
+    def velocitiesCor(self, nBins, int_max=None, min=None, max=None,
+        rescale_pair_distribution=False):
         """
         Compute spatial correlations of particles' velocities (and density).
 
@@ -786,6 +898,8 @@ class Velocities(Dat):
             Maximum distance (excluded) at which to compute the correlations.
             (default: None)
             NOTE: if max == None then max = self.L/2.
+        rescale_pair_distribution : bool
+            Rescale correlations by pair distribution function. (default: False)
 
         Returns
         -------
@@ -799,7 +913,8 @@ class Velocities(Dat):
             (lambda v:
                 self.getRadialCorrelations(
                     t, v/np.sqrt((v**2).sum(axis=-1).mean()),
-                    nBins, min=min, max=max))(
+                    nBins, min=min, max=max,
+                    rescale_pair_distribution=rescale_pair_distribution))(
                 self.getVelocities(t, norm=False))
             for t in self._time0(int_max=int_max)])
 
@@ -1020,7 +1135,8 @@ class Orientations(Dat):
             nBins, vmin=vmin, vmax=vmax, log=log,
             rescaled_to_max=rescaled_to_max)
 
-    def orientationsCor(self, nBins, int_max=None, min=None, max=None):
+    def orientationsCor(self, nBins, int_max=None, min=None, max=None,
+        rescale_pair_distribution=False):
         """
         Compute spatial correlations of particles' orientations (and density).
 
@@ -1050,11 +1166,14 @@ class Orientations(Dat):
             Array of (r, Cuu(r), errCuu(r)) with Cuu(r) the cylindrically
             averaged spatial correlations of orientation and errCuu(r) the
             standard error on this measure.
+        rescale_pair_distribution : bool
+            Rescale correlations by pair distribution function. (default: False)
         """
 
         correlations = np.array([
             self.getRadialCorrelations(t, self.getDirections(t),
-                nBins, min=min, max=max)
+                nBins, min=min, max=max,
+                rescale_pair_distribution=rescale_pair_distribution)
             for t in self._time0(int_max=int_max)])
 
         return np.array([
