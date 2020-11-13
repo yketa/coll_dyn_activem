@@ -42,6 +42,7 @@ class Displacements(Positions):
             Skip the `skip' first computed frames in the following calculations.
             (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+            NOTE: This does not apply to .datN files.
         corruption : str or None
             Pass corruption test for given file type (see
             coll_dyn_activem.read.Dat). (default: None)
@@ -739,6 +740,7 @@ class Velocities(Dat):
             Skip the `skip' first computed frames in the following calculations.
             (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+            NOTE: This does not apply to .datN files.
         corruption : str or None
             Pass corruption test for given file type (see
             coll_dyn_activem.read.Dat). (default: None)
@@ -999,6 +1001,7 @@ class Orientations(Dat):
             Skip the `skip' first computed frames in the following calculations.
             (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+            NOTE: This does not apply to .datN files.
         corruption : str or None
             Pass corruption test for given file type (see
             coll_dyn_activem.read.Dat). (default: None)
@@ -1247,6 +1250,7 @@ class Propulsions(Dat):
             Skip the `skip' first computed frames in the following calculations.
             (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+            NOTE: This does not apply to .datN files.
         corruption : str or None
             Pass corruption test for given file type (see
             coll_dyn_activem.read.Dat). (default: None)
