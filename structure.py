@@ -7,9 +7,8 @@ the structure of systems of ABPs.
 """
 
 from coll_dyn_activem.read import Dat
-from coll_dyn_activem.maths import g2Dto1D, g2Dto1Dgrid, wave_vectors_2D,\
-    DictList, angle, linspace, Histogram, mean_sterr
-import coll_dyn_activem.pycpp as pycpp
+from coll_dyn_activem.maths import pycpp, g2Dto1D, wave_vectors_2D, DictList,\
+    angle, linspace, Histogram, mean_sterr
 
 import numpy as np
 
@@ -233,13 +232,22 @@ class Positions(Dat):
                 diameters=(self.diameters if scale_diameter else None))
             for t in self._time0(int_max=int_max)])
 
-    def structureFactor(self, int_max=None, nBoxes=None):
+    def structureFactor(self, nBins, kmin=None, kmax=None,
+        int_max=None, nBoxes=None):
         """
         Returns static structure factor averaged along directions of space
-        (assuming isotropy).
+        (assuming isotropy) as a histogram.
 
         Parameters
         ----------
+        nBins : int
+            Number of histogram bins.
+        kmin : float or None
+            Minimum (included) wavevector norm in the histogram. (default: None)
+            NOTE: if kmin == None then None is passed to pycpp.g2Dto1Dgridhist.
+        kmax : float or None
+            Maximum (excluded) wavevector norm in the histogram. (default: None)
+            NOTE: if kmax == None then None is passed to pycpp.g2Dto1Dgridhist.
         int_max : int or None
             Maximum number of frames to consider. (default: None)
             NOTE: If int_max == None, then take the maximum number of frames.
@@ -250,24 +258,33 @@ class Positions(Dat):
 
         Returns
         -------
-        S : (*, 2) float Numpy array
-            Array of (k, S(k)) with S(k) the cylindrically averaged structure
-            factor at wavevector k.
+        S : (*, 3) float Numpy array
+            Array of (k, S(k), Sstd(k)) with S(k) the cylindrically averaged
+            structure factor at minimum wavevector k of corresponding bin, and
+            Sstd(k) the standard deviation on this measure.
         """
 
         particleDensity = self.nParticleDensity(int_max=int_max, nBoxes=nBoxes)
         nBoxes = particleDensity.shape[1]
 
-        _S2D = np.array(list(map(
-            lambda _rho:
-                (lambda FFT: np.real(np.conj(FFT)*FFT))
-                    (np.fft.fft2(_rho)),
-            particleDensity)))/self.N
+        # _S2D = np.array(list(map(
+        #     lambda _rho:
+        #         (lambda FFT: np.real(np.conj(FFT)*FFT))
+        #             (np.fft.fft2(_rho)),
+        #     particleDensity)))/self.N
+        S2D = np.zeros((nBoxes, nBoxes))
+        for rho in particleDensity:
+            S2D += (lambda FFT: np.real(np.conj(FFT)*FFT))(np.fft.fft2(rho))/(
+                self.N*len(particleDensity))
 
         k2D = np.sqrt(
             (wave_vectors_2D(nBoxes, nBoxes, self.L/nBoxes)**2).sum(axis=-1))
 
-        return g2Dto1Dgrid(_S2D.mean(axis=0), k2D)
+        # S = pycpp.g2Dto1Dgridhist(_S2D.mean(axis=0), k2D, nBins,
+        S = pycpp.g2Dto1Dgridhist(S2D, k2D, nBins,
+            vmin=kmin, vmax=kmax)
+        S[:, 2] /= np.sqrt(len(particleDensity))    # change standard deviation to standard error
+        return S
 
     def densityCorrelation(self, int_max=None, nBoxes=None):
         """
