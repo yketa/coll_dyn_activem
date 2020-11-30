@@ -2366,7 +2366,6 @@ std::vector<int> getLogFrames(
   // NOTE: `dtMax' may be modified according to other parameters.
 
   std::vector<int> frames;
-  double t;
 
   if ( dtMin == 0 && nMax == 0 ) {
     // LINEARLY SPACED FRAMES
@@ -2404,7 +2403,8 @@ std::vector<int> getLogFrames(
       time0->push_back((int) init);
     }
     else {
-      for (int i=0; i < intMax; i++) {
+      long int t;
+      for (long int i=0; i < intMax; i++) {
         t = init + i*(Niter - dtMax[0])/(intMax - 1);
         time0->push_back((int) t);
       }
