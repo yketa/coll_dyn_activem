@@ -7,7 +7,7 @@ https://github.com/yketa/active_particles/tree/master/analysis/frame.py)
 
 from coll_dyn_activem.init import get_env, mkdir
 from coll_dyn_activem.read import Dat
-from coll_dyn_activem.maths import normalise1D, amplogwidth
+from coll_dyn_activem.maths import normalise1D, amplogwidth, cooperativity
 from coll_dyn_activem.structure import Positions
 from coll_dyn_activem.force import Force
 
@@ -104,6 +104,7 @@ class _Frame:
         self.fig.subplots_adjust(top=0.80)
 
         self.dat = dat
+        self.frame = frame
         self.positions = self.dat.getPositions(frame, centre=centre)            # particles' positions at frame frame with centre as centre of frame
         self.diameters = self.dat.diameters*(2**(1./6.) if WCA_diameter else 1) # particles' diameters
 
@@ -373,8 +374,11 @@ class Displacement(_Frame):
             arrow_head_width=arrow_head_width,
             arrow_head_length=arrow_head_length)    # initialise superclass
 
+        self.zetad = cooperativity(
+            dat.getDisplacements(frame, frame + dt, jump=jump))
         self.displacements = (
             dat.getDisplacements(frame, frame + dt, *self.particles, jump=jump))    # particles' displacements at frame
+        self.displacements -= self.displacements.mean(axis=0).reshape((1, 2))
 
         self.vmin, self.vmax = amplogwidth(self.displacements)
         try:
@@ -386,7 +390,8 @@ class Displacement(_Frame):
 
         self.colorbar(self.vmin, self.vmax) # add colorbar to figure
         self.colormap.set_label(            # colorbar legend
-            r'$\log_{10} ||\vec{r}_i(t + \Delta t) - \vec{r}_i(t)||$',
+            r'$\log_{10} ||\delta \Delta \vec{r}_i(t, t + \Delta t)||$' + ' '
+                +r'$(\zeta_{\Delta \vec{r}} = %.4f)$' % self.zetad,
             # r'$\log_{10}$'
             #     + r'$||\boldsymbol{r}_i(t + \Delta t) - \boldsymbol{r}_i(t)||$',
             labelpad=pad, rotation=270)
@@ -459,6 +464,7 @@ class Velocity(_Frame):
             arrow_head_width=arrow_head_width,
             arrow_head_length=arrow_head_length)    # initialise superclass
 
+        self.zetav = cooperativity(dat.getVelocities(frame))
         self.velocities = dat.getVelocities(frame, *self.particles) # particles' displacements at frame
 
         self.vmin, self.vmax = amplogwidth(self.velocities)
@@ -471,7 +477,8 @@ class Velocity(_Frame):
 
         self.colorbar(self.vmin, self.vmax) # add colorbar to figure
         self.colormap.set_label(            # colorbar
-            r'$\log_{10}||\vec{v}_i(t)||$',
+            r'$\log_{10}||\vec{v}_i(t)||$' + ' '
+                +r'$(\zeta_{\vec{v}} = %.4f)$' % self.zetav,
             # r'$\log_{10}||\boldsymbol{v}_i(t)||$',
             labelpad=pad, rotation=270)
 
@@ -905,8 +912,12 @@ if __name__ == '__main__':  # executing as script
 
         if get_env('SAVE', default=False, vartype=bool):    # SAVE mode
             figure_name = get_env('FIGURE_NAME', default='out')
-            figure.fig.savefig(figure_name + '.eps')
-            figure.fig.savefig(figure_name + '.svg')
+            figure_ext = get_env('FIGURE_EXTENSION')
+            if type(figure_ext) == type(None):
+                figure.fig.savefig(figure_name + '.eps')
+                figure.fig.savefig(figure_name + '.svg')
+            else:
+                figure.fig.savefig(figure_name + ('.%s' % figure_ext))
 
     if get_env('MOVIE', default=False, vartype=bool):   # MOVIE mode
 
