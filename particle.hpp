@@ -647,10 +647,12 @@ class SystemN {
    *  Parameters are stored in a binary file with the following structure:
    *
    *  [HEADER (see System::System)]
-   *  | (int) N | (double) epsilon | (double) v0 | (double) D | (double) Dr | (double) lp | (double) phi | (double) L | (int) seed | (double) dt | (int) init | (int) NLin | (int) NiterLin | (int) NLog | (int) nFrames |~
-   *  ~|| (int) frames[0] | ... | (int) frames[nFrames - 1] ||~~
-   *  ~~||    PARTICLE 1     | ... |     PARTICLE N    ||
-   *  ~~|| (double) diameter | ... | (double) diameter ||
+   *  | (int) N | (double) epsilon | (double) v0 | (double) D | (double) Dr | (double) lp | (double) phi | (double) L | (int) seed | (double) dt |
+   *  || (int) NinitialTimes | (int) initialTimes[0] | ... | initialTimes[NinitialTimes - 1] ||
+   *  || (int) NlagTimes | (int) lagTimes[0]  | ... | (int) lagTimes[NlagTimes - 1] ||
+   *  || (int) Nframes | (int) frameIndices[0] | ... | (int) frameIndices[Nframes - 1] ||
+   *  ||    PARTICLE 1     | ... |     PARTICLE N    ||
+   *  || (double) diameter | ... | (double) diameter ||
    *
    *  [FRAMES (see SystemN::saveInitialState & SystemN::saveNewState)] (all double)
    *  ||                                 FRAME I                                 ||
