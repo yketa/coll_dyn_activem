@@ -129,9 +129,7 @@ class Displacements(Positions):
             NOTE: If int_max == None, then take the maximum number of intervals.
         jump : int
             Period in number of frames at which to check if particles have
-            crossed any boundary. (default: 1)
-            NOTE: `jump' must be chosen so that particles do not move a distance
-                  greater than half the box size during this time.
+            crossed any boundary. (default: 1) (see self.getDisplacements)
         norm : bool
             Return norm of displacements rather than 2D displacement.
             (default: False)
@@ -170,9 +168,7 @@ class Displacements(Positions):
             NOTE: If int_max == None, then take the maximum number of intervals.
         jump : int
             Period in number of frames at which to check if particles have
-            crossed any boundary. (default: 1)
-            NOTE: `jump' must be chosen so that particles do not move a distance
-                  greater than half the box size during this time.
+            crossed any boundary. (default: 1) (see self.getDisplacements)
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours at initial time. (default: False)
@@ -209,9 +205,7 @@ class Displacements(Positions):
             NOTE: If int_max == None, then take the maximum number of intervals.
         jump : int
             Period in number of frames at which to check if particles have
-            crossed any boundary. (default: 1)
-            NOTE: `jump' must be chosen so that particles do not move a distance
-                  greater than half the box size during this time.
+            crossed any boundary. (default: 1) (see self.getDisplacements)
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours at initial time. (default: False)
@@ -253,9 +247,7 @@ class Displacements(Positions):
             Maximum number of intervals to consider. (default: 100)
         jump : int
             Period in number of frames at which to check if particles have
-            crossed any boundary. (default: 1)
-            NOTE: `jump' must be chosen so that particles do not move a distance
-                  greater than half the box size during this time.
+            crossed any boundary. (default: 1) (see self.getDisplacements)
         norm : bool
             Return norm of displacements rather than 2D displacement.
             (default: False)
@@ -275,10 +267,10 @@ class Displacements(Positions):
 
         # array of initial times
         if self._type == 'datN':
-            time0 = itemgetter(
+            time0 = np.array(itemgetter(
                 *linspace(self.skip, len(self.time0) - 1, int_max,
                     endpoint=True))(
-                    self.time0)
+                    self.time0))
         else:
             time0 = np.array(list(OrderedDict.fromkeys(
                 np.linspace(self.skip, self.frames - dt.max() - 1, int_max,
@@ -303,99 +295,93 @@ class Displacements(Positions):
 
         else:
 
-            displacements = []
-            for t0 in time0:
-                if cage_relative: neighbours = self.getNeighbourList(t0)
-                else: neighbours = None
-                displacements += [[
-                    self.getDisplacements(t0, t0 + t,
-                        cage_relative=cage_relative, neighbours=neighbours)
-                    for t in dt]]
-            displacements = np.array(displacements)
+            if cage_relative:
+                neighbours = list(map(
+                    lambda t0: self.getNeighbourList(t0),
+                    time0))
+            else: neighbours = np.full(time0.shape, fill_value=None)
+
+            displacements = np.array(list(map(
+                lambda t0: list(map(
+                    lambda t: self.getDisplacements(t0, t0 + t,
+                        cage_relative=cage_relative,
+                        neighbours=neighbours[time0.tolist().index(t0)]),
+                    dt)),
+                time0)))
 
         if norm: return np.sqrt(np.sum(displacements**2, axis=-1))
         return displacements
 
     def msd(self, n_max=100, int_max=100, min=None, max=None, jump=1,
-        cage_relative=False):
+        cage_relative=False, dtDisplacements=None):
         """
         Compute mean square displacement.
 
         (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#ABP%20flow%20characteristics)
-        (see self._msd)
 
         Parameters
         ----------
         n_max : int
             Maximum number of lag times at which to compute the displacements.
             (default: 100)
+            NOTE: This is overridden if dtDisplacements != None.
         int_max : int
-            Maximum number of different intervals to consider when computed
+            Maximum number of different intervals to consider when computing
             displacements for a given lag time. (default: 100)
+            NOTE: This is overridden if dtDisplacements != None.
         min : int or None
-            Minimum time at which to compute the displacements. (default: None)
+            Minimum lag time at which to compute the displacements.
+            (default: None)
             NOTE: if min == None, then min = 1.
+            NOTE: This is overridden if dtDisplacements != None.
         max : int or None
-            Maximum time at which to compute the displacements. (default: None)
+            Maximum lag time at which to compute the displacements.
+            (default: None)
             NOTE: if max == None, then max is taken to be the maximum according
                   to the choice of int_max.
+            NOTE: This is overridden if dtDisplacements != None.
         jump : int
-            Compute displacements by treating frames in packs of `jump'. This
-            can speed up calculation but also give unaccuracies if
-            `jump'*self.dt is of the order of the system size. (default: 1)
+            Period in number of frames at which to check if particles have
+            crossed any boundary. (default: 1) (see self.getDisplacements)
+            NOTE: This is overridden if dtDisplacements != None.
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours at initial time. (default: False)
             (see self.getDisplacements)
+            NOTE: This is overridden if dtDisplacements != None.
+        dtDisplacements : ((*,) float array-like,
+                          (**, *, self.N, 2) float array-like) or None
+            Lag time and displacements at these lag times from which to compute
+            quantity.
+            NOTE: if dtDisplacements == None, then compute with
+                  self._displacements.
 
         Returns
         -------
-        msd_sterr : (3, *) float numpy array
+        msd_stderr_chi : (4, *) float numpy array
             Array of:
-                (0) lag time at which the mean square displacement is computed,
+                (0) lag time,
                 (1) mean square displacement,
-                (2) standard error of the computed mean square displacement.
+                (2) standard error on the computed mean square displacement,
+                (3) susceptibility of the computed mean square displacement.
+            (see self._mean_stderr_chi)
         """
 
-        dt, displacements = self._displacements(
-            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump,
-            cage_relative=cage_relative)
+        if type(dtDisplacements) == type(None):
+            dt, displacements = self._displacements(
+                n_max=n_max, int_max=int_max, min=min, max=max, jump=jump,
+                cage_relative=cage_relative)
+        else:
+            dt, displacements = dtDisplacements
 
-        return self._msd(dt, displacements)
-
-    def _msd(self, dt, displacements):
-        """
-        Compute mean square displacement.
-
-        (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#ABP%20flow%20characteristics)
-
-        Parameters
-        ----------
-        dt : (*,) foat numpy array
-            Array of lag times.
-        displacements : (**, *, N, 2) float numpy array
-            Array of displacements. (see self.dtDisplacements)
-
-        Returns
-        -------
-        msd_sterr : (3, *) float numpy array
-            Array of:
-                (0) lag time at which the mean square displacement is computed,
-                (1) mean square displacement,
-                (2) standard error of the computed mean square displacement.
-        """
-
-        msd_sterr = []
-        for i in range(dt.size):
-            disp = displacements[:, i]
+        def removeCM(disp):
             if self.N > 1:
-                disp -= disp.mean(axis=1).reshape(displacements.shape[0], 1, 2) # substract mean displacement of particles during each considered intervals
-            disp.reshape(displacements.shape[0]*self.N, 2)
-            msd_sterr += [[
-                dt[i],
-                *mean_sterr(np.sum(disp**2, axis=-1).flatten())]]
-
-        return np.array(msd_sterr)
+                # substract displacement of centre of mass
+                return (lambda d:
+                    d - d.mean(axis=2).reshape((*d.shape[:2], 1, 2)))(disp)
+            else: return disp
+        quantities = (removeCM(displacements)**2).sum(axis=-1)
+        return self._mean_stderr_chi(dt, quantities)
 
     def msd_th_ABP(self, dt):
         """
@@ -442,54 +428,72 @@ class Displacements(Positions):
 
         return msd_th_AOUP(self.D, self.Dr, dt)
 
-    def overlap(self, n_max=100, int_max=100, min=None, max=None, jump=1,
-        a=1, cage_relative=False):
+    def overlap(self, a=1, n_max=100, int_max=100, min=None, max=None, jump=1,
+        cage_relative=False, dtDisplacements=None):
         """
         Compute dynamical overlap function.
 
         (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
-        (see self._overlap)
 
         Parameters
         ----------
+        a : float
+            Parameter of the dynamical overlap function. (default: 1)
         n_max : int
             Maximum number of lag times at which to compute the displacements.
             (default: 100)
+            NOTE: This is overridden if dtDisplacements != None.
         int_max : int
-            Maximum number of different intervals to consider when computed
+            Maximum number of different intervals to consider when computing
             displacements for a given lag time. (default: 100)
+            NOTE: This is overridden if dtDisplacements != None.
         min : int or None
-            Minimum time at which to compute the displacements. (default: None)
+            Minimum lag time at which to compute the displacements.
+            (default: None)
             NOTE: if min == None, then min = 1.
+            NOTE: This is overridden if dtDisplacements != None.
         max : int or None
-            Maximum time at which to compute the displacements. (default: None)
+            Maximum lag time at which to compute the displacements.
+            (default: None)
             NOTE: if max == None, then max is taken to be the maximum according
                   to the choice of int_max.
+            NOTE: This is overridden if dtDisplacements != None.
         jump : int
-            Compute displacements by treating frames in packs of `jump'. This
-            can speed up calculation but also give unaccuracies if
-            `jump'*self.dt is of the order of the system size. (default: 1)
-        a : float
-            Parameter of the dynamical overlap function. (default: 1)
+            Period in number of frames at which to check if particles have
+            crossed any boundary. (default: 1) (see self.getDisplacements)
+            NOTE: This is overridden if dtDisplacements != None.
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours at initial time. (default: False)
             (see self.getDisplacements)
+            NOTE: This is overridden if dtDisplacements != None.
+        dtDisplacements : ((*,) float array-like,
+                          (**, *, self.N, 2) float array-like) or None
+            Lag time and displacements at these lag times from which to compute
+            quantity.
+            NOTE: if dtDisplacements == None, then compute with
+                  self._displacements.
 
         Returns
         -------
-        Q : (2, *) float numpy array
+        Q_stderr_chi : (4, *) float numpy array
             Array of:
-                (0) lag time at which the dynamical overlap function is
-                    computed,
-                (1) dynamical overlap function.
+                (0) lag time,
+                (1) dynamical overlap,
+                (2) standard error on the computed dynamical overlap,
+                (3) susceptibility of the computed dynamical overlap.
+            (see self._mean_stderr_chi)
         """
 
-        dt, displacements = self._displacements(
-            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump,
-            cage_relative=cage_relative)
+        if type(dtDisplacements) == type(None):
+            dt, displacements = self._displacements(
+                n_max=n_max, int_max=int_max, min=min, max=max, jump=jump,
+                cage_relative=cage_relative)
+        else:
+            dt, displacements = dtDisplacements
 
-        return self._overlap(dt, displacements, a=a)
+        quantities = np.exp(-(displacements**2).sum(axis=-1)/(a**2))
+        return self._mean_stderr_chi(dt, quantities)
 
     def overlap_relaxation_free_AOUP(q=0.5, a=1):
         """
@@ -514,119 +518,74 @@ class Displacements(Positions):
 
         return overlap_relaxation_free_AOUP(self.D, self.Dr, q=q, a=a)
 
-    def _overlap(self, dt, displacements, a=1):
+    def selfIntScattFunc(self, k, n_max=100, int_max=100, min=None, max=None,
+        jump=1, cage_relative=False, dtDisplacements=None):
         """
-        Compute dynamical overlap function.
+        Compute self-intermediate scattering function.
 
         (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
         Parameters
         ----------
-        dt : (*,) foat numpy array
-            Array of lag times.
-        displacements : (**, *, N, 2) float numpy array
-            Array of displacements. (see self.dtDisplacements)
-        a : float
-            Parameter of the dynamical overlap function. (default: 1)
-
-        Returns
-        -------
-        Q : (2, *) float numpy array
-            Array of:
-                (0) lag time at which the dynamical overlap function is
-                    computed,
-                (1) dynamical overlap function.
-        """
-
-        Q = []
-        for i in range(dt.size):
-            disp = displacements[:, i]
-            Q += [[
-                dt[i],
-                (np.exp(-(disp**2).sum(axis=-1)/(a**2))).mean()]]
-
-        return np.array(Q)
-
-    def susceptibility(self, n_max=100, int_max=100, min=None, max=None, jump=1,
-        a=1, cage_relative=False):
-        """
-        Compute dynamical susceptibility.
-
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
-        (see self._susceptibility)
-
-        Parameters
-        ----------
+        k : float
+            Wave-vector norm.
         n_max : int
             Maximum number of lag times at which to compute the displacements.
             (default: 100)
+            NOTE: This is overridden if dtDisplacements != None.
         int_max : int
-            Maximum number of different intervals to consider when computed
+            Maximum number of different intervals to consider when computing
             displacements for a given lag time. (default: 100)
+            NOTE: This is overridden if dtDisplacements != None.
         min : int or None
-            Minimum time at which to compute the displacements. (default: None)
+            Minimum lag time at which to compute the displacements.
+            (default: None)
             NOTE: if min == None, then min = 1.
+            NOTE: This is overridden if dtDisplacements != None.
         max : int or None
-            Maximum time at which to compute the displacements. (default: None)
+            Maximum lag time at which to compute the displacements.
+            (default: None)
             NOTE: if max == None, then max is taken to be the maximum according
                   to the choice of int_max.
+            NOTE: This is overridden if dtDisplacements != None.
         jump : int
-            Compute displacements by treating frames in packs of `jump'. This
-            can speed up calculation but also give unaccuracies if
-            `jump'*self.dt is of the order of the system size. (default: 1)
-        a : float
-            Parameter of the dynamical susceptibility. (default: 1)
+            Period in number of frames at which to check if particles have
+            crossed any boundary. (default: 1) (see self.getDisplacements)
+            NOTE: This is overridden if dtDisplacements != None.
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours at initial time. (default: False)
             (see self.getDisplacements)
+            NOTE: This is overridden if dtDisplacements != None.
+        dtDisplacements : ((*,) float array-like,
+                          (**, *, self.N, 2) float array-like) or None
+            Lag time and displacements at these lag times from which to compute
+            quantity.
+            NOTE: if dtDisplacements == None, then compute with
+                  self._displacements.
 
         Returns
         -------
-        chi : (2, *) float numpy array
+        Fs_stderr_chi : (4, *) float numpy array
             Array of:
-                (0) lag time at which the dynamical susceptibility is computed,
-                (1) dynamical overlap function.
+                (0) lag time,
+                (1) self-intermediate scattering function,
+                (2) standard error on the computed self-intermediate scattering
+                    function,
+                (3) susceptibility of the computed self-intermediate scattering
+                    function.
+            (see self._mean_stderr_chi)
         """
 
-        dt, displacements = self._displacements(
-            n_max=n_max, int_max=int_max, min=min, max=max, jump=jump,
-            cage_relative=cage_relative)
+        if type(dtDisplacements) == type(None):
+            dt, displacements = self._displacements(
+                n_max=n_max, int_max=int_max, min=min, max=max, jump=jump,
+                cage_relative=cage_relative)
+        else:
+            dt, displacements = dtDisplacements
 
-        return self._susceptiblity(dt, displacements, a=a)
-
-    def _susceptibility(self, dt, displacements, a=1):
-        """
-        Compute dynamical susceptibility.
-
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
-
-        Parameters
-        ----------
-        dt : (*,) foat numpy array
-            Array of lag times.
-        displacements : (**, *, N, 2) float numpy array
-            Array of displacements. (see self.dtDisplacements)
-        a : float
-            Parameter of the dynamical susceptibility. (default: 1)
-
-        Returns
-        -------
-        chi : (2, *) float numpy array
-            Array of:
-                (0) lag time at which the dynamical susceptibility is computed,
-                (1) dynamical overlap function.
-        """
-
-        chi = []
-        for i in range(dt.size):
-            disp = displacements[:, i]
-            chi += [[
-                dt[i],
-                ((np.exp(-(disp**2).sum(axis=-1)/(a**2)).mean(axis=-1)).var()
-                    )*self.N]]
-
-        return np.array(chi)
+        quantities = np.cos(k*displacements).sum(axis=-1)/2
+        return self._mean_stderr_chi(dt, quantities)
 
     def _time0(self, dt, int_max=None):
         """
@@ -673,19 +632,20 @@ class Displacements(Positions):
             Maximum number of lag times at which to compute the displacements.
             (default: 100)
         int_max : int
-            Maximum number of different intervals to consider when computed
+            Maximum number of different intervals to consider when computing
             displacements for a given lag time. (default: 100)
         min : int or None
-            Minimum time at which to compute the displacements. (default: None)
+            Minimum lag time at which to compute the displacements.
+            (default: None)
             NOTE: if min == None, then min = 1.
         max : int or None
-            Maximum time at which to compute the displacements. (default: None)
+            Maximum lag time at which to compute the displacements.
+            (default: None)
             NOTE: if max == None, then max is taken to be the maximum according
                   to the choice of int_max.
         jump : int
-            Compute displacements by treating frames in packs of `jump'. This
-            can speed up calculation but also give unaccuracies if
-            `jump'*self.dt is of the order of the system size. (default: 1)
+            Period in number of frames at which to check if particles have
+            crossed any boundary. (default: 1) (see self.getDisplacements)
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours at initial time. (default: False)
@@ -719,6 +679,46 @@ class Displacements(Positions):
             int_max=int_max, jump=jump, norm=False, cage_relative=cage_relative)
 
         return np.array(dt), displacements
+
+    def _mean_stderr_chi(self, dt, quantities):
+        """
+        Returns mean, standard error and susceptibility for dynamic quantities.
+
+        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+
+        Parameters
+        ----------
+        dt : (*,) float array-like
+            Array of lag times.
+        quantities : (**, *, ***) float-array like
+            Array of quantities.
+            NOTE: **  = number of initial times
+                  *   = number of lag times
+                  *** = number of particles
+
+        Returns
+        -------
+        out : (4, *) float numpy array
+            Array of:
+                (0) lag time,
+                (1) mean dynamic quantity at lag time,
+                (2) standard error on the dynamic quantity at lag time,
+                (3) susceptibility of the dynamic quantity at lag time.
+        """
+
+        dt = np.array(dt)
+        quantities = np.array(quantities)
+        assert quantities.ndim == 3
+        assert quantities.shape[1] == dt.size
+        assert quantities.shape[2] == self.N
+
+        out = np.array(list(map(
+            lambda i:
+                (lambda q: [dt[i], *mean_sterr(q), self.N*q.var()])(
+                    quantities[:, i].mean(axis=-1)),
+            range(dt.size))))
+
+        return out
 
 class Velocities(Dat):
     """
@@ -879,9 +879,7 @@ class Velocities(Dat):
     def velocitiesCor(self, nBins, int_max=None, min=None, max=None,
         rescale_pair_distribution=False):
         """
-        Compute spatial correlations of particles' velocities (and density).
-
-        (see self.getRadialCorrelations)
+        Compute radial correlations of particles' velocities.
 
         Parameters
         ----------
@@ -909,20 +907,27 @@ class Velocities(Dat):
             Array of (r, Cvv(r), errCvv(r)) with Cvv(r) the cylindrically
             averaged spatial correlations of velocity and errCvv(r) the standard
             error on this measure.
+        zeta : (2,) float Numpy array
+            Cooperativity and standard error on this measure.
         """
 
-        correlations = np.array([
+        corZeta = [
             (lambda v:
                 self.getRadialCorrelations(
                     t, v/np.sqrt((v**2).sum(axis=-1).mean()),
                     nBins, min=min, max=max,
                     rescale_pair_distribution=rescale_pair_distribution))(
                 self.getVelocities(t, norm=False))
-            for t in self._time0(int_max=int_max)])
+            for t in self._time0(int_max=int_max)]
+        correlations = np.array([corZeta[t][0] for t in range(len(corZeta))])
+        zeta = np.array([corZeta[t][1] for t in range(len(corZeta))])
 
-        return np.array([
-            [correlations[0, bin, 0], *mean_sterr(correlations[:, bin, 1])]
-            for bin in range(nBins)])
+        return (
+            np.array([
+                [correlations[0, bin, 0],
+                    *mean_sterr(correlations[:, bin, 1])]
+                for bin in range(nBins)]),
+            mean_sterr(zeta))
 
     def velocitiesOriCor(self, int_max=None):
         """
@@ -953,6 +958,86 @@ class Velocities(Dat):
         return np.array([
             [correlations[0, bin, 0], *mean_sterr(correlations[:, bin, 1])]
             for bin in range(correlations.shape[1])])
+
+    def velocitiesTimeCor(self, n_max=100, int_max=100, min=None, max=None):
+        """
+        Compute time correlations of particles' velocities.
+
+        Parameters
+        ----------
+        n_max : int
+            Maximum number of lag times at which to compute the velocities.
+            (default: 100)
+        int_max : int
+            Maximum number of different intervals to consider when computing
+            velocities for a given lag time. (default: 100)
+        min : int or None
+            Minimum lag time at which to compute the velocities. (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum lag time at which to compute the velocities. (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+
+        Returns
+        -------
+        Cvv : (*, 3) float Numpy array
+            Array of:
+                (0) lag time,
+                (1) velocity correlation at this lag time,
+                (2) standard error on this measure.
+        """
+
+        # LAG TIMES AND INITIAL TIMES
+
+        min = 1 if min == None else int(min)
+
+        if self._type == 'datN':
+
+            # LAG TIMES
+            max = self.deltat.max() if max == None else int(max)
+            dt = self.deltat[(self.deltat >= min)*(self.deltat <= max)]
+            dt = itemgetter(*linspace(0, len(dt) - 1, n_max, endpoint=True))(dt)
+
+            # INITIAL TIMES
+            time0 = self.time0
+
+        else:
+
+            # LAG TIMES
+            max = ((self.frames - self.skip - 1)//int_max if max == None
+                else int(max))
+            dt = linspace(min, max, n_max)
+
+            # INITIAL TIMES
+            time0 = np.linspace(
+                self.skip, self.frames - 1,
+                int((self.frames - 1 - self.skip)//dt.max()),
+                endpoint=False, dtype=int)
+
+        # INITIAL TIMES
+        if int_max != None:
+            indexes = list(OrderedDict.fromkeys(
+                np.linspace(0, time0.size, int_max, endpoint=False, dtype=int)))
+            time0 =  np.array(itemgetter(*indexes)(time0), ndmin=1)
+
+        # COMPUTE CORRELATIONS
+
+        initVelocity = np.array(list(map(
+            lambda t0: self.getVelocities(t0, norm=False),
+            time0)))
+        v0sq = (initVelocity**2).sum(axis=-1).mean(axis=-1)
+
+        prodVelocity = np.array(list(map(
+            lambda t0, v0: np.array(list(map(
+                lambda t: (self.getVelocities(t0 + t, norm=False)*v0
+                    ).sum(axis=-1).mean(axis=-1),
+                dt))),
+            *(time0, initVelocity))))
+
+        return np.array(list(map(
+            lambda i, t: [t, *mean_sterr(prodVelocity[:, i]/v0sq)],
+            *(range(len(dt)), dt))))
 
     def _time0(self, int_max=None):
         """
@@ -1141,7 +1226,7 @@ class Orientations(Dat):
     def orientationsCor(self, nBins, int_max=None, min=None, max=None,
         rescale_pair_distribution=False):
         """
-        Compute spatial correlations of particles' orientations (and density).
+        Compute spatial correlations of particles' orientations.
 
         (see self.getRadialCorrelations)
 
@@ -1162,6 +1247,8 @@ class Orientations(Dat):
             Maximum distance (excluded) at which to compute the correlations.
             (default: None)
             NOTE: if max == None then max = self.L/2.
+        rescale_pair_distribution : bool
+            Rescale correlations by pair distribution function. (default: False)
 
         Returns
         -------
@@ -1169,19 +1256,24 @@ class Orientations(Dat):
             Array of (r, Cuu(r), errCuu(r)) with Cuu(r) the cylindrically
             averaged spatial correlations of orientation and errCuu(r) the
             standard error on this measure.
-        rescale_pair_distribution : bool
-            Rescale correlations by pair distribution function. (default: False)
+        zeta : (2,) float Numpy array
+            Cooperativity and standard error on this measure.
         """
 
-        correlations = np.array([
+        corZeta = [
             self.getRadialCorrelations(t, self.getDirections(t),
                 nBins, min=min, max=max,
                 rescale_pair_distribution=rescale_pair_distribution)
-            for t in self._time0(int_max=int_max)])
+            for t in self._time0(int_max=int_max)]
+        correlations = np.array([corZeta[t][0] for t in range(len(corZeta))])
+        zeta = np.array([corZeta[t][1] for t in range(len(corZeta))])
 
-        return np.array([
-            [correlations[0, bin, 0], *mean_sterr(correlations[:, bin, 1])]
-            for bin in range(nBins)])
+        return (
+            np.array([
+                [correlations[0, bin, 0],
+                    *mean_sterr(correlations[:, bin, 1])]
+                for bin in range(nBins)]),
+            mean_sterr(zeta))
 
     def nu_pdf_th_ABP(self, *nu):
         """
@@ -1489,6 +1581,61 @@ class Propulsions(Dat):
                     time0)))]]
 
         return np.array(Cpp)
+
+    def propulsionsRadialCor(self, nBins, int_max=None, min=None, max=None,
+        rescale_pair_distribution=False):
+        """
+        Compute spatial correlations of particles' self-propulsions.
+
+        (see self.getRadialCorrelations)
+
+        Parameters
+        ----------
+        nBins : int
+            Number of intervals of distances on which to compute the
+            correlations.
+        int_max : int or None
+            Maximum number of frames to consider. (default: None)
+            NOTE: If int_max == None, then take the maximum number of frames.
+                  WARNING: This can be very big.
+        min : float or None
+            Minimum distance (included) at which to compute the correlations.
+            (default: None)
+            NOTE: if min == None then min = 0.
+        max : float or None
+            Maximum distance (excluded) at which to compute the correlations.
+            (default: None)
+            NOTE: if max == None then max = self.L/2.
+        rescale_pair_distribution : bool
+            Rescale correlations by pair distribution function. (default: False)
+
+        Returns
+        -------
+        Cpp : (*, 2) float Numpy array
+            Array of (r, Cpp(r), errCpp(r)) with Cvv(r) the cylindrically
+            averaged spatial correlations of self-propulsion and errCvv(r) the
+            standard error on this measure.
+        zeta : (2,) float Numpy array
+            Cooperativity and standard error on this measure.
+        """
+
+        corZeta = [
+            (lambda p:
+                self.getRadialCorrelations(
+                    t, p/np.sqrt((p**2).sum(axis=-1).mean()),
+                    nBins, min=min, max=max,
+                    rescale_pair_distribution=rescale_pair_distribution))(
+                self.getPropulsions(t, norm=False))
+            for t in self._time0(int_max=int_max)]
+        correlations = np.array([corZeta[t][0] for t in range(len(corZeta))])
+        zeta = np.array([corZeta[t][1] for t in range(len(corZeta))])
+
+        return (
+            np.array([
+                [correlations[0, bin, 0],
+                    *mean_sterr(correlations[:, bin, 1])]
+                for bin in range(nBins)]),
+            mean_sterr(zeta))
 
     def propulsions_cor_th_AOUP(self, *dt):
         """
