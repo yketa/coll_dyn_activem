@@ -36,6 +36,23 @@ extern "C" void getDistances(
   // if `scale_diameter'.
   // NOTE: distances must have (at least) N(N - 1)/2 entries.
 
+// GRIDS
+
+extern "C" void toGrid(
+  int N, double L, double* x, double *y, double* values,
+  int nBoxes, double* grid, bool average = false);
+  // Maps square (sub-)system of `N' particles with positions (`x', `y') centred
+  // around 0 and of (cropped) size `L' to a flattened square `grid' of size
+  // `nBoxes'^2, and associates to each box the sum or averaged value of the
+  // (`N',)-array `values'.
+
+extern "C" void g2Dto1Dgrid(
+  int nBoxes, double* g2D, double* grid,
+  double* g1D, double* radii, int* nRadii);
+  // Returns cylindrical average of flattened square grid `g2D' of size
+  // `nBoxes'^2 with values of radii given by flatten square grid `grid' of same
+  // size, as `nRadii'[0] values of `g1D' at corresponding `radii'.
+
 // CORRELATIONS
 
 extern "C" void getRadialCorrelations(

@@ -83,6 +83,104 @@ extern "C" void getDistances(
   }
 }
 
+// GRIDS
+
+extern "C" void toGrid(
+  int N, double L, double* x, double *y, double* values,
+  int nBoxes, double* grid, bool average) {
+  // Maps square (sub-)system of `N' particles with positions (`x', `y') centred
+  // around 0 and of (cropped) size `L' to a flattened square `grid' of size
+  // `nBoxes'^2, and associates to each box the sum or averaged value of the
+  // (`N',)-array `values'.
+
+  int nBoxesSq = pow(nBoxes, 2);
+
+  for (int bin=0; bin < nBoxesSq; bin++) { grid[bin] = 0; }
+
+  int bin;
+  double dbox = L/nBoxes;
+  std::vector<int> occupancy(nBoxesSq, 0);
+  for (int i=0; i < N; i++) {
+    bin = nBoxes*((int) ((x[i] + L/2)/dbox)) + ((int) ((y[i] + L/2)/dbox));
+    if ( bin < 0 || bin >= nBoxesSq ) { continue; }
+    grid[bin] += values[i];
+    occupancy[bin] += 1;
+  }
+
+  if ( average ) {
+    for (int bin=0; bin < nBoxesSq; bin++) {
+      if ( occupancy[bin] > 0 ) { grid[bin] /= occupancy[bin]; }
+    }
+  }
+}
+
+extern "C" void g2Dto1Dgrid(
+  int nBoxes, double* g2D, double* grid,
+  double* g1D, double* radii, int* nRadii) {
+  // Returns cylindrical average of flattened square grid `g2D' of size
+  // `nBoxes'^2 with values of radii given by flatten square grid `grid' of same
+  // size, as `nRadii'[0] values of `g1D' at corresponding `radii'.
+
+  int nBoxesSq = pow(nBoxes, 2);
+
+  nRadii[0] = 0;
+  std::map<double, double> g1Ddic;
+  std::map<double, int> occupancy;
+
+  // compute 1D grid
+  for (int i=0; i < nBoxesSq; i++) {
+    if ( g1Ddic.find(grid[i]) == g1Ddic.end() ) {
+      g1Ddic[grid[i]] = g2D[i];
+      occupancy[grid[i]] = 1;
+    }
+    else {
+      g1Ddic[grid[i]] += g2D[i];
+      occupancy[grid[i]] += 1;
+    }
+  }
+
+  // add result to input arguments
+  std::vector<double> radii_(0);
+  for(auto it = g1Ddic.begin(); it != g1Ddic.end(); it++) {
+    radii_.push_back(it->first);
+  }
+  std::sort(radii_.begin(), radii_.end());
+  nRadii[0] = radii_.size();
+  for (int bin=0; bin < nRadii[0]; bin++) {
+    g1D[bin] = g1Ddic[radii_[bin]]/occupancy[radii_[bin]];
+    radii[bin] = radii_[bin];
+  }
+}
+
+extern "C" void g2Dto1Dgridhist(
+  int nBoxes, double* g2D, double* grid,
+  int nBins, double vmin, double vmax, double* g1D, double* g1Dstd) {
+  // Returns cylindrical average of flattened square grid `g2D' of size
+  // `nBoxes'^2 with values of radii given by flatten square grid `grid' of same
+  // size, as histogram `g1D' with `nBins' between `vmin' and `vmax' and
+  // standard variation on this measure `g1Dstd'.
+
+  int bin;
+  for (bin=0; bin < nBins; bin++) { g1D[bin] = 0; g1Dstd[bin] = 0; }
+
+  double dbin = (vmax - vmin)/nBins;
+  std::vector<int> occupancy(nBins, 0);
+  for (int i=0; i < pow(nBoxes, 2); i++) {
+    bin = (grid[i] - vmin)/dbin;
+    if ( bin < 0 || bin >= nBins ) { continue; }
+    g1D[bin] += g2D[i];
+    g1Dstd[bin] += pow(g2D[i], 2);
+    occupancy[bin] += 1;
+  }
+
+  for (bin=0; bin < nBins; bin++) {
+    if ( occupancy[bin] > 0 ) {
+      g1D[bin] /= occupancy[bin];
+      g1Dstd[bin] = sqrt(g1Dstd[bin]/occupancy[bin] - pow(g1D[bin], 2));
+    }
+  }
+}
+
 // CORRELATIONS
 
 extern "C" void getRadialCorrelations(
