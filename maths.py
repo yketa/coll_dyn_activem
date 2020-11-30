@@ -208,6 +208,57 @@ def cov(array1, array2):
     return (lambda a, b: (a*b).mean() - a.mean()*b.mean())(
         *(np.array(array1), np.array(array2)))
 
+def pearson(array1, array2):
+    """
+    Returns Pearson correlation coefficient between `array1' and `array2'.
+
+    Parameters
+    ----------
+    array1 : (*, **) float array-like
+        First set of data.
+    array2 : (*, **) float array-like
+        Second set of data.
+
+    Returns
+    -------
+    rho : float
+        Correlation coefficient.
+    """
+
+    for array in (array1, array2):
+        if array.ndim == 1: array = array.reshape(array.shape + (1,))
+        array -= array.mean(axis=0)
+    assert array1.shape == array2.shape
+    dim = array1.shape[1]
+
+    return np.sum([cov(array1[:, d], array2[:, d]) for d in range(dim)])/(
+        np.sqrt(
+            (array1**2).sum(axis=-1).mean()*(array2**2).sum(axis=-1).mean()))
+
+def cooperativity(array):
+    """
+    Return ratio of squared mean and squared mean values of `array' treated
+    as 1D-vectors.
+
+    (see https://yketa.github.io/PhD_Wiki/#Field%20correlation)
+
+    Parameters
+    ----------
+    values : (*, **)  float array-like
+        Values to compute the cooperativity of.
+
+    Returns
+    -------
+    zeta : float
+        Cooperativity.
+    """
+
+    array = np.array(array)
+    if array.ndim == 1: array = array.reshape(array.shape + (1,))
+    assert array.ndim == 2
+
+    return (array.mean(axis=0)**2).sum(axis=-1)/((array**2).sum(axis=-1).mean())
+
 def divide_arrays(array1, array2):
     """
     Divide array1 by array2, and outputs 0 values where array2 is equal to 0.
@@ -1236,7 +1287,7 @@ def g2Dto1D(g2D, L, g2Derr=None):
 
 def g2Dto1Dgrid(g2D, grid, average_grid=False):
     """
-    Returns cylindrical average of square 2D grid with values of radius given
+    Returns cylindrical average of square 2D grid with values of radii given
     by other parameter grid.
 
     Parameters
@@ -1259,15 +1310,17 @@ def g2Dto1Dgrid(g2D, grid, average_grid=False):
     g2D = np.array(g2D)
     grid = np.array(grid)
 
-    g1D_dic = DictList()    # hash table of radii and values at radii
+    g1D = pycpp.g2Dto1Dgrid(g2D, grid)
 
-    for i in range(g2D.shape[0]):
-        for j in range(g2D.shape[1]):
-            g1D_dic[grid[i, j]] += [g2D[i, j]]
-
-    g1D = np.array(list(map(
-        lambda radius: [radius, np.mean(g1D_dic[radius])],
-        sorted(g1D_dic))))
+    # g1D_dic = DictList()    # hash table of radii and values at radii
+    #
+    # for i in range(g2D.shape[0]):
+    #     for j in range(g2D.shape[1]):
+    #         g1D_dic[grid[i, j]] += [g2D[i, j]]
+    #
+    # g1D = np.array(list(map(
+    #     lambda radius: [radius, np.mean(g1D_dic[radius])],
+    #     sorted(g1D_dic))))
 
     if not(average_grid): return g1D
 
