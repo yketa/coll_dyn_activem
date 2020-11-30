@@ -11,7 +11,8 @@ import pickle
 from operator import itemgetter
 
 from coll_dyn_activem.init import get_env
-from coll_dyn_activem.maths import pycpp, relative_positions, angle
+from coll_dyn_activem.maths import pycpp, relative_positions, angle,\
+    cooperativity
 
 class _Read:
     """
@@ -829,7 +830,7 @@ class Dat(_Read):
         Returns
         -------
         grid : (nBoxes, nBoxes, *) float Numpy array
-            Averaged grid.
+            Computed grid.
         """
 
         array = np.array(array)
@@ -846,27 +847,31 @@ class Dat(_Read):
         except ValueError: pass
         centre = np.array(centre)
 
-        grid = np.zeros((nBoxes,)*2 + array.shape[1:])
-        sumN = np.zeros((nBoxes,)*2)	# array of the number of particles in each grid box
+        return pycpp.toGrid(
+            self.getPositions(time, centre=centre), box_size, array, nBoxes,
+            average=average)
 
-        in_box = lambda particle: (
-            np.max(np.abs(self.getPositions(time, particle, centre=centre)))
-            <= box_size/2)
-        positions = self.getPositions(time, centre=centre)
-        for particle in range(self.N):
-            if in_box(particle):
-                grid_index = tuple(np.array(
-                    ((positions[particle] + box_size/2)//(box_size/nBoxes))
-                    % ((nBoxes,)*2),
-                    dtype=int))
-                grid[grid_index] += array[particle]
-                sumN[grid_index] += 1
-        sumN = np.reshape(sumN,
-            (nBoxes,)*2 + (1,)*len(array.shape[1:]))
-
-        if average: return np.divide(grid, sumN,
-            out=np.zeros(grid.shape), where=sumN!=0)
-        return grid
+        # grid = np.zeros((nBoxes,)*2 + array.shape[1:])
+        # sumN = np.zeros((nBoxes,)*2)	# array of the number of particles in each grid box
+        #
+        # in_box = lambda particle: (
+        #     np.max(np.abs(self.getPositions(time, particle, centre=centre)))
+        #     <= box_size/2)
+        # positions = self.getPositions(time, centre=centre)
+        # for particle in range(self.N):
+        #     if in_box(particle):
+        #         grid_index = tuple(np.array(
+        #             ((positions[particle] + box_size/2)//(box_size/nBoxes))
+        #             % ((nBoxes,)*2),
+        #             dtype=int))
+        #         grid[grid_index] += array[particle]
+        #         sumN[grid_index] += 1
+        # sumN = np.reshape(sumN,
+        #     (nBoxes,)*2 + (1,)*len(array.shape[1:]))
+        #
+        # if average: return np.divide(grid, sumN,
+        #     out=np.zeros(grid.shape), where=sumN!=0)
+        # return grid
 
     def getRadialCorrelations(self, time, array, nBins, min=None, max=None,
         rescale_pair_distribution=False):
@@ -901,12 +906,17 @@ class Dat(_Read):
         correlations : (nBins, 2) float Numpy array
             Array of (r, C(r)) where r is the lower bound of the bin and C(r)
             the radial correlation computed for this bin.
+        zeta : float
+            Cooperativity computed as average of all products in `array'.
         """
 
-        return pycpp.getRadialCorrelations(
-            self.getPositions(time), self.L, array, nBins,
-            min=0 if min == None else min, max=self.L/2 if max == None else max,
-            rescale_pair_distribution=rescale_pair_distribution)
+        return (
+            pycpp.getRadialCorrelations(
+                self.getPositions(time), self.L, array, nBins,
+                min=0 if min == None else min,
+                max=self.L/2 if max == None else max,
+                rescale_pair_distribution=rescale_pair_distribution),
+            cooperativity(array))
 
     def _loadWork(self, load=True):
         """
