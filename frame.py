@@ -977,14 +977,19 @@ if __name__ == '__main__':  # executing as script
                 'Frame: %d' % (frames.index(frame) + 1)
                 + "/%d \r" % len(frames))
 
+            if get_env('REMOVE_CM', default=True, vartype=bool):
+                remove_cm = init_frame
+            else: remove_cm = None
+
             figure = plotting_object(dat, frame, box_size, centre,
                 arrow_width=arrow_width, arrow_head_width=arrow_head_width,
                 arrow_head_length=arrow_head_length, pad=pad, dt=frame_per,
-                jump=jump, vmin=vmin, vmax=vmax, remove_cm=init_frame,
+                jump=jump, vmin=vmin, vmax=vmax, remove_cm=remove_cm,
                 label=get_env('LABEL', default=False, vartype=bool))    # plot frame
             figure.fig.suptitle(suptitle(frame, frame_per))
-            figure.ax.set_xlabel(r'$\Delta^{\mathrm{CM}} x$')
-            figure.ax.set_ylabel(r'$\Delta^{\mathrm{CM}} y$')
+            if remove_cm != None:
+                figure.ax.set_xlabel(r'$\Delta^{\mathrm{CM}} x$')
+                figure.ax.set_ylabel(r'$\Delta^{\mathrm{CM}} y$')
 
             tracer = get_env('TRACER', vartype=int)
             if tracer != None:
