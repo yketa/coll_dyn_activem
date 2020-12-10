@@ -4,3 +4,4 @@ build
 old*
 *.so
 _analysis
+**/__*
