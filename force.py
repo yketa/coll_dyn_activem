@@ -9,14 +9,15 @@ from collections import OrderedDict
 from operator import itemgetter
 
 from coll_dyn_activem.read import Dat
-from coll_dyn_activem.maths import linspace, logspace, mean_sterr
+from coll_dyn_activem.maths import linspace, logspace, mean_sterr, wo_mean,\
+    normalise1D
 
 class Force(Dat):
     """
     Compute and analyse force from simulation data.
     """
 
-    def __init__(self, filename, skip=1, from_velocity=False, corruption=None):
+    def __init__(self, filename, skip=1, from_velocity=True, corruption=None):
         """
         Loads file.
 
@@ -28,10 +29,11 @@ class Force(Dat):
             Skip the `skip' first computed values of the active work in the
             following calculations. (default: 1)
             NOTE: This can be changed at any time by setting self.skip.
+            NOTE: This does not apply to .datN files.
         from_velocity : bool
             Use the velocity as a proxy to the force by substracting it the
             self-propulsion (this is exact if there is no translational noise).
-            (default: False)
+            (default: True)
         corruption : str or None
             Pass corruption test for given file type (see
             coll_dyn_activem.read.Dat). (default: None)
@@ -105,217 +107,244 @@ class Force(Dat):
 
             return forces, (newForces - forces)/2
 
-    def corForceForce(self,
-        n_max=100, int_max=None, min=1, max=None, log=False):
+    def corForce(self,
+        n_max=100, int_max=None, min=None, max=None, log=False):
         """
-        Returns fluctuations of the force autocorrelations.
+        Returns correlations of the force fluctuations.
 
         Parameters
         ----------
         n_max : int
-            Maximum number of values at which to evaluate the correlation.
-            (default: 100)
+            Maximum number of lag times. (default: 100)
         int_max : int or None
-            Maximum number of different intervals to consider in order to
-            compute the mean which appears in the correlation expression.
-            (default: None)
-            NOTE: if int_max == None, then a maximum number of disjoint
+            Maximum number of different initial times. (default: None)
+            NOTE: if int_max == None, then a maximum number of (disjoint)
                   intervals will be considered.
         min : int or None
-            Minimum value at which to compute the correlation. (default: 1)
+            Minimum lag time. (default: None)
+            NOTE: if min == None, then min = 1.
         max : int or None
-            Maximum value at which to compute the correlation. (default: None)
-            NOTE: if max == None, then n_max = self.frames - self.skip - 1.
+            Maximum lag time. (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
         log : bool
-            Logarithmically space values at which the correlations are
-            computed. (default: False)
+            Logarithmically spaced lag times. (default: False)
+            NOTE: This does not apply to .datN files.
 
         Returns
         -------
-        cor : (3, *) numpy array
+        cor : (*, 3) float numpy array
             Array of:
                 (0) value at which the correlation is computed,
                 (1) mean of the computed correlation,
-                (2) standard error of the computed correlation,
-                (3) mean of the squared norm of the flucuations of the force.
+                (2) standard error of the computed correlation.
+        F0sq : (**,) float numpy array
+            Variance of forces at initial times.
         """
 
-        min = 1 if min == None else int(min)
-        max = self.frames - self.skip - 1 if max == None else int(max)
-        int_max = ((self.frames - self.skip - 1)//max if int_max == None
-            else int(int_max))
-
-        if log: space = logspace
-        else: space = linspace
-
-        dt = space(min, max, n_max)
-        time0 = linspace(self.skip, self.frames - max - 1, int_max)
+        time0, dt = self._dt(
+            n_max=n_max, int_max=int_max, min=min, max=max, log=log)
 
         cor = []
-        forcesIni = (
-            (lambda l: (np.array(l)
-                - np.mean(l, axis=1).reshape(time0.size, 1)).flatten())(    # fluctuations of the force scalar the orientation at t0
-                list(map(
-                    lambda t: self._ForceOrientation(t),
-                    time0))))
+        forcesIni = np.array(list(map(                                  # fluctuations at initial times
+            lambda t: wo_mean(self.getForce(t), axis=-2),
+            time0)))
+        F0sq = (forcesIni**2).sum(axis=-1).mean(axis=-1)                # average over particles
         for tau in dt:
-            forcesFin = (
-                (lambda l:
-                    np.array(l) - np.mean(l, axis=1).reshape(time0.size, 1, 2))(    # fluctuations of the force at t0 + tau
-                list(map(lambda t: self.getForce(t + tau), time0)))).reshape(
-                    (self.N*time0.size, 2))
-            forcesForces = list(map(lambda x, y: np.dot(x, y),
-                *(forcesIni, forcesFin)))
-            forcesNormSq = (list(map(lambda x, y: np.dot(x, y),
-                *(forcesIni, forcesIni)))
-                + list(map(lambda x, y: np.dot(x, y),
-                    *(forcesFin, forcesFin))))
-            cor += [[tau, *mean_sterr(forcesForces), np.mean(forcesNormSq)]]
+            forcesFin = np.array(list(map(                              # fluctuations at initial times + lag time
+                lambda t: wo_mean(self.getForce(t + tau), axis=-2),
+                time0)))
+            qProd = (forcesIni*forcesFin).sum(axis=-1).mean(axis=-1)    # average over particles
+            cor += [[tau, *mean_sterr(qProd/F0sq)]]                     # average over times
 
-        return np.array(cor)
+        return np.array(cor), F0sq
 
-    def corForceVelocity(self,
-        n_max=100, int_max=None, min=1, max=None, log=False):
+    def corForceDotVelocity(self,
+        n_max=100, int_max=None, min=None, max=None, log=False):
         """
-        Returns correlations of the scalar product of force and velocity.
+        Returns correlations of the scalar product of force and velocity
+        fluctuations.
 
         Parameters
         ----------
         n_max : int
-            Maximum number of values at which to evaluate the correlation.
-            (default: 100)
+            Maximum number of lag times. (default: 100)
         int_max : int or None
-            Maximum number of different intervals to consider in order to
-            compute the mean which appears in the correlation expression.
-            (default: None)
-            NOTE: if int_max == None, then a maximum number of disjoint
+            Maximum number of different initial times. (default: None)
+            NOTE: if int_max == None, then a maximum number of (disjoint)
                   intervals will be considered.
         min : int or None
-            Minimum value at which to compute the correlation. (default: 1)
+            Minimum lag time. (default: None)
+            NOTE: if min == None, then min = 1.
         max : int or None
-            Maximum value at which to compute the correlation. (default: None)
-            NOTE: if max == None, then n_max = self.frames - self.skip - 1.
+            Maximum lag time. (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
         log : bool
-            Logarithmically space values at which the correlations are
-            computed. (default: False)
+            Logarithmically spaced lag times. (default: False)
+            NOTE: This does not apply to .datN files.
 
         Returns
         -------
-        cor : (3, *) numpy array
+        cor : (*, 3) numpy array
             Array of:
                 (0) value at which the correlation is computed,
                 (1) mean of the computed correlation,
-                (2) standard error of the computed correlation,
-                (3) product of the standard deviations of the scalar product
-                    at initial and final times.
+                (2) standard error of the computed correlation.
+        Fv0sq : (**,) float numpy array
+            Variance of the scalar product of force and velocity at initial
+            times.
         """
 
-        min = 1 if min == None else int(min)
-        max = self.frames - self.skip - 1 if max == None else int(max)
-        int_max = ((self.frames - self.skip - 1)//max if int_max == None
-            else int(int_max))
-
-        if log: space = logspace
-        else: space = linspace
-
-        dt = space(min, max, n_max)
-        time0 = linspace(self.skip, self.frames - max - 1, int_max)
+        time0, dt = self._dt(
+            n_max=n_max, int_max=int_max, min=min, max=max, log=log)
 
         cor = []
-        forcesVelocitesIni = (
-            (lambda l:
-                np.array(l) - np.mean(l, axis=1).reshape(time0.size, 1))(   # fluctuations of the scalar product of force and velocity at t0
-                list(map(
-                    lambda t: list(map(
-                        lambda f, v: np.dot(f, v),
-                        *(self.getForce(t),
-                            self.getVelocities(t, norm=False)))),
-                    time0)))).flatten()
-        print(forcesVelocitesIni)
+        forcesVelocitesIni = np.array(list(map(                             # fluctuations at initial times
+            lambda t: wo_mean(
+                (self.getForce(t)
+                    *self.getVelocities(t, norm=False)).sum(axis=-1),
+                axis=-1),
+            time0)))
+        Fv0sq = (forcesVelocitesIni**2).mean(axis=-1)                       # average over particles
         for tau in dt:
-            forcesVelocitesFin = (
-                (lambda l:
-                    np.array(l) - np.mean(l, axis=1).reshape(time0.size, 1))(   # fluctuations of the scalar product of force and velocity at t0 + tau
-                    list(map(
-                        lambda t: list(map(
-                            lambda f, v: np.dot(f, v),
-                            *(self.getForce(t),
-                                self.getVelocities(t, norm=False)))),
-                        time0 + tau)))).flatten()
-            print(forcesVelocitesFin)
-            cor += [[
-                tau,
-                *mean_sterr(forcesVelocitesIni*forcesVelocitesFin),
-                forcesVelocitesIni.std()*forcesVelocitesFin.std()]]
+            forcesVelocitesFin = np.array(list(map(                         # fluctuations at initial times + lag time
+                lambda t: wo_mean(
+                    (self.getForce(t + tau)
+                        *self.getVelocities(t + tau, norm=False)).sum(axis=-1),
+                    axis=-1),
+                time0)))
+            qProd = (forcesVelocitesIni*forcesVelocitesFin).mean(axis=-1)   # average over particles
+            cor += [[tau, *mean_sterr(qProd/Fv0sq)]]                        # average over times
 
-        return np.array(cor)
+        return np.array(cor), Fv0sq
 
-    def corForceForceOrientation(self,
-        n_max=100, int_max=None, min=1, max=None, log=False):
+    def corForceDotDirection(self,
+        n_max=100, int_max=None, min=None, max=None, log=False):
         """
-        Returns fluctuations of the force scalar orientation autocorrelations.
+        Returns correlations of the scalar product of force and self-propulsion
+        direction fluctuations.
 
         Parameters
         ----------
         n_max : int
-            Maximum number of values at which to evaluate the correlation.
-            (default: 100)
+            Maximum number of lag times. (default: 100)
         int_max : int or None
-            Maximum number of different intervals to consider in order to
-            compute the mean which appears in the correlation expression.
-            (default: None)
-            NOTE: if int_max == None, then a maximum number of disjoint
+            Maximum number of different initial times. (default: None)
+            NOTE: if int_max == None, then a maximum number of (disjoint)
                   intervals will be considered.
         min : int or None
-            Minimum value at which to compute the correlation. (default: 1)
+            Minimum lag time. (default: None)
+            NOTE: if min == None, then min = 1.
         max : int or None
-            Maximum value at which to compute the correlation. (default: None)
-            NOTE: if max == None, then n_max = self.frames - self.skip - 1.
+            Maximum lag time. (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
         log : bool
-            Logarithmically space values at which the correlations are
-            computed. (default: False)
+            Logarithmically spaced lag times. (default: False)
+            NOTE: This does not apply to .datN files.
 
         Returns
         -------
-        cor : (3, *) numpy array
+        cor : (*, 3) numpy array
             Array of:
                 (0) value at which the correlation is computed,
                 (1) mean of the computed correlation,
-                (2) standard error of the computed correlation,
-                (3) product of the standard deviations of the force scalar
-                    orientation at initial and final times.
+                (2) standard error of the computed correlation.
+        Fu0sq : (**,) float numpy array
+            Variance of the scalar product of force and self-propulsion
+            direction at initial times.
         """
 
-        min = 1 if min == None else int(min)
-        max = self.frames - self.skip - 1 if max == None else int(max)
-        int_max = ((self.frames - self.skip - 1)//max if int_max == None
-            else int(int_max))
-
-        if log: space = logspace
-        else: space = linspace
-
-        dt = space(min, max, n_max)
-        time0 = linspace(self.skip, self.frames - max - 1, int_max)
+        time0, dt = self._dt(
+            n_max=n_max, int_max=int_max, min=min, max=max, log=log)
 
         cor = []
-        forcesIni = (
-            (lambda l: (np.array(l)
-                - np.mean(l, axis=1).reshape(time0.size, 1)).flatten())(    # fluctuations of the force scalar the orientation at t0
-                list(map(
-                    lambda t: self._ForceOrientation(t),
-                    time0)))).flatten()
+        forcesDirIni = np.array(list(map(                       # fluctuations at initial times
+            lambda t: wo_mean(self._ForceOrientation(t), axis=-1),
+            time0)))
+        Fu0sq = (forcesDirIni**2).mean(axis=-1)                 # average over particles
         for tau in dt:
-            forcesFin = (
-                (lambda l: (np.array(l)
-                    - np.mean(l, axis=1).reshape(time0.size, 1)).flatten())(    # fluctuations of the force scalar the orientation at t0 + tau
-                    list(map(
-                        lambda t: self._ForceOrientation(t + tau),
-                        time0)))).flatten()
-            forcesForces = forcesIni*forcesFin
-            cor += [[tau, *mean_sterr(forcesForces),
-                forcesIni.std()*forcesFin.std()]]
+            forcesDirFin = np.array(list(map(                   # fluctuations at initial times + lag time
+                lambda t: wo_mean(self._ForceOrientation(t + tau), axis=-1),
+                time0)))
+            qProd = (forcesDirIni*forcesDirFin).mean(axis=-1)   # average over particles
+            cor += [[tau, *mean_sterr(qProd/Fu0sq)]]            # average over times
 
-        return np.array(cor)
+        return np.array(cor), Fu0sq
+
+    def corPropulsionForce(self,
+        n_max=100, int_max=None, min=None, max=None, log=False):
+        """
+        Returns correlations between (i) the fluctuations of the propulsion at
+        initial times and the fluctuations of the force at later times, and (ii)
+        the fluctuations of the force at initial times and the fluctations of
+        the propulsion at later times.
+
+        Parameters
+        ----------
+        n_max : int
+            Maximum number of lag times. (default: 100)
+        int_max : int or None
+            Maximum number of different initial times. (default: None)
+            NOTE: if int_max == None, then a maximum number of (disjoint)
+                  intervals will be considered.
+        min : int or None
+            Minimum lag time. (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum lag time. (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+        log : bool
+            Logarithmically spaced lag times. (default: False)
+            NOTE: This does not apply to .datN files.
+
+        Returns
+        -------
+        corPF : (*, 3) numpy array
+            Array of:
+                (0) value at which the correlation (i) is computed,
+                (1) mean of the computed correlation (i),
+                (2) standard error of the computed correlation (i).
+        corFP : (*, 3) numpy array
+            Array of:
+                (0) value at which the correlation (ii) is computed,
+                (1) mean of the computed correlation (ii),
+                (2) standard error of the computed correlation (ii).
+        pF0sq : (**,) float numpy array
+            Product of the standard deviations of the propulsion and the force
+            at initial times.
+        """
+
+        time0, dt = self._dt(
+            n_max=n_max, int_max=int_max, min=min, max=max, log=log)
+
+        corPF, corFP = [], []
+        propIni = np.array(list(map(                                # fluctuations of the propulsion at initial times
+            lambda t: wo_mean(self.getPropulsions(t, norm=False), axis=-2),
+            time0)))
+        forcesIni = np.array(list(map(                              # fluctuations of the force at initial times
+            lambda t: wo_mean(self.getForce(t), axis=-2),
+            time0)))
+        pF0sq = np.sqrt(
+            (propIni**2).sum(axis=-1).mean(axis=-1)                 # average over particles
+            *(forcesIni**2).sum(axis=-1).mean(axis=-1))             # average over particles
+        for tau in dt:
+            propFin = np.array(list(map(                            # fluctuations of the propulsion at initial times + lag time
+                lambda t: wo_mean(
+                    self.getPropulsions(t + tau, norm=False),
+                    axis=-2),
+                time0)))
+            forcesFin = np.array(list(map(                          # fluctuations of the force at initial times + lag time
+                lambda t: wo_mean(self.getForce(t + tau), axis=-2),
+                time0)))
+            qProd = (propIni*forcesFin).sum(axis=-1).mean(axis=-1)  # average over particles
+            corPF += [[tau, *mean_sterr(qProd/pF0sq)]]              # average over times
+            qProd = (forcesIni*propFin).sum(axis=-1).mean(axis=-1)  # average over particles
+            corFP += [[tau, *mean_sterr(qProd/pF0sq)]]              # average over times
+
+        return np.array(corPF), np.array(corFP), pF0sq
 
     def varForceOrientation(self, int_max=100):
         """
@@ -333,13 +362,16 @@ class Force(Dat):
             Computed variance.
         """
 
-        time0 = np.array(list(OrderedDict.fromkeys(
-            np.linspace(
-                self.skip, self.frames - 1, int(int_max),
-                endpoint=False, dtype=int))))
+        if self._type == 'datN':
+            time0 = self.time0
+        else:
+            time0 = np.array(range(self.skip, self.frames))
+        if int_max != None:
+            indexes = list(OrderedDict.fromkeys(
+                np.linspace(0, time0.size, int_max, endpoint=False, dtype=int)))
+            time0 = np.array(itemgetter(*indexes)(time0), ndmin=1)
 
-        forceOrientation = np.array(list(map(
-            self._ForceOrientation, time0)))
+        forceOrientation = np.array(list(map(self._ForceOrientation, time0)))
 
         return forceOrientation.var()
 
@@ -359,10 +391,35 @@ class Force(Dat):
             Array of scalar products.
         """
 
-        return np.array(list(map(
-            lambda x, y: np.dot(x, y),
-            *(self.getForce(time),
-                self.getDirections(time)))))
+        return self._ForcePropulsion(time)[1]
+
+    def _ForcePropulsion(self, time):
+        """
+        Returns scalar products of force and (i) particle propulsions and (ii)
+        particle directions, at a given time.
+
+        Parameters
+        ----------
+        time : int
+            Frame index.
+
+        Returns
+        -------
+        forcePropulsion : (self.N,) float numpy array
+            Array of (i).
+        forceOrientation : (self.N,) float numpy array
+            Array of (ii).
+        """
+
+        force = self.getForce(time)
+        propulsion = self.getPropulsions(time)
+
+        forcePropulsion = (force*propulsion
+            ).sum(axis=-1)
+        forceOrientation = (force*np.array(list(map(normalise1D, propulsion)))
+            ).sum(axis=-1)
+
+        return forcePropulsion, forceOrientation
 
     def _WCA(self, time, particle0, particle1, positions=None):
         """
@@ -403,3 +460,56 @@ class Force(Dat):
                 self._diffPeriodic(pos1[0], pos0[0]),
                 self._diffPeriodic(pos1[1], pos0[1])]))
         return self.epsilon*force
+
+    def _dt(self, n_max=100, int_max=None, min=None, max=None, log=False):
+        """
+        Returns initial times and lag times for intervals of time between `min'
+        and `max'.
+
+        Parameters
+        ----------
+        n_max : int
+            Maximum number of lag times. (default: 100)
+        int_max : int or None
+            Maximum number of different initial times. (default: None)
+            NOTE: if int_max == None, then a maximum number of (disjoint)
+                  intervals will be considered.
+        min : int or None
+            Minimum lag time. (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum lag time. (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+        log : bool
+            Logarithmically spaced lag times. (default: False)
+            NOTE: This does not apply to .datN files.
+
+        Returns
+        -------
+        time0 : (*,) int numpy array
+            Array of initial times.
+        dt : (**,) int numpy array
+            Array of lag times.
+        """
+
+        min = 1 if min == None else int(min)
+        if self._type == 'datN':
+            max = self.deltat.max() if max == None else int(max)
+            dt = self.deltat[(self.deltat >= min)*(self.deltat <= max)]
+            dt = itemgetter(*linspace(0, len(dt) - 1, n_max, endpoint=True))(dt)
+            time0  = self.time0
+        else:
+            max = self.frames - self.skip - 1 if max == None else int(max)
+            if log: space = logspace
+            else: space = linspace
+            dt = space(min, max, n_max)
+            time0 = np.array(range(self.skip, self.frames - max))
+            int_max = ((self.frames - self.skip - 1)//max if int_max == None
+                else int(int_max))
+        if int_max != None:
+            indexes = list(OrderedDict.fromkeys(
+                np.linspace(0, time0.size, int_max, endpoint=False, dtype=int)))
+            time0 = np.array(itemgetter(*indexes)(time0), ndmin=1)
+
+        return np.array(time0), np.array(dt)
