@@ -40,22 +40,28 @@ def relative_positions(positions, point, box_size):
     return (np.array(positions) - np.array(point)
         + np.array(box_size)/2)%np.array(box_size) - np.array(box_size)/2
 
-def wo_mean(arr):
+def wo_mean(arr, axis=-2):
     """
-    Returns deviation of values in array with respect to mean of array.
+    Returns deviation of values in array with respect to mean on the `axis'-th
+    axis if there are more than one value in this dimension.
 
     Parameters
     ----------
-    arr : array like
+    arr : float array like
         Array of values.
+    axis : int
+        Axis on which to compute the mean. (default: -2)
 
     Returns
     -------
-    dev_arr : array like
+    dev_arr : (arr.shape) float numpy array
         Deviations from mean of array.
     """
 
-    return np.array(arr) - np.mean(arr, axis=0)
+    arr = np.array(arr)
+    if arr.shape[axis] == 1: return arr
+
+    return arr - arr.mean(axis=axis, keepdims=True)
 
 class DictList(dict):
     """
@@ -1210,6 +1216,40 @@ def vector_vector_grid(vector1, vector2, dtype=None):
 
     if dtype != None: return M.astype(dtype)
     else: return M
+
+def wave_vectors_dq(L, q, dq=0.1):
+    """
+    Returns wave vectors associated to a square box of size `L' in the interval
+    [`q' - `dq'/2, `q' + `dq'/2].
+
+    Parameters
+    ----------
+    L : float
+        Size of the box.
+    q : float
+        Target wave vector norm.
+    dq : float
+        Width of wave vector norm interval. (default: 0.1)
+
+    Returns
+    -------
+    wv : (*,) float Numpy array
+        Array of (2\\pi/L nx, 2\\pi/L ny) wave vectors (ny >= 0) corresponding
+        to the interval.
+    """
+
+    nmin = math.floor((L/(2*np.pi))*((q - dq/2)/np.sqrt(2)))
+    nmax = math.ceil((L/(2*np.pi))*(q + dq/2))
+
+    qn = lambda n0, n1: ((2*np.pi)/L)*math.sqrt(n0**2 + n1**2)
+
+    wv = []
+    for nx in range(1, nmax + 1):   # remove (0, n) so it is not redundant with (n, 0)
+        for ny in range(0, nmax + 1):
+            if np.abs(q - qn(nx, ny)) <= dq/2:
+                wv += [[nx, ny], [-ny, nx]]
+
+    return ((2*np.pi)/L)*np.array(wv)
 
 def wave_vectors_2D(nx, ny, d=1):
     """
