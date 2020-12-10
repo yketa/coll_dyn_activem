@@ -77,4 +77,10 @@ extern "C" void getVelocitiesOriCor(
   // diameter `sigma'.
   // (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
+// READ
+
+extern "C" void readDouble(
+  const char* filename, int nTargets, long int* targets, double* out);
+  // Read `nTargets' doubles in `filename' at `targets' and output in `out'.
+
 #endif

@@ -3,6 +3,7 @@
 
 #include "maths.hpp"
 #include "pycpp.hpp"
+#include "readwrite.hpp"
 
 // HISTOGRAMS
 
@@ -268,4 +269,17 @@ extern "C" void getVelocitiesOriCor(
       correlations[bin] -= 2*angularDistances[i][bin]/occupancy[i][bin]/M_PI/N;
     }
   }
+}
+
+// READ
+
+extern "C" void readDouble(
+  const char* filename, int nTargets, long int* targets, double* out) {
+  // Read `nTargets' doubles in `filename' at `targets' and output in `out'.
+
+  Read read(filename);
+  for (int i=0; i < nTargets; i++) {
+    read.read<double>(&(out[i]), targets[i]);
+  }
+  read.close();
 }

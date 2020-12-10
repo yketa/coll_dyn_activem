@@ -494,3 +494,41 @@ def getVelocitiesOriCor(positions, L, velocities, sigma=1):
 
     return np.array([[1 + bin*sigma, correlations[bin]]
         for bin in range(nBins)])
+
+# READ
+
+def readDouble(filename, targets):
+    """
+    Returns an array of double values at `targets' read from file `filename'.
+
+    Parameters
+    ----------
+    filename : string
+        File from which to read.
+    targets : (*,) int array-like
+        Stream position byte offsets.
+
+    Returns
+    -------
+    out : (*,) float Numpy array
+        Values from file.
+    """
+
+    filename = str(filename)
+    targets = np.array(targets, dtype=np.int64)
+    assert targets.ndim == 1
+    nTargets = len(targets)
+    out = np.empty(targets.shape, dtype=np.float64)
+
+    _pycpp.readDouble.argtypes = [
+        ctypes.c_char_p,
+        ctypes.c_int,
+        np.ctypeslib.ndpointer(dtype=np.int64, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS')]
+    _pycpp.readDouble(
+        filename.encode('utf-8'),
+        nTargets,
+        np.ascontiguousarray(targets),
+        np.ascontiguousarray(out))
+
+    return out
