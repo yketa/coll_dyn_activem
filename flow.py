@@ -17,7 +17,7 @@ from coll_dyn_activem.read import Dat
 from coll_dyn_activem.structure import Positions
 from coll_dyn_activem.maths import pycpp, Distribution, JointDistribution,\
     wave_vectors_2D, g2Dto1D, g2Dto1Dgrid, mean_sterr, linspace, logspace,\
-    angle, divide_arrays
+    angle, divide_arrays, wo_mean, wave_vectors_dq
 from coll_dyn_activem.rotors import nu_pdf_th as nu_pdf_th_ABP
 
 # CLASSES
@@ -53,7 +53,7 @@ class Displacements(Positions):
         super().__init__(filename, skip=skip, corruption=corruption)    # initialise with super class
 
     def getDisplacements(self, time0, time1, *particle, jump=1, norm=False,
-        cage_relative=False, neighbours=None):
+        remove_cm=False, cage_relative=False, neighbours=None):
         """
         Returns displacements of particles between `time0' and `time1'.
 
@@ -76,6 +76,9 @@ class Displacements(Positions):
         norm : bool
             Return norm of displacements rather than 2D displacements.
             (default: False)
+        remove_cm : bool
+            Remove centre of mass displacement. (default: False)
+            NOTE: does not affect result if self.N == 1.
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours determined by Voronoi tesselation at `time0'.
@@ -97,10 +100,11 @@ class Displacements(Positions):
 
         if not(cage_relative):
             return super().getDisplacements(
-                time0, time1, *particle, jump=jump, norm=norm)
+                time0, time1, *particle, jump=jump, norm=norm,
+                remove_cm=remove_cm)
 
         origDisplacements = super().getDisplacements(
-            time0, time1, jump=jump, norm=False)
+            time0, time1, jump=jump, norm=False, remove_cm=remove_cm)
         if type(neighbours) == type(None):
             neighbours = self.getNeighbourList(time0)
 
@@ -116,7 +120,7 @@ class Displacements(Positions):
         return displacements
 
     def nDisplacements(self, dt, int_max=None, jump=1, norm=False,
-        cage_relative=False):
+        remove_cm=False, cage_relative=False):
         """
         Returns array of displacements with lag time `dt'.
 
@@ -133,6 +137,9 @@ class Displacements(Positions):
         norm : bool
             Return norm of displacements rather than 2D displacement.
             (default: False)
+        remove_cm : bool
+            Remove centre of mass displacement. (default: False)
+            NOTE: does not affect result if self.N == 1.
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours at initial time. (default: False)
@@ -149,12 +156,13 @@ class Displacements(Positions):
         for time0 in self._time0(dt, int_max=int_max):
             displacements += [
                 self.getDisplacements(time0, time0 + dt, jump=jump, norm=norm,
-                    cage_relative=cage_relative)]
+                    remove_cm=remove_cm, cage_relative=cage_relative)]
         displacements = np.array(displacements)
 
         return displacements
 
-    def displacementsPDF(self, dt, int_max=None, jump=1, cage_relative=False):
+    def displacementsPDF(self, dt, int_max=None, jump=1,
+        remove_cm=False, cage_relative=False):
         """
         Returns probability density function of displacement norm over lag time
         `dt'.
@@ -169,6 +177,9 @@ class Displacements(Positions):
         jump : int
             Period in number of frames at which to check if particles have
             crossed any boundary. (default: 1) (see self.getDisplacements)
+        remove_cm : bool
+            Remove centre of mass displacement. (default: False)
+            NOTE: does not affect result if self.N == 1.
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours at initial time. (default: False)
@@ -185,10 +196,10 @@ class Displacements(Positions):
         return Distribution(
             self.nDisplacements(
                 dt, int_max=int_max, jump=jump, norm=True,
-                cage_relative=cage_relative)).pdf()
+                remove_cm=remove_cm, cage_relative=cage_relative)).pdf()
 
     def displacementsHist(self,
-        dt, nBins, int_max=None, jump=1, cage_relative=False,
+        dt, nBins, int_max=None, jump=1, remove_cm=False, cage_relative=False,
         vmin=None, vmax=None, log=False, rescaled_to_max=False):
         """
         Returns histogram with `nBins' bins of displacement norm over lag time
@@ -206,6 +217,9 @@ class Displacements(Positions):
         jump : int
             Period in number of frames at which to check if particles have
             crossed any boundary. (default: 1) (see self.getDisplacements)
+        remove_cm : bool
+            Remove centre of mass displacement. (default: False)
+            NOTE: does not affect result if self.N == 1.
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours at initial time. (default: False)
@@ -230,12 +244,12 @@ class Displacements(Positions):
 
         return Distribution(self.nDisplacements(
             dt, int_max=int_max, jump=jump, norm=True,
-            cage_relative=cage_relative)).hist(
+            remove_cm=remove_cm, cage_relative=cage_relative)).hist(
                 nBins, vmin=vmin, vmax=vmax, log=log,
                 rescaled_to_max=rescaled_to_max)
 
     def dtDisplacements(self, dt, int_max=100, jump=1, norm=False,
-        cage_relative=False):
+        remove_cm=False, cage_relative=False):
         """
         Returns array of displacements with lag times `dt'.
 
@@ -251,6 +265,9 @@ class Displacements(Positions):
         norm : bool
             Return norm of displacements rather than 2D displacement.
             (default: False)
+        remove_cm : bool
+            Remove centre of mass displacement. (default: False)
+            NOTE: does not affect result if self.N == 1.
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours at initial time. (default: False)
@@ -286,12 +303,16 @@ class Displacements(Positions):
                             displacements[i][j - 1]     # displacements between time0[i] and time0[i] + dt[j - 1]
                             + self.getDisplacements(    # displacements between time0[i] + dt[j - 1] and time0[i] + dt[j]
                                 time0[i] + dt[j - 1], time0[i] + dt[j],
-                                jump=jump, cage_relative=cage_relative))
+                                jump=jump,
+                                remove_cm=remove_cm,
+                                cage_relative=cage_relative))
                 else:
                     for i in range(time0.size):
                         displacements[i][0] = self.getDisplacements(    # displacements between time0[i] and time0[i] + dt[0]
                             time0[i], time0[i] + dt[0],
-                            jump=jump, cage_relative=cage_relative)
+                            jump=jump,
+                            remove_cm=remove_cm,
+                            cage_relative=cage_relative)
 
         else:
 
@@ -304,6 +325,7 @@ class Displacements(Positions):
             displacements = np.array(list(map(
                 lambda t0: list(map(
                     lambda t: self.getDisplacements(t0, t0 + t,
+                        remove_cm=remove_cm,
                         cage_relative=cage_relative,
                         neighbours=neighbours[time0.tolist().index(t0)]),
                     dt)),
@@ -358,7 +380,7 @@ class Displacements(Positions):
 
         Returns
         -------
-        msd_stderr_chi : (4, *) float numpy array
+        msd_stderr_chi : (*, 4) float numpy array
             Array of:
                 (0) lag time,
                 (1) mean square displacement,
@@ -374,13 +396,7 @@ class Displacements(Positions):
         else:
             dt, displacements = dtDisplacements
 
-        def removeCM(disp):
-            if self.N > 1:
-                # substract displacement of centre of mass
-                return (lambda d:
-                    d - d.mean(axis=2).reshape((*d.shape[:2], 1, 2)))(disp)
-            else: return disp
-        quantities = (removeCM(displacements)**2).sum(axis=-1)
+        quantities = (wo_mean(displacements, axis=-2)**2).sum(axis=-1)
         return self._mean_stderr_chi(dt, quantities)
 
     def msd_th_ABP(self, dt):
@@ -476,7 +492,7 @@ class Displacements(Positions):
 
         Returns
         -------
-        Q_stderr_chi : (4, *) float numpy array
+        Q_stderr_chi : (*, 4) float numpy array
             Array of:
                 (0) lag time,
                 (1) dynamical overlap,
@@ -492,7 +508,8 @@ class Displacements(Positions):
         else:
             dt, displacements = dtDisplacements
 
-        quantities = np.exp(-(displacements**2).sum(axis=-1)/(a**2))
+        quantities = (
+            np.exp(-(wo_mean(displacements, axis=-2)**2).sum(axis=-1)/(a**2)))
         return self._mean_stderr_chi(dt, quantities)
 
     def overlap_relaxation_free_AOUP(q=0.5, a=1):
@@ -501,7 +518,7 @@ class Displacements(Positions):
         the time for the dynamical overlap function to decrease below threshold
         `q'.
 
-        (see https://yketa.github.io/PhD_Wiki/#One%20AOUP)
+        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
         Parameters
         ----------
@@ -518,7 +535,8 @@ class Displacements(Positions):
 
         return overlap_relaxation_free_AOUP(self.D, self.Dr, q=q, a=a)
 
-    def selfIntScattFunc(self, k, n_max=100, int_max=100, min=None, max=None,
+    def selfIntScattFunc(self, k, dk=0.1,
+        n_max=100, int_max=100, min=None, max=None,
         jump=1, cage_relative=False, dtDisplacements=None):
         """
         Compute self-intermediate scattering function.
@@ -529,6 +547,9 @@ class Displacements(Positions):
         ----------
         k : float
             Wave-vector norm.
+        dk : float
+            Width of the wave-vector norm integral. (default: 0.1)
+            (see coll_dyn_activem.maths.wave_vectors_dq)
         n_max : int
             Maximum number of lag times at which to compute the displacements.
             (default: 100)
@@ -566,7 +587,7 @@ class Displacements(Positions):
 
         Returns
         -------
-        Fs_stderr_chi : (4, *) float numpy array
+        Fs_stderr_chi : (*, 4) float numpy array
             Array of:
                 (0) lag time,
                 (1) self-intermediate scattering function,
@@ -575,6 +596,9 @@ class Displacements(Positions):
                 (3) susceptibility of the computed self-intermediate scattering
                     function.
             (see self._mean_stderr_chi)
+        wv : (*,) float Numpy array
+            Array of (2\\pi/L nx, 2\\pi/L ny) wave vectors corresponding to the
+            interval.
         """
 
         if type(dtDisplacements) == type(None):
@@ -584,8 +608,19 @@ class Displacements(Positions):
         else:
             dt, displacements = dtDisplacements
 
-        quantities = np.cos(k*displacements).sum(axis=-1)/2
-        return self._mean_stderr_chi(dt, quantities)
+        wave_vectors = wave_vectors_dq(self.L, k, dq=dk)
+        dx, dy = (
+            np.transpose(wo_mean(displacements, axis=-2), axes=(3, 0, 1, 2)))
+        _msc = np.array(list(map(
+            lambda kx, ky: self._mean_stderr_chi(dt, np.cos(kx*dx + ky*dy)),
+            *np.transpose(wave_vectors))))
+        assert _msc[:, :, 0].var(axis=0).sum() == 0                 # check Fs are computed at the same lag times
+        msc = np.transpose([
+            _msc[0, :, 0],                                          # lag times
+            _msc[:, :, 1].mean(axis=0),                             # self-intermediate scattering function
+            ((_msc[:, :, 2]**2)/len(wave_vectors)).mean(axis=0),    # standard error
+            _msc[:, :, 3].mean(axis=0)])                            # susceptibility
+        return msc, wave_vectors
 
     def _time0(self, dt, int_max=None):
         """
@@ -602,7 +637,7 @@ class Displacements(Positions):
 
         Returns
         -------
-        time0 : (*,) float numpy array
+        time0 : (*,) int numpy array
             Array of initial times.
         """
 
@@ -621,7 +656,7 @@ class Displacements(Positions):
         return np.array(itemgetter(*indexes)(time0), ndmin=1)
 
     def _displacements(self, n_max=100, int_max=100, min=None, max=None,
-        jump=1, cage_relative=False):
+        jump=1, remove_cm=False, cage_relative=False):
         """
         Returns arrays of lag times and displacements evaluated over these lag
         times.
@@ -646,6 +681,9 @@ class Displacements(Positions):
         jump : int
             Period in number of frames at which to check if particles have
             crossed any boundary. (default: 1) (see self.getDisplacements)
+        remove_cm : bool
+            Remove centre of mass displacement. (default: False)
+            NOTE: does not affect result if self.N == 1.
         cage_relative : bool
             Remove displacement of the centre of mass given by nearest
             neighbours at initial time. (default: False)
@@ -653,7 +691,7 @@ class Displacements(Positions):
 
         Returns
         -------
-        dt : (*,) foat numpy array
+        dt : (*,) int numpy array
             Array of lag times.
         displacements : (**, *, N, 2) float numpy array
             Array of displacements. (see self.dtDisplacements)
@@ -676,7 +714,8 @@ class Displacements(Positions):
             dt = logspace(min, max, n_max)
 
         displacements = self.dtDisplacements(dt,    # array of displacements for different initial times and lag times
-            int_max=int_max, jump=jump, norm=False, cage_relative=cage_relative)
+            int_max=int_max, jump=jump, norm=False,
+            remove_cm=remove_cm, cage_relative=cage_relative)
 
         return np.array(dt), displacements
 
@@ -698,7 +737,7 @@ class Displacements(Positions):
 
         Returns
         -------
-        out : (4, *) float numpy array
+        out : (*, 4) float numpy array
             Array of:
                 (0) lag time,
                 (1) mean dynamic quantity at lag time,
@@ -752,7 +791,7 @@ class Velocities(Dat):
 
         self.skip = skip    # skip the `skip' first frames in the analysis
 
-    def nVelocities(self, int_max=None, norm=False):
+    def nVelocities(self, int_max=None, norm=False, remove_cm=False):
         """
         Returns array of velocities.
 
@@ -765,6 +804,9 @@ class Velocities(Dat):
         norm : bool
             Return norm of velocities rather than 2D velocities.
             (default: False)
+        remove_cm : bool
+            Remove centre of mass velocity. (default: False)
+            NOTE: does not affect result if self.N == 1.
 
         Returns
         -------
@@ -774,10 +816,11 @@ class Velocities(Dat):
         """
 
         return np.array(list(map(
-            lambda time0: self.getVelocities(time0, norm=norm),
+            lambda time0:
+                self.getVelocities(time0, norm=norm, remove_cm=remove_cm),
             self._time0(int_max=int_max))))
 
-    def velocitiesPDF(self, int_max=None):
+    def velocitiesPDF(self, int_max=None, remove_cm=False):
         """
         Returns probability density function of velocity norm.
 
@@ -787,6 +830,9 @@ class Velocities(Dat):
             Maximum number of frames to consider. (default: None)
             NOTE: If int_max == None, then take the maximum number of frames.
                   WARNING: This can be very big.
+        remove_cm : bool
+            Remove centre of mass velocity. (default: False)
+            NOTE: does not affect result if self.N == 1.
 
         Returns
         -------
@@ -796,10 +842,12 @@ class Velocities(Dat):
             Values of the probability density function.
         """
 
-        return Distribution(self.nVelocities(int_max=int_max, norm=True)).pdf()
+        return Distribution(
+            self.nVelocities(int_max=int_max, norm=True, remove_cm=remove_cm)
+            ).pdf()
 
-    def velocitiesHist(self, nBins, int_max=None, vmin=None, vmax=None,
-        log=False, rescaled_to_max=False):
+    def velocitiesHist(self, nBins, remove_cm=False, int_max=None,
+        vmin=None, vmax=None, log=False, rescaled_to_max=False):
         """
         Returns histogram with `nBins' bins of velocity norm.
 
@@ -807,6 +855,9 @@ class Velocities(Dat):
         ----------
         nBins : int
             Number of bins of the histogram.
+        remove_cm : bool
+            Remove centre of mass velocity. (default: False)
+            NOTE: does not affect result if self.N == 1.
         int_max : int or None
             Maximum number of frames to consider. (default: None)
             NOTE: If int_max == None, then take the maximum number of frames.
@@ -829,11 +880,13 @@ class Velocities(Dat):
             Occupancy of the bins.
         """
 
-        return Distribution(self.nVelocities(int_max=int_max, norm=True)).hist(
-            nBins, vmin=vmin, vmax=vmax, log=log,
-            rescaled_to_max=rescaled_to_max)
+        return Distribution(
+            self.nVelocities(int_max=int_max, norm=True, remove_cm=remove_cm)
+            ).hist(
+                nBins, vmin=vmin, vmax=vmax, log=log,
+                rescaled_to_max=rescaled_to_max)
 
-    def energySpectrum(self, int_max=None, nBoxes=None):
+    def energySpectrum(self, remove_cm=False, int_max=None, nBoxes=None):
         """
         Returns kinetic energy spectrum.
 
@@ -841,6 +894,9 @@ class Velocities(Dat):
 
         Parameters
         ----------
+        remove_cm : bool
+            Remove centre of mass velocity. (default: False)
+            NOTE: does not affect result if self.N == 1.
         int_max : int or None
             Maximum number of frames to consider. (default: None)
             NOTE: If int_max == None, then take the maximum number of frames.
@@ -865,7 +921,7 @@ class Velocities(Dat):
         FFTsq = []    # list of squared velocity FFT
         for time, velocity in zip(
             self._time0(int_max=int_max),
-            self.nVelocities(int_max=int_max, norm=True)):
+            self.nVelocities(int_max=int_max, norm=True, remove_cm=remove_cm)):
 
             velocitiesFFT = np.fft.fft2(    # FFT of displacement grid
                 self.toGrid(time, velocity, nBoxes=nBoxes),
@@ -876,8 +932,8 @@ class Velocities(Dat):
             wave_vectors*np.mean(FFTsq, axis=0), wave_vectors,
             average_grid=False)
 
-    def velocitiesCor(self, nBins, int_max=None, min=None, max=None,
-        rescale_pair_distribution=False):
+    def velocitiesCor(self, nBins, remove_cm=False, int_max=None,
+        min=None, max=None, rescale_pair_distribution=False):
         """
         Compute radial correlations of particles' velocities.
 
@@ -886,6 +942,9 @@ class Velocities(Dat):
         nBins : int
             Number of intervals of distances on which to compute the
             correlations.
+        remove_cm : bool
+            Remove centre of mass velocity. (default: False)
+            NOTE: does not affect result if self.N == 1.
         int_max : int or None
             Maximum number of frames to consider. (default: None)
             NOTE: If int_max == None, then take the maximum number of frames.
@@ -917,7 +976,7 @@ class Velocities(Dat):
                     t, v/np.sqrt((v**2).sum(axis=-1).mean()),
                     nBins, min=min, max=max,
                     rescale_pair_distribution=rescale_pair_distribution))(
-                self.getVelocities(t, norm=False))
+                self.getVelocities(t, norm=False, remove_cm=remove_cm))
             for t in self._time0(int_max=int_max)]
         correlations = np.array([corZeta[t][0] for t in range(len(corZeta))])
         zeta = np.array([corZeta[t][1] for t in range(len(corZeta))])
@@ -929,13 +988,16 @@ class Velocities(Dat):
                 for bin in range(nBins)]),
             mean_sterr(zeta))
 
-    def velocitiesOriCor(self, int_max=None):
+    def velocitiesOriCor(self, remove_cm=False, int_max=None):
         """
         Compute radial correlations of particles' velocity orientation (see
         https://yketa.github.io/PhD_Wiki/#Flow%20characteristics).
 
         Parameters
         ----------
+        remove_cm : bool
+            Remove centre of mass velocity. (default: False)
+            NOTE: does not affect result if self.N == 1.
         int_max : int or None
             Maximum number of frames to consider. (default: None)
             NOTE: If int_max == None, then take the maximum number of frames.
@@ -951,7 +1013,8 @@ class Velocities(Dat):
 
         correlations = np.array([
             pycpp.getVelocitiesOriCor(
-                self.getPositions(t), self.L, self.getVelocities(t, norm=False),
+                self.getPositions(t), self.L,
+                    self.getVelocities(t, norm=False, remove_cm=remove_cm),
                 sigma=self.diameters.mean())
             for t in self._time0(int_max=int_max)])
 
@@ -959,12 +1022,19 @@ class Velocities(Dat):
             [correlations[0, bin, 0], *mean_sterr(correlations[:, bin, 1])]
             for bin in range(correlations.shape[1])])
 
-    def velocitiesTimeCor(self, n_max=100, int_max=100, min=None, max=None):
+    def velocitiesTimeCor(self, remove_cm=False,
+        n_max=100, int_max=100, min=None, max=None):
         """
-        Compute time correlations of particles' velocities.
+        Compute time correlations of particles' velocities, and time-dependent
+        fourth moment of kurtosis.
+
+        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
         Parameters
         ----------
+        remove_cm : bool
+            Remove centre of mass velocity. (default: False)
+            NOTE: does not affect result if self.N == 1.
         n_max : int
             Maximum number of lag times at which to compute the velocities.
             (default: 100)
@@ -986,9 +1056,83 @@ class Velocities(Dat):
                 (0) lag time,
                 (1) velocity correlation at this lag time,
                 (2) standard error on this measure.
+        v0sq : (**,) float Numpy array
+            Array of mean squared velocity at initial times.
+        kurtosis : (*, 3) float Numpy array
+            Array of:
+                (0) lag time,
+                (1) fourth moment of kurtosis at this lag time.
         """
 
         # LAG TIMES AND INITIAL TIMES
+
+        time0, dt = self._dt(n_max=n_max, int_max=int_max, min=min, max=max)
+
+        # COMPUTE CORRELATIONS
+
+        initVelocity = np.array(list(map(
+            lambda t0:
+                self.getVelocities(t0, norm=False,
+                    remove_cm=remove_cm),
+            time0)))
+        v0sq = (initVelocity**2).sum(axis=-1).mean(axis=-1)
+        assert initVelocity.shape == (time0.size, self.N, 2)
+        initVelocity = initVelocity.reshape(time0.size, 1, self.N, 2)
+
+        finVelocity = np.array(list(map(
+            lambda t0: np.array(list(map(
+                lambda t: self.getVelocities(t0 + t, norm=False,
+                    remove_cm=remove_cm),
+                dt))),
+            time0)))
+        assert finVelocity.shape == (time0.size, dt.size, self.N, 2)
+
+        prodVelocity = (initVelocity*finVelocity).sum(axis=-1).mean(axis=-1)
+        velSqDiff = (
+            (finVelocity**2).sum(axis=-1).mean(axis=-1)
+            - (initVelocity**2).sum(axis=-1).mean(axis=-1))
+        assert prodVelocity.shape == velSqDiff.shape
+        assert prodVelocity.shape == (time0.size, dt.size)
+
+        cvv = np.array(list(map(
+            lambda i, t: [t, *mean_sterr(prodVelocity[:, i]/v0sq)],
+            *(range(len(dt)), dt))))
+        kurtosis = np.array(list(map(
+            lambda i, t:
+                (lambda dEc: [t, (dEc**4).mean()/(((dEc**2).mean())**2)])(
+                    velSqDiff[:, i]),
+            *(range(len(dt)), dt))))
+
+        return cvv, v0sq, kurtosis
+
+    def _dt(self, n_max=100, int_max=100, min=None, max=None):
+        """
+        Returns initial times and lag times for intervals of time between `min'
+        and `max'.
+
+        Parameters
+        ----------
+        n_max : int
+            Maximum number of lag times at which to compute the velocities.
+            (default: 100)
+        int_max : int
+            Maximum number of different intervals to consider when computing
+            velocities for a given lag time. (default: 100)
+        min : int or None
+            Minimum lag time at which to compute the velocities. (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum lag time at which to compute the velocities. (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+
+        Returns
+        -------
+        time0 : (*,) int numpy array
+            Array of initial times.
+        dt : (**,) int numpy array
+            Array of lag times.
+        """
 
         min = 1 if min == None else int(min)
 
@@ -1021,23 +1165,7 @@ class Velocities(Dat):
                 np.linspace(0, time0.size, int_max, endpoint=False, dtype=int)))
             time0 =  np.array(itemgetter(*indexes)(time0), ndmin=1)
 
-        # COMPUTE CORRELATIONS
-
-        initVelocity = np.array(list(map(
-            lambda t0: self.getVelocities(t0, norm=False),
-            time0)))
-        v0sq = (initVelocity**2).sum(axis=-1).mean(axis=-1)
-
-        prodVelocity = np.array(list(map(
-            lambda t0, v0: np.array(list(map(
-                lambda t: (self.getVelocities(t0 + t, norm=False)*v0
-                    ).sum(axis=-1).mean(axis=-1),
-                dt))),
-            *(time0, initVelocity))))
-
-        return np.array(list(map(
-            lambda i, t: [t, *mean_sterr(prodVelocity[:, i]/v0sq)],
-            *(range(len(dt)), dt))))
+        return np.array(time0), np.array(dt)
 
     def _time0(self, int_max=None):
         """
@@ -1052,7 +1180,7 @@ class Velocities(Dat):
 
         Returns
         -------
-        time0 : (*,) float numpy array
+        time0 : (*,) int numpy array
             Array of frames.
         """
 
@@ -1309,7 +1437,7 @@ class Orientations(Dat):
 
         Returns
         -------
-        time0 : (*,) float numpy array
+        time0 : (*,) int numpy array
             Array of frames.
         """
 
@@ -1672,7 +1800,7 @@ class Propulsions(Dat):
 
         Returns
         -------
-        time0 : (*,) float numpy array
+        time0 : (*,) int numpy array
             Array of frames.
         """
 
@@ -1744,7 +1872,7 @@ def overlap_free_AOUP(D, Dr, dt, a=1):
     Returns value of the dynamical overlap funtionat lag time `dt' for a free
     Ornstein-Uhlenbeck particle.
 
-    (see https://yketa.github.io/PhD_Wiki/#One%20AOUP)
+    (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
     Parameters
     ----------
@@ -1770,7 +1898,7 @@ def overlap_relaxation_free_AOUP(D, Dr, q=0.5, a=1):
     Returns relaxation time for a free Ornstein-Uhlenbeck particle, given as the
     time for the dynamical overlap function to decrease below threshold `q'.
 
-    (see https://yketa.github.io/PhD_Wiki/#One%20AOUP)
+    (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
     Parameters
     ----------
