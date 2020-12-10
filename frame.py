@@ -7,7 +7,8 @@ https://github.com/yketa/active_particles/tree/master/analysis/frame.py)
 
 from coll_dyn_activem.init import get_env, mkdir
 from coll_dyn_activem.read import Dat
-from coll_dyn_activem.maths import normalise1D, amplogwidth, cooperativity
+from coll_dyn_activem.maths import normalise1D, amplogwidth, cooperativity,\
+    relative_positions
 from coll_dyn_activem.structure import Positions
 from coll_dyn_activem.force import Force
 
@@ -28,8 +29,8 @@ from matplotlib.colors import Normalize as ColorsNormalise
 from matplotlib.cm import ScalarMappable
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-# plt.rc('text', usetex=True)
-# plt.rc('text.latex', preamble=r'\usepackage{amsmath}')
+plt.rc('text', usetex=True)
+plt.rc('text.latex', preamble=r'\usepackage{amsmath}')
 
 from datetime import datetime
 
@@ -68,7 +69,7 @@ class _Frame:
         arrow_width=_arrow_width,
         arrow_head_width=_arrow_head_width,
         arrow_head_length=_arrow_head_length,
-        WCA_diameter=False):
+        WCA_diameter=False, **kwargs):
         """
         Initialises figure.
 
@@ -90,6 +91,12 @@ class _Frame:
             Length of the arrows' head.
         WCA_diameter : bool
             Multiply diameters by 2^(1/6). (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        remove_cm : int or None
+            Remove centre of mass displacement from frame.
+            NOTE: if remove_cm == None, nothing is done.
         """
 
         self.fig, self.ax = plt.subplots()
@@ -105,7 +112,13 @@ class _Frame:
 
         self.dat = dat
         self.frame = frame
-        self.positions = self.dat.getPositions(frame, centre=centre)            # particles' positions at frame frame with centre as centre of frame
+        self.positions = self.dat.getPositions(frame)
+        if 'remove_cm' in kwargs:
+            if kwargs['remove_cm'] != None:
+                self.positions -= self.dat.getDisplacements(
+                    kwargs['remove_cm'], frame).mean(axis=0, keepdims=True)
+                self.positions -= (self.positions//self.dat.L)*self.dat.L
+        self.positions = relative_positions(self.positions, centre, self.dat.L) # particles' positions at frame frame with centre as centre of frame
         self.diameters = self.dat.diameters*(2**(1./6.) if WCA_diameter else 1) # particles' diameters
 
         self.particles = [particle for particle in range(len(self.positions))
@@ -263,12 +276,17 @@ class Orientation(_Frame):
             (default: coll_dyn_activem.frame._colormap_label_pad)
         label : bool
             Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
         """
 
         super().__init__(dat, frame, box_size, centre,
             arrow_width=arrow_width,
             arrow_head_width=arrow_head_width,
-            arrow_head_length=arrow_head_length)    # initialise superclass
+            arrow_head_length=arrow_head_length,
+            **kwargs)   # initialise superclass
 
         self.orientations = (
             dat.getOrientations(frame, *self.particles)%(2*np.pi))  # particles' orientations at frame
@@ -363,6 +381,7 @@ class Displacement(_Frame):
 
         Optional keyword parameters
         ---------------------------
+        (see coll_dyn_activem.frame._Frame)
         vmin : float
             Minimum value of the colorbar.
         vmax : float
@@ -372,13 +391,13 @@ class Displacement(_Frame):
         super().__init__(dat, frame, box_size, centre,
             arrow_width=arrow_width,
             arrow_head_width=arrow_head_width,
-            arrow_head_length=arrow_head_length)    # initialise superclass
+            arrow_head_length=arrow_head_length,
+            **kwargs)   # initialise superclass
 
         self.zetad = cooperativity(
-            dat.getDisplacements(frame, frame + dt, jump=jump))
-        self.displacements = (
-            dat.getDisplacements(frame, frame + dt, *self.particles, jump=jump))    # particles' displacements at frame
-        self.displacements -= self.displacements.mean(axis=0).reshape((1, 2))
+            dat.getDisplacements(frame, frame + dt, jump=jump, remove_cm=False))
+        self.displacements = dat.getDisplacements(
+            frame, frame + dt, *self.particles, jump=jump, remove_cm=True)  # particles' displacements at frame
 
         self.vmin, self.vmax = amplogwidth(self.displacements)
         try:
@@ -390,10 +409,10 @@ class Displacement(_Frame):
 
         self.colorbar(self.vmin, self.vmax) # add colorbar to figure
         self.colormap.set_label(            # colorbar legend
-            r'$\log_{10} ||\delta \Delta \vec{r}_i(t, t + \Delta t)||$' + ' '
-                +r'$(\zeta_{\Delta \vec{r}} = %.4f)$' % self.zetad,
-            # r'$\log_{10}$'
-            #     + r'$||\boldsymbol{r}_i(t + \Delta t) - \boldsymbol{r}_i(t)||$',
+            # r'$\log_{10} ||\delta \Delta \vec{r}_i(t, t + \Delta t)||$' + ' '
+            #     +r'$(\zeta_{\Delta \vec{r}} = %.4f)$' % self.zetad,
+            r'$\log_{10} ||\delta \Delta \boldsymbol{r}_i(t, t + \Delta t)||$'
+                + ' ' +r'$(\zeta_{\Delta \boldsymbol{r}} = %.4f)$' % self.zetad,
             labelpad=pad, rotation=270)
 
         self.label = label  # write labels
@@ -453,6 +472,7 @@ class Velocity(_Frame):
 
         Optional keyword parameters
         ---------------------------
+        (see coll_dyn_activem.frame._Frame)
         vmin : float
             Minimum value of the colorbar.
         vmax : float
@@ -462,10 +482,13 @@ class Velocity(_Frame):
         super().__init__(dat, frame, box_size, centre,
             arrow_width=arrow_width,
             arrow_head_width=arrow_head_width,
-            arrow_head_length=arrow_head_length)    # initialise superclass
+            arrow_head_length=arrow_head_length,
+            **kwargs)   # initialise superclass
 
-        self.zetav = cooperativity(dat.getVelocities(frame))
-        self.velocities = dat.getVelocities(frame, *self.particles) # particles' displacements at frame
+        self.zetav = cooperativity(dat.getVelocities(
+            frame, remove_cm=False))
+        self.velocities = dat.getVelocities(
+            frame, *self.particles, remove_cm=True) # particles' displacements at frame
 
         self.vmin, self.vmax = amplogwidth(self.velocities)
         try:
@@ -477,9 +500,10 @@ class Velocity(_Frame):
 
         self.colorbar(self.vmin, self.vmax) # add colorbar to figure
         self.colormap.set_label(            # colorbar
-            r'$\log_{10}||\vec{v}_i(t)||$' + ' '
-                +r'$(\zeta_{\vec{v}} = %.4f)$' % self.zetav,
-            # r'$\log_{10}||\boldsymbol{v}_i(t)||$',
+            # r'$\log_{10}||\delta \vec{v}_i(t)||$' + ' '
+            #     +r'$(\zeta_{\vec{v}} = %.4f)$' % self.zetav,
+            r'$\log_{10}||\delta \boldsymbol{v}_i(t)||$' + ' '
+                +r'$(\zeta_{\boldsymbol{v}} = %.4f)$' % self.zetav,
             labelpad=pad, rotation=270)
 
         self.label = label  # write labels
@@ -542,6 +566,7 @@ class Interaction(_Frame):
 
         Optional keyword parameters
         ---------------------------
+        (see coll_dyn_activem.frame._Frame)
         vmin : float
             Minimum value of the colorbar.
         vmax : float
@@ -551,7 +576,8 @@ class Interaction(_Frame):
         super().__init__(dat, frame, box_size, centre,
             arrow_width=arrow_width,
             arrow_head_width=arrow_head_width,
-            arrow_head_length=arrow_head_length)    # initialise superclass
+            arrow_head_length=arrow_head_length,
+            **kwargs)   # initialise superclass
 
         self.forces = Force(dat.filename,
             from_velocity=True, corruption=dat.corruption).getForce(
@@ -567,8 +593,8 @@ class Interaction(_Frame):
 
         self.colorbar(self.vmin, self.vmax) # add colorbar to figure
         self.colormap.set_label(            # colorbar
-            r'$\log_{10}||\vec{F}_i(t)||$',
-            # r'$\log_{10}||\boldsymbol{v}_i(t)||$',
+            # r'$\log_{10}||\vec{F}_i(t)||$',
+            r'$\log_{10}||\boldsymbol{F}_i(t)||$',
             labelpad=pad, rotation=270)
 
         self.label = label  # write labels
@@ -625,12 +651,17 @@ class Order(_Frame):
             (default: coll_dyn_activem.frame._colormap_label_pad)
         label : bool
             Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
         """
 
         super().__init__(dat, frame, box_size, centre,
             arrow_width=arrow_width,
             arrow_head_width=arrow_head_width,
-            arrow_head_length=arrow_head_length)    # initialise superclass
+            arrow_head_length=arrow_head_length,
+            **kwargs)   # initialise superclass
 
         self.bondOrder = np.abs(
             Positions(
@@ -693,12 +724,17 @@ class Density(_Frame):
             (default: coll_dyn_activem.frame._colormap_label_pad)
         label : bool
             Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
         """
 
         super().__init__(dat, frame, box_size, centre,
             arrow_width=arrow_width,
             arrow_head_width=arrow_head_width,
-            arrow_head_length=arrow_head_length)    # initialise superclass
+            arrow_head_length=arrow_head_length,
+            **kwargs)   # initialise superclass
 
         self.localDensity = np.abs(
             Positions(
@@ -748,9 +784,13 @@ class Bare(_Frame):
             Centre of the box to render.
         label : bool
             Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
         """
 
-        super().__init__(dat, frame, box_size, centre)  # initialise superclass
+        super().__init__(dat, frame, box_size, centre, **kwargs)    # initialise superclass
 
         self.label = label  # write labels
 
@@ -940,9 +980,31 @@ if __name__ == '__main__':  # executing as script
             figure = plotting_object(dat, frame, box_size, centre,
                 arrow_width=arrow_width, arrow_head_width=arrow_head_width,
                 arrow_head_length=arrow_head_length, pad=pad, dt=frame_per,
-                jump=jump, vmin=vmin, vmax=vmax,
+                jump=jump, vmin=vmin, vmax=vmax, remove_cm=init_frame,
                 label=get_env('LABEL', default=False, vartype=bool))    # plot frame
             figure.fig.suptitle(suptitle(frame, frame_per))
+            figure.ax.set_xlabel(r'$\Delta^{\mathrm{CM}} x$')
+            figure.ax.set_ylabel(r'$\Delta^{\mathrm{CM}} y$')
+
+            tracer = get_env('TRACER', vartype=int)
+            if tracer != None:
+                if tracer in figure.particles:
+                    figure.draw_circle(tracer,
+                        color='black', fill=True, border=None,
+                        label=False)
+                    if get_env('NEIGHBOURS', default=False, vartype=bool):
+                        for neighbour, _ in (
+                            Positions(figure.dat.filename).getNeighbourList(
+                                init_frame)[tracer]):
+                            figure.draw_circle(neighbour,
+                                color='red', fill=True, border=None,
+                                label=False)
+                        for neighbour, _ in (
+                            Positions(figure.dat.filename).getNeighbourList(
+                                frame)[tracer]):
+                            figure.draw_circle(neighbour,
+                                color='green', fill=True, border=None,
+                                label=False)
 
             figure.fig.savefig(joinpath(movie_dir, 'frames',
                 '%010d' % frames.index(frame) + '.png'))    # save frame
