@@ -11,7 +11,7 @@ import pickle
 from operator import itemgetter
 
 from coll_dyn_activem.init import get_env
-from coll_dyn_activem.maths import pycpp, relative_positions, angle,\
+from coll_dyn_activem.maths import wo_mean, pycpp, relative_positions, angle,\
     cooperativity
 
 class _Read:
@@ -376,7 +376,7 @@ class Dat(_Read):
         time : int
             Frame.
         particle : int
-            Indexes of particles.
+            Indices of particles.
             NOTE: if none is given, then all particles are returned.
 
         Optional keyword parameters
@@ -400,7 +400,8 @@ class Dat(_Read):
             return relative_positions(positions, kwargs['centre'], self.L)
         return positions
 
-    def getDisplacements(self, time0, time1, *particle, jump=1, norm=False):
+    def getDisplacements(self, time0, time1, *particle, jump=1, norm=False,
+        remove_cm=False):
         """
         Returns displacements of particles between `time0' and `time1'.
 
@@ -411,7 +412,7 @@ class Dat(_Read):
         time1 : int
             Final frame.
         particle : int
-            Indexes of particles.
+            Indices of particles.
             NOTE: if none is given, then all particles are returned.
         jump : int
             Period in number of frames at which to check if particles have
@@ -423,6 +424,9 @@ class Dat(_Read):
         norm : bool
             Return norm of displacements rather than 2D displacements.
             (default: False)
+        remove_cm : bool
+            Remove centre of mass displacement. (default: False)
+            NOTE: does not affect result if self.N == 1.
 
         Returns
         -------
@@ -464,13 +468,14 @@ class Dat(_Read):
                     lambda index: self._unfolded_position(time0, index),
                     particle))))
 
+        if remove_cm: displacements = wo_mean(displacements, axis=-2)
         if norm: return np.sqrt(np.sum(displacements**2, axis=-1))
         return displacements
 
     def getDistancePositions(self, time, particle0, particle1,
         positions=None):
         """
-        Returns distance between particles with indexes `particle0' and
+        Returns distance between particles with indices `particle0' and
         `particle1' at time `time' and their respective positions.
 
         Parameters
@@ -506,7 +511,7 @@ class Dat(_Read):
 
     def getDistance(self, time, particle0, particle1, positions=None):
         """
-        Returns distance between particles with indexes `particle0' and
+        Returns distance between particles with indices `particle0' and
         `particle1' at time `time'.
 
         Parameters
@@ -540,7 +545,7 @@ class Dat(_Read):
         time : int
             Frame
         particle : int
-            Indexes of particles.
+            Indices of particles.
             NOTE: if none is given, then all particles are returned.
 
         Returns
@@ -555,7 +560,7 @@ class Dat(_Read):
             lambda index: self._orientation(time, index),
             particle)))
 
-    def getVelocities(self, time, *particle, norm=False):
+    def getVelocities(self, time, *particle, norm=False, remove_cm=False):
         """
         Returns velocities of particles at time.
 
@@ -564,11 +569,14 @@ class Dat(_Read):
         time : int
             Frame.
         particle : int
-            Indexes of particles.
+            Indices of particles.
             NOTE: if none is given, then all particles are returned.
         norm : bool
             Return norm of velocities rather than 2D velocities.
             (default: False)
+        remove_cm : bool
+            Remove centre of mass velocity. (default: False)
+            NOTE: does not affect result if self.N == 1.
 
         Returns
         -------
@@ -582,6 +590,7 @@ class Dat(_Read):
         velocities = np.array(list(map(
             lambda index: self._velocity(time, index),
             particle)))
+        if remove_cm: velocities = wo_mean(velocities, axis=-2)
         if norm: return np.sqrt(np.sum(velocities**2, axis=-1))
         return velocities
 
@@ -594,7 +603,7 @@ class Dat(_Read):
         time : int
             Frame
         particle : int
-            Indexes of particles.
+            Indices of particles.
             NOTE: if none is given, then all particles are returned.
 
         Returns
@@ -618,7 +627,7 @@ class Dat(_Read):
         time : int
             Frame.
         particle : int
-            Indexes of particles.
+            Indices of particles.
             NOTE: if none is given, then all particles are returned.
         norm : bool
             Return norm of self-propulsion vectors rather than 2D
@@ -805,7 +814,7 @@ class Dat(_Read):
         Maps square sub-system of centre `centre' and length `box_size' to a
         square grid with `nBoxes' boxes in every direction, and associates to
         each box of this grid the sum or averaged value of the (self.N, *)-array
-        `array' over the indexes corresponding to particles within this box at
+        `array' over the indices corresponding to particles within this box at
         time `time'.
 
         Parameters
@@ -1423,7 +1432,7 @@ class DatR(_Read):
         time : int
             Frame
         rotor : int
-            Indexes of rotors.
+            Indices of rotors.
             NOTE: if none is given, then all rotors are returned.
 
         Returns
@@ -1447,7 +1456,7 @@ class DatR(_Read):
         time : int
             Frame
         rotor : int
-            Indexes of rotors.
+            Indices of rotors.
             NOTE: if none is given, then all rotors are returned.
 
         Returns
