@@ -139,7 +139,7 @@ class Rotors(DatR):
 
         Returns
         -------
-        time0 : (*,) float numpy array
+        time0 : (*,) int numpy array
             Array of frames.
         """
 
