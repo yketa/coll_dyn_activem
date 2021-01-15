@@ -1,6 +1,7 @@
 #include <math.h>
 #include <vector>
 
+#include "dat.hpp"
 #include "maths.hpp"
 #include "pycpp.hpp"
 #include "readwrite.hpp"
@@ -32,8 +33,8 @@ extern "C" void getHistogram(
 extern "C" void getHistogramLinear(
   int nValues, double* values,
   int nBins, double vmin, double vmax, double* histogram) {
-  // Put the `nValues' `values' in an `histogram' with `nBins' bins defined by
-  // linearly spaced between `vmin' and `vmax'.
+  // Put the `nValues' `values' in an `histogram' with `nBins' bins linearly
+  // spaced between `vmin' and `vmax'.
 
   for (int i=0; i < nBins; i++) { histogram[i] = 0; }
 
@@ -46,48 +47,383 @@ extern "C" void getHistogramLinear(
   }
 }
 
+// POSITIONS AND DISPLACEMENTS
+// Compute vectors of positions and displacements for faster computation in C++
+// from .datN files.
+
+std::vector<std::vector<std::vector<double>>> getPositions(
+  std::string filename,
+  int const& nTime0, int* const& time0) {
+  // Compute positions at the `nTime0' initial times `time0' from the .datN file
+  // `filename'.
+
+  DatN dat(filename);
+  const int N = dat.getNumberParticles();
+  std::vector<std::vector<std::vector<double>>> positions
+    (nTime0,
+      std::vector<std::vector<double>>(N,
+        std::vector<double>(2)));
+
+  for (int t0=0; t0 < nTime0; t0++) {
+    for (int i=0; i < N; i++) {
+      for (int dim=0; dim < 2; dim++) {
+        positions[t0][i][dim] = dat.getPosition(time0[t0], i, dim, false);
+      }
+    }
+  }
+
+  return positions;
+}
+
+std::vector<std::vector<std::vector<std::vector<double>>>> getDisplacements(
+  std::string filename,
+  int const& nTime0, int* const& time0, int const& nDt, int* const& dt,
+  bool remove_cm) {
+  // Compute displacements from the `nTime0' initial times `time0' with the
+  // `nDt' lag times `dt' from the .datN file `filename'.
+  // Remove centre of mass displacement if `remove_cm'.
+
+  DatN dat(filename);
+  const int N = dat.getNumberParticles();
+  std::vector<std::vector<std::vector<std::vector<double>>>> displacements
+    (nTime0,
+      std::vector<std::vector<std::vector<double>>>(nDt,
+        std::vector<std::vector<double>>(N,
+          std::vector<double>(2))));
+
+  std::vector<double> dispCM(2);
+  for (int t0=0; t0 < nTime0; t0++) {
+    for (int t=0; t < nDt; t++) {
+      for (int i=0; i < N; i++) {
+        for (int dim=0; dim < 2; dim++) {
+          displacements[t0][t][i][dim] =
+            dat.getPosition(time0[t0] + dt[t], i, dim, true)
+              - dat.getPosition(time0[t0], i, dim, true);
+        }
+      }
+      if ( remove_cm ) {
+        // compute centre of mass displacement
+        for (int dim=0; dim < 2; dim++) {
+          dispCM[dim] = 0;
+          for (int i=0; i < N; i++) {
+            dispCM[dim] += displacements[t0][t][i][dim];
+          }
+          dispCM[dim] /= N;
+        }
+        // remove centre of mass displacement
+        for (int i=0; i < N; i++) {
+          for (int dim=0; dim < 2; dim++) {
+            displacements[t0][t][i][dim] -= dispCM[dim];
+          }
+        }
+      }
+    }
+  }
+
+  return displacements;
+}
+
 // DISTANCES
 
 double getDistance(
   double const& x0, double const& y0, double const& x1, double const& y1,
   double const& L) {
   // Compute distance between (`x0', `y0') and (`x1', `y1') in a periodic square
-  // system of size L.
+  // system of size `L'.
 
   return sqrt(
     pow(algDistPeriod(x0, x1, L), 2)
     + pow(algDistPeriod(y0, y1, L), 2));
 }
 
+bool withinDistance(
+  double const& A, double* const& diameters, int const& i, int const& j,
+  double const& distance) {
+  // Compute if particles `i' and `j' separated by `distance' are within
+  // distance `A' relative to their diameters.
+
+  return ( distance <= A*((diameters[i] + diameters[j])/2) );
+}
+
+extern "C" int pairIndex(int i, int j, int N) {
+  // For `N' particles, return a unique pair index for the couples (`i', `j')
+  // and (`j', `i') in {0, ..., `N'(`N' + 1)/2 - 1}.
+  // (adapted from Paul Mangold)
+
+  int min = std::min(i, j);
+  int max = std::max(i, j);
+
+  return (min + N - 1 - max)*(min + N - max)/2 + min;
+}
+
 extern "C" void getDistances(
-  int N, double L, double* x, double* y, double* diameters, double *distances,
+  int N, double L, double* x, double* y, double* diameters, double* distances,
   bool scale_diameter) {
   // Compute distances between the `N' particles of a system of size `L', with
   // x-axis positions given by `x' and y-axis positions given by `y'.
   // Distances are rescaled by the sum of the radii of the particles in the pair
   // if `scale_diameter'.
-  // NOTE: distances must have (at least) N(N - 1)/2 entries.
+  // NOTE: distances must have (at least) `N'(`N' - 1)/2 entries.
 
   double dist;
-  int pair = 0;
+  int pair;
   for (int i=0; i < N; i++) {
     for (int j=i + 1; j < N; j++) {
       dist = getDistance(x[i], y[i], x[j], y[j], L);
+      pair = pairIndex(i, j, N);
       if ( scale_diameter ) {
         distances[pair] = dist/((diameters[i] + diameters[j])/2);
       }
       else {
         distances[pair] = dist;
       }
-      pair++;
     }
+  }
+}
+
+extern "C" void getBrokenBonds(
+  int N, double A1, double A2, double* diameters,
+  double* distances0, double* distances1,
+  int* brokenBonds) {
+  // Compute for each of `N' particles the number of other particles which are
+  // at distance lesser than `A1' in `distances0' and distance greater than `A2'
+  // in `distances1' relative to their average diameter.
+  // NOTE: `distances0' and `distances1' must have at least `N'(`N' - 1)/2
+  //       entries and follow the indexing of pairs given by pairIndex (such as
+  //       returned by getDistances).
+  // NOTE: `brokenBonds' must have at least `N' entries.
+
+  for (int i=0; i < N; i++) { brokenBonds[i] = 0; }
+
+  for (int i=0; i < N; i++) {
+    for (int j=i + 1; j < N; j++) {
+      if (
+        withinDistance(
+          A1, diameters, i, j, distances0[pairIndex(i, j, N)])      // bonded at time0
+        && !withinDistance(
+          A2, diameters, i, j, distances1[pairIndex(i, j, N)]) ) {  // unbonded at time1
+        brokenBonds[i]++;
+        brokenBonds[j]++;
+      }
+    }
+  }
+}
+
+extern "C" void getVanHoveDistances(
+  int N, double L, double* x, double* y, double* dx, double* dy,
+  double* distances) {
+  // Compute van Hove distances between the `N' particles of a system of size
+  // `L', with x-axis positions given by `x' and y-axis positions given by `y',
+  // and x-axis displacements given by `dx' and y-axis displacements given by
+  // `dy'.
+
+  double dist[2];
+  for (int i=0; i < N; i++) {
+    for (int j=0; j < N; j++) {
+      dist[0] = algDistPeriod(x[i], x[j], L) + dx[j];
+      dist[1] = algDistPeriod(y[i], y[j], L) + dy[j];
+      distances[i*N + j] = sqrt(pow(dist[0], 2) + pow(dist[1], 2));
+    }
+  }
+}
+
+extern "C" void nonaffineSquaredDisplacement(
+  int N, double L, double* x0, double* y0, double* x1, double* y1,
+  double A1, double* diameters, double* D2min) {
+  // Compute nonaffine squared displacements for `N' particles of a system of
+  // size `L', with x-axis initial positions `x0', y-axis initial positions
+  // `y0', x-axis final positions `x1', and y-axis final positions `y1',
+  // considering that neighbouring particles are within a distance `A1'
+  // relative to their `diameters'.
+
+  std::vector<double> distances0(N*(N - 1)/2);
+  getDistances(N, L, x0, y0, diameters, &(distances0[0]), false);
+
+  double* r0[2] = {x0, y0};
+  double* r1[2] = {x1, y1};
+
+  std::vector<std::vector<std::vector<long double>>> X(N);
+  std::vector<std::vector<std::vector<long double>>> Y(N);
+  for (int i=0; i < N; i++) {
+    X[i] = {{0.0, 0.0}, {0.0, 0.0}};
+    Y[i] = {{0.0, 0.0}, {0.0, 0.0}};
+  }
+  std::vector<std::vector<long double>> Yinv;
+
+  double term;
+  for (int i=0; i < N; i++) {
+    for (int j=i + 1; j < N; j++) {
+      if ( !withinDistance( // initially neighbouring particles
+        A1, diameters, i, j, distances0[pairIndex(i, j, N)]) ) { continue; }
+
+      for (int alpha=0; alpha < 2; alpha++) {
+        for (int beta=0; beta < 2; beta++) {
+
+          term =
+            algDistPeriod(r1[alpha][i], r1[alpha][j], L)
+            *algDistPeriod(r0[beta][i], r0[beta][j], L);
+          X[i][alpha][beta] += term;
+          X[j][alpha][beta] += term;
+
+          term =
+            algDistPeriod(r0[alpha][i], r0[alpha][j], L)
+            *algDistPeriod(r0[beta][i], r0[beta][j], L);
+          Y[i][alpha][beta] += term;
+          Y[j][alpha][beta] += term;
+
+        }
+      }
+
+    }
+  }
+
+  double sqrtterm;
+  double dr0;
+  for (int i=0; i < N; i++) {
+    D2min[i] = 0;
+    try {
+      Yinv = invert2x2<long double>(Y[i]);
+    }
+    catch (const std::invalid_argument&) {
+      if ( !(X[i][0][0] == 0.0 && X[i][0][1] == 0.0
+        && X[i][1][0] == 0.0 && X[i][1][1] == 0.0) ) {
+        throw std::invalid_argument("Impossible to compute D2min.");
+      }
+      else {
+        Yinv = {{0, 0}, {0, 0}};
+      }
+    }
+    for (int j=0; j < N; j++) {
+      if ( !withinDistance( // initially neighbouring particles
+        A1, diameters, i, j, distances0[pairIndex(i, j, N)]) ) { continue; }
+
+      for (int mu=0; mu < 2; mu++) {
+
+        sqrtterm = 0;
+        sqrtterm += algDistPeriod(r1[mu][i], r1[mu][j], L);
+        for (int nu=0; nu < 2; nu++) {
+          dr0 = algDistPeriod(r0[nu][i], r0[nu][j], L);
+          for (int gamma=0; gamma < 2; gamma++) {
+            sqrtterm -= X[i][mu][gamma]*Yinv[gamma][nu]*dr0;
+          }
+        }
+        D2min[i] += pow(sqrtterm, 2);
+
+      }
+
+    }
+  }
+}
+
+extern "C" void pairDistribution(
+  int nBins, double vmin, double vmax, double* histogram,
+  int N, double L, double* x, double* y, double* diameters,
+  bool scale_diameter) {
+  // Compute pair distribution function as `histogram' with `nBins' bins
+  // linearly spaced between `vmin' and `vmax' from the distances between the
+  // `N' particles of a system of size `L', with x-axis positions given by `x'
+  // and y-axis positions given by `y'.
+  // Distances are rescaled by the sum of the radii of the particles in the pair
+  // if `scale_diameter'.
+
+  for (int i=0; i < nBins; i++) { histogram[i] = 0; }
+
+  int bin;
+  double dbin = (vmax - vmin)/nBins;
+  double dist;
+  int nPairs = 0;
+  for (int i=0; i < N; i++) {
+    for (int j=i + 1; j < N; j++) {
+      nPairs++;
+      dist = getDistance(x[i], y[i], x[j], y[j], L);
+      if ( scale_diameter ) { dist /= (diameters[i] + diameters[j])/2; }
+      bin = (dist - vmin)/dbin;
+      if ( bin < 0 || bin >= nBins ) { continue; }
+      histogram[bin] += 1;
+    }
+  }
+
+  for (int i=0; i < nBins; i++) { histogram[i] /= nPairs; }
+}
+
+extern "C" void S4Fs(
+  const char* filename,
+  int nTime0, int* time0, int nDt, int* dt,
+  int nq, double *qx, double *qy, int nk, double *kx, double *ky,
+  double *S4, double *S4var) {
+  // Compute from the .datN file `filename' the four-point structure factor of
+  // the real part of the self-intermediate scattering functions, computed at
+  // the `nk' wave-vectors (`kx', `ky'), along the `nq' wave-vectors
+  // (`qx', `qy'), from the positions and displacements from the `nTime0'
+  // initial times `time0' with the `nDt' lag times `dt'.
+  // Means are saved in `S4' and variances are saved in `S4var', for each value
+  // of the lag time.
+
+  DatN dat(filename);
+  const int N = dat.getNumberParticles();
+  const double L = dat.getSystemSize();
+
+  const std::vector<std::vector<std::vector<double>>> positions
+    = getPositions(filename, nTime0, time0);
+  const std::vector<std::vector<std::vector<std::vector<double>>>> displacements
+    = getDisplacements(filename, nTime0, time0, nDt, dt, true);
+
+  std::vector<std::vector<double>> s4
+    (nDt, std::vector<double>(nq));
+  std::vector<std::vector<double>> s4sq
+    (nDt, std::vector<double>(nq));
+  for (int t=0; t < nDt; t++) {
+    S4[t] = 0;
+    S4var[t] = 0;
+    for (int q=0; q < nq; q++) {
+      s4[t][q] = 0;
+      s4sq[t][q] = 0;
+    }
+  }
+
+  std::vector<double> term(2);
+  std::vector<double> Fs(N);
+  for (int t0=0; t0 < nTime0; t0++) {
+    for (int t=0; t < nDt; t++) {
+      for (int i=0; i < N; i++) {
+        Fs[i] = 0;
+        for (int k=0; k < nk; k++) {
+          Fs[i] += cos(
+            kx[k]*displacements[t0][t][i][0]
+            + ky[k]*displacements[t0][t][i][1]);
+        }
+        Fs[i] /= nk;
+      }
+      for (int q=0; q < nq; q++) {
+        term = {0.0, 0.0};
+        for (int part=0; part < 2; part++) {
+          for (int i=0; i < N; i++) {
+            term[part] += Fs[i]
+              *cos(qx[q]*positions[t0][i][0] + qy[q]*positions[t0][i][1]
+                - part*M_PI/2);
+          }
+          term[part] = (pow(term[part], 2.0)*nk)/N;
+        }
+        s4[t][q] += term[0] + term[1];
+        s4sq[t][q] += pow(term[0] + term[1], 2.0);
+      }
+    }
+  }
+
+  for (int t=0; t < nDt; t++) {
+    for (int q=0; q < nq; q++) {
+      S4[t] += s4[t][q];
+      S4var[t] += s4sq[t][q] - s4[t][q]*s4[t][q]/nTime0;
+    }
+    S4[t] /= nTime0*nq;
+    S4var[t] /= nTime0*nq;
   }
 }
 
 // GRIDS
 
 extern "C" void toGrid(
-  int N, double L, double* x, double *y, double* values,
+  int N, double L, double* x, double* y, double* values,
   int nBoxes, double* grid, bool average) {
   // Maps square (sub-)system of `N' particles with positions (`x', `y') centred
   // around 0 and of (cropped) size `L' to a flattened square `grid' of size
@@ -237,7 +573,6 @@ extern "C" void getVelocitiesOriCor(
   // associated to each of the `N' particles of a system of size `L', with
   // x-axis positions given by `x' and y-axis positions given by `y', and mean
   // diameter `sigma'.
-  // (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
   int nBins = (L/2)/sigma;
 

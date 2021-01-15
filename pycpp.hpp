@@ -16,8 +16,26 @@ extern "C" void getHistogram(
 extern "C" void getHistogramLinear(
   int nValues, double* values,
   int nBins, double vmin, double vmax, double* histogram);
-  // Put the `nValues' `values' in an `histogram' with `nBins' bins defined by
-  // linearly spaced between `vmin' and `vmax'.
+  // Put the `nValues' `values' in an `histogram' with `nBins' bins linearly
+  // spaced between `vmin' and `vmax'.
+
+// POSITIONS AND DISPLACEMENTS
+// Compute vectors of positions and displacements for faster computation in C++
+// from .datN files.
+
+std::vector<std::vector<std::vector<double>>> getPositions(
+  std::string filename,
+  int const& nTime0, int* const& time0);
+  // Compute positions at the `nTime0' initial times `time0' from the .datN file
+  // `filename'.
+
+std::vector<std::vector<std::vector<std::vector<double>>>> getDisplacements(
+  std::string filename,
+  int const& nTime0, int* const& time0, int const& nDt, int* const& dt,
+  bool remove_cm);
+  // Compute displacements from the `nTime0' initial times `time0' with the
+  // `nDt' lag times `dt' from the .datN file `filename'.
+  // Remove centre of mass displacement if `remove_cm'.
 
 // DISTANCES
 
@@ -25,21 +43,85 @@ double getDistance(
   double const& x0, double const& y0, double const& x1, double const& y1,
   double const& L);
   // Compute distance between (`x0', `y0') and (`x1', `y1') in a periodic square
-  // system of size L.
+  // system of size `L'.
+
+bool withinDistance(
+  double const& A, double* const& diameters, int const& i, int const& j,
+  double const& distance);
+  // Compute if particles `i' and `j' separated by `distance' are within
+  // distance `A' relative to their diameters.
+
+extern "C" int pairIndex(int i, int j, int N);
+  // For `N' particles, return a unique pair index for the couples (`i', `j')
+  // and (`j', `i') in {0, ..., `N'(`N' + 1)/2 - 1}.
+  // (adapted from Paul Mangold)
 
 extern "C" void getDistances(
-  int N, double L, double* x, double* y, double* diameters, double *distances,
+  int N, double L, double* x, double* y, double* diameters, double* distances,
   bool scale_diameter = false);
   // Compute distances between the `N' particles of a system of size `L', with
   // x-axis positions given by `x' and y-axis positions given by `y'.
   // Distances are rescaled by the sum of the radii of the particles in the pair
   // if `scale_diameter'.
-  // NOTE: distances must have (at least) N(N - 1)/2 entries.
+  // NOTE: distances must have (at least) `N'(`N' - 1)/2 entries.
+
+extern "C" void getBrokenBonds(
+  int N, double A1, double A2, double* diameters,
+  double* distances0, double* distances1,
+  int* brokenBonds);
+  // Compute for each of `N' particles the number of other particles which are
+  // at distance lesser than `A1' in `distances0' and distance greater than `A2'
+  // in `distances1' relative to their average diameter.
+  // NOTE: `distances0' and `distances1' must have at least `N'(`N' - 1)/2
+  //       entries and follow the indexing of pairs given by pairIndex (such as
+  //       returned by getDistances).
+  // NOTE: `brokenBonds' must have at least `N' entries.
+
+extern "C" void getVanHoveDistances(
+  int N, double L, double* x, double* y, double* dx, double* dy,
+  double* distances);
+  // Compute van Hove distances between the `N' particles of a system of size
+  // `L', with x-axis positions given by `x' and y-axis positions given by `y',
+  // and x-axis displacements given by `dx' and y-axis displacements given by
+  // `dy'.
+
+extern "C" void nonaffineSquaredDisplacement(
+  int N, double L, double* x0, double* y0, double* x1, double* y1,
+  double A1, double* diameters, double* D2min);
+  // Compute nonaffine squared displacements for `N' particles of a system of
+  // size `L', with x-axis initial positions `x0', y-axis initial positions
+  // `y0', x-axis final positions `x1', and y-axis final positions `y1',
+  // considering that neighbouring particles are within a distance `A1'
+  // relative to their `diameters'.
+
+extern "C" void pairDistribution(
+  int nBins, double vmin, double vmax, double* histogram,
+  int N, double L, double* x, double* y, double* diameters,
+  bool scale_diameter = false);
+  // Compute pair distribution function as `histogram' with `nBins' bins
+  // linearly spaced between `vmin' and `vmax' from the distances between the
+  // `N' particles of a system of size `L', with x-axis positions given by `x'
+  // and y-axis positions given by `y'.
+  // Distances are rescaled by the sum of the radii of the particles in the pair
+  // if `scale_diameter'.
+
+extern "C" void S4Fs(
+  const char* filename,
+  int nTime0, int* time0, int nDt, int* dt,
+  int nq, double *qx, double *qy, int nk, double *kx, double *ky,
+  double *S4, double *S4var);
+  // Compute from the .datN file `filename' the four-point structure factor of
+  // the real part of the self-intermediate scattering functions, computed at
+  // the `nk' wave-vectors (`kx', `ky'), along the `nq' wave-vectors
+  // (`qx', `qy'), from the positions and displacements from the `nTime0'
+  // initial times `time0' with the `nDt' lag times `dt'.
+  // Means are saved in `S4' and variances are saved in `S4var', for each value
+  // of the lag time.
 
 // GRIDS
 
 extern "C" void toGrid(
-  int N, double L, double* x, double *y, double* values,
+  int N, double L, double* x, double* y, double* values,
   int nBoxes, double* grid, bool average = false);
   // Maps square (sub-)system of `N' particles with positions (`x', `y') centred
   // around 0 and of (cropped) size `L' to a flattened square `grid' of size
@@ -52,6 +134,14 @@ extern "C" void g2Dto1Dgrid(
   // Returns cylindrical average of flattened square grid `g2D' of size
   // `nBoxes'^2 with values of radii given by flatten square grid `grid' of same
   // size, as `nRadii'[0] values of `g1D' at corresponding `radii'.
+
+extern "C" void g2Dto1Dgridhist(
+  int nBoxes, double* g2D, double* grid,
+  int nBins, double vmin, double vmax, double* g1D, double* g1Dstd);
+  // Returns cylindrical average of flattened square grid `g2D' of size
+  // `nBoxes'^2 with values of radii given by flatten square grid `grid' of same
+  // size, as histogram `g1D' with `nBins' between `vmin' and `vmax' and
+  // standard variation on this measure `g1Dstd'.
 
 // CORRELATIONS
 
@@ -75,7 +165,6 @@ extern "C" void getVelocitiesOriCor(
   // associated to each of the `N' particles of a system of size `L', with
   // x-axis positions given by `x' and y-axis positions given by `y', and mean
   // diameter `sigma'.
-  // (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
 // READ
 

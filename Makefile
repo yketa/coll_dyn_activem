@@ -200,8 +200,8 @@ $(OB)/pycpp.o: dir pycpp.cpp pycpp.hpp maths.hpp
 	$(CC) -o $(OB)/pycpp.o -c pycpp.cpp $(CFLAGS)
 
 _pycpp.so: CFLAGS+=-fPIC
-_pycpp.so: $(OB)/pycpp.o $(OB)/maths.o
-	$(CC) -o _pycpp.so -shared $(OB)/pycpp.o $(OB)/maths.o $(LDFLAGS)
+_pycpp.so: $(OB)/pycpp.o $(OB)/dat.o $(OB)/maths.o
+	$(CC) -o _pycpp.so -shared $(OB)/pycpp.o $(OB)/dat.o $(OB)/maths.o $(LDFLAGS)
 
 #### GPROF ####
 
