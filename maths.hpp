@@ -101,6 +101,22 @@ double dist2DPeriod(double* pos0, double* pos1, double const& length,
 // FUNCTIONS //
 ///////////////
 
+template<class type> std::vector<std::vector<type>> invert2x2(
+  std::vector<std::vector<type>> const& matrix) {
+  // Returns from [[a, b], [c, d]] the inverse matrix
+  // [[d, -b], [-c, a]]/(a d - b c).
+
+  type det = matrix[0][0]*matrix[1][1] - matrix[0][1]*matrix[1][0];
+  if ( det == 0 ) {
+    throw std::invalid_argument("Cannot invert matrix with determinant 0.");
+  }
+
+  std::vector<std::vector<type>> inverse = {
+    {matrix[1][1]/det, -matrix[0][1]/det},
+    {-matrix[1][0]/det, matrix[0][0]/det}};
+  return inverse;
+}
+
 template<class vecClass> std::vector<vecClass>*
 	sortVec(std::vector<vecClass>* vec) {
 	// Sort vector `vec', remove duplicate entries, and returns pointer to it.
