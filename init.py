@@ -2,7 +2,7 @@
 Module init provides functions useful when initialising simulations or
 analysis.
 
-(taken from https://github.com/yketa/active_particles/tree/master/init.py)
+(adapted from https://github.com/yketa/active_particles/tree/master/init.py)
 """
 
 from os.path import join as joinpath
@@ -22,6 +22,9 @@ from collections import OrderedDict
 from numbers import Number
 
 import numpy as np
+
+from datetime import datetime
+from pytz.reference import LocalTimezone as timezone
 
 def to_vartype(input, default=None, vartype=str):
     """
@@ -226,3 +229,90 @@ def linframes(init_frame, tot_frames, max_frames):
         int,
         np.linspace(init_frame, tot_frames - 1, max_frames, dtype=int)
         ))))
+
+class Time:
+    """
+    Get initial, final and elapsed times.
+    """
+
+    class _Time(datetime):
+        """
+        Subclass of datetime.datetime with different string syntax.
+        """
+
+        def __str__(self):
+            """
+            Returns string of date as:
+                "Weekday Day Month Hour:Minutes:Seconds Timezone Year"
+
+            Returns
+            -------
+            time : str
+                Time.
+            """
+
+            return self.strftime(
+                "%a %d %b %H:%M:%S {} %Y".format(timezone().tzname(self)))
+
+    def __init__(self):
+        """
+        Sets initial time.
+        """
+
+        self.initial_time = self._Time.now()
+
+    def end(self):
+        """
+        Sets final and elapsed times.
+        """
+
+        self.final_time = self._Time.now()
+        self.elapsed_time = self.final_time - self.initial_time
+
+    def getInitial(self):
+        """
+        Returns initial time.
+
+        Returns
+        -------
+        initial : str
+            Initial time.
+        """
+
+        return str(self.initial_time)
+
+    def getFinal(self):
+        """
+        Returns final time.
+
+        NOTE: Final time is set by calling self.end(). If self.getFinal() is
+              called before, it will first call self.end().
+
+        Returns
+        -------
+        final : str
+            Final time.
+        """
+
+        try: self.final_time
+        except AttributeError: self.end()
+
+        return str(self.final_time)
+
+    def getElapsed(self):
+        """
+        Returns elapsed time.
+
+        NOTE: Final time is set by calling self.end(). If self.getElapsed() is
+              called before, it will first call self.end().
+
+        Returns
+        -------
+        elapsed : str
+            Elapsed time.
+        """
+
+        try: self.final_time
+        except AttributeError: self.end()
+
+        return str(self.elapsed_time)
