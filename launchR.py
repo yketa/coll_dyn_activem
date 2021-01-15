@@ -3,12 +3,13 @@ Module launchR launches simulations of interacting Brownian rotors.
 """
 
 from coll_dyn_activem.exponents import float_to_letters
-from coll_dyn_activem.init import get_env
+from coll_dyn_activem.init import get_env, Time
 
 from numpy.random import randint
 
 from os import path
 from subprocess import Popen, DEVNULL
+from sys import stderr
 
 # FUNCTIONS AND CLASSES
 
@@ -90,6 +91,11 @@ if __name__ == '__main__':
 
     # LAUNCH
 
+    time = Time()   # time object to time simulation
+    stderr.write(
+        "[start] %s\n\n"
+        % time.getInitial())
+
     proc = Popen(
         ['{ %s; }' % str(' ').join(['setsid', path.join(exec_dir, exec_name)])],
         stdout=DEVNULL, shell=True, env={
@@ -99,3 +105,7 @@ if __name__ == '__main__':
             'DT': str(dt), 'NITER': str(Niter),
             'NORDER': str(nOrder), 'DUMP': str(dump), 'PERIOD': str(period)})
     proc.wait()
+
+    stderr.write(
+        "[end] %s (elapsed: %s)\n\n"
+        % (time.getFinal(), time.getElapsed()))
