@@ -149,6 +149,65 @@ def list_linestyles(value_list, linestyle_list=_linestyles, sort=True):
     return {value_list[index]: linestyle_list[index]
         for index in range(len(value_list))}
 
+def contours(x, y, z, vmin=None, vmax=None, contours=20, cmap=plt.cm.jet):
+    """
+    Plot contours from 3D data.
+
+    Parameters
+    ----------
+    x : (*,) float array-like
+        x-axis data.
+    y : (**,) float array-like
+        y-axis data.
+    z : (*, **) float array-like
+        z-axis data to represent with color map.
+    vmin : float or None
+        Minimum value for the colorbar. (default: None)
+        NOTE: if vmin == None then min(z) is taken.
+    vmax : float or None
+        Maximum value for the colorbar. (default: None)
+        NOTE: if vmax == None then max(z) is taken.
+    contours : int
+        Number of contour lines. (default: 20)
+        (see matplotlib.pyplot.tricontourf)
+    cmap : matplotlib colorbar
+        Matplotlib colorbar to be used. (default: matplotlib.pyplot.cm.jet)
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object.
+    ax : matplotlib.axes.Axes
+        Axes object.
+    colorbar : matplotlib.colorbar
+        Colorbar.
+    """
+
+    x = np.array(x)
+    assert x.ndim == 1
+    y = np.array(y)
+    assert y.ndim == 1
+    z = np.array(z)
+    assert z.shape == (x.size, y.size)
+
+    vmin = vmin if vmin != None else z.min()
+    vmax = vmax if vmax != None else z.max()
+    norm = colors.Normalize(vmin=vmin, vmax=vmax)
+    scalarMap = cmx.ScalarMappable(norm=norm, cmap=cmap)
+
+    fig, ax = plt.subplots()
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes('right', size='5%', pad=0.05)
+    colorbar = mpl.colorbar.ColorbarBase(cax, cmap=cmap, norm=norm,
+        orientation='vertical')
+
+    ax.tricontourf(
+        *np.transpose([[x[i], y[j], z[i, j]]
+            for i in range(x.size) for j in range(y.size)]),
+        contours, cmap=cmap, norm=norm)
+
+    return fig, ax, colorbar
+
 class FittingLine:
     """
     Provided a matplotlib.axes.Axes object, this object:
