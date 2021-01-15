@@ -3,7 +3,7 @@ Module launch0 launches simulations with all different parameters.
 """
 
 from coll_dyn_activem.exponents import float_to_letters
-from coll_dyn_activem.init import get_env
+from coll_dyn_activem.init import get_env, Time
 from coll_dyn_activem.read import Dat
 
 from numpy.random import randint
@@ -11,6 +11,7 @@ from numpy import sqrt, pi
 
 from os import path
 from subprocess import Popen, DEVNULL
+from sys import stderr
 
 # FUNCTIONS AND CLASSES
 
@@ -114,11 +115,6 @@ if __name__ == '__main__':
         v0 = get_env('V0', default=_v0, vartype=float)                  # self-propulsion velocity
         phi = get_env('PHI', default=_phi, vartype=float)               # packing fraction
         I = get_env('I', default=_I, vartype=float)                     # polydispersity index
-        if inputFrame < 0:
-            try:
-                inputFrame = dat.frameIndices.max()
-            except AttributeError:
-                inputFrame = dat.frames - 1
 
     else:
 
@@ -131,6 +127,11 @@ if __name__ == '__main__':
             v0 = dat.v0                                 # self-propulsion velocity
             phi = dat.phi                               # packing fraction
             I = -1                                      # polydispersity index
+            if inputFrame < 0:
+                try:
+                    inputFrame = dat.frameIndices.max()
+                except AttributeError:
+                    inputFrame = dat.frames - 1
             del dat
 
     # TYPE
@@ -169,6 +170,11 @@ if __name__ == '__main__':
 
     # LAUNCH
 
+    time = Time()   # time object to time simulation
+    stderr.write(
+        "[start] %s\n\n"
+        % time.getInitial())
+
     proc = Popen(
         ['{ %s; }' % str(' ').join(['setsid', path.join(exec_dir, exec_name)])],
         stdout=DEVNULL, shell=True, env={
@@ -184,3 +190,7 @@ if __name__ == '__main__':
                 'DT0': str(dt0), 'DTMAX': str(dtmax),
             'DUMP': str(dump), 'PERIOD': str(period)})
     proc.wait()
+
+    stderr.write(
+        "[end] %s (elapsed: %s)\n\n"
+        % (time.getFinal(), time.getElapsed()))
