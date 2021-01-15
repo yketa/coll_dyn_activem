@@ -814,7 +814,7 @@ class Distribution:
         return pdf.axes[0], pdf.pdf
 
     def hist(self, nBins, vmin=None, vmax=None, log=False,
-        rescaled_to_max=False):
+        rescaled_to_max=False, occupation=False):
         """
         Returns histogram of array of values.
 
@@ -833,6 +833,9 @@ class Distribution:
         rescaled_to_max : bool
             Rescale occupancy of the bins by its maximum over bins.
             (default: False)
+        occupation : bool
+            Return histogram of occupation rather than proportion.
+            (default: False)
 
         Returns
         -------
@@ -848,7 +851,7 @@ class Distribution:
         histogram.values = self.valuesArray
 
         bins = histogram.bins
-        hist = histogram.get_histogram()
+        hist = histogram.get_histogram(occupation=occupation)
         if rescaled_to_max: hist /= hist.max()
         if not(log): return bins, hist
         else: return bins[hist > 0], np.log(hist[hist > 0])
@@ -1059,7 +1062,7 @@ class Histogram:
 
         self.values = np.array([])
 
-    def get_histogram(self):
+    def get_histogram(self, occupation=False):
         """
         Get histogram from values in self.values.
 
@@ -1067,6 +1070,9 @@ class Histogram:
         -------
         hist : Numpy array
             Values of the histogram at self.bins.
+        occupation : bool
+            Return histogram of occupation rather than proportion.
+            (default: False)
         """
 
         if self.log:
@@ -1078,7 +1084,7 @@ class Histogram:
 
         binned_values = np.sum(self.hist)
         if binned_values == 0: return self.hist # no binned value
-        else: self.hist /= np.sum(self.hist)
+        elif not(occupation): self.hist /= np.sum(self.hist)
         return self.hist
 
 class Histogram3D:
@@ -1233,7 +1239,7 @@ def wave_vectors_dq(L, q, dq=0.1):
 
     Returns
     -------
-    wv : (*,) float Numpy array
+    wv : (*, 2) float Numpy array
         Array of (2\\pi/L nx, 2\\pi/L ny) wave vectors (ny >= 0) corresponding
         to the interval.
     """
