@@ -361,11 +361,15 @@ class Positions(Dat):
         if max == None: max = self.L/2
 
         hist = np.array(list(map(
-            lambda t: (lambda dist: pycpp.getHistogramLinear(dist,
-                Nbins, min, max)/dist.size)(
-                    pycpp.getDistances(self.getPositions(t), self.L,
-                        diameters=(
-                            self.diameters if scale_diameter else None))),
+            # lambda t: (lambda dist: pycpp.getHistogramLinear(dist,
+            #     Nbins, min, max)/dist.size)(
+            #         pycpp.getDistances(self.getPositions(t), self.L,
+            #             diameters=(
+            #                 self.diameters if scale_diameter else None))),
+            lambda t: pycpp.pairDistribution(
+                Nbins, min, max, self.getPositions(t), self.L,
+                diameters=(
+                    self.diameters if scale_diameter else None)),
             self._time0(int_max=int_max))))
 
         bins = np.array([min + b*(max - min)/Nbins for b in range(1, Nbins)])
