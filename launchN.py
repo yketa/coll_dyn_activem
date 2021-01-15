@@ -4,7 +4,7 @@ logarithmically spaced frames.
 """
 
 from coll_dyn_activem.exponents import float_to_letters
-from coll_dyn_activem.init import get_env
+from coll_dyn_activem.init import get_env, Time
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.launch0 import v0_AOUP
 
@@ -13,6 +13,7 @@ from numpy import sqrt, pi
 
 from os import path
 from subprocess import Popen, DEVNULL
+from sys import stderr
 
 # FUNCTIONS AND CLASSES
 
@@ -166,8 +167,14 @@ if __name__ == '__main__':
     # OUTPUT FILE PARAMETERS
     out_dir = get_env('OUT_DIR', default=_out_dir, vartype=str) # simulation output directory
     out_file = filename(N, epsilon, v0, D, Dr, phi, launch)     # simulation output file name
+    if period != None: out_file += '.linear'
 
     # LAUNCH
+
+    time = Time()   # time object to time simulation
+    stderr.write(
+        "[start] %s\n\n"
+        % time.getInitial())
 
     proc = Popen(
         ['{ %s; }' % str(' ').join(['setsid', path.join(exec_dir, exec_name)])],
@@ -184,3 +191,7 @@ if __name__ == '__main__':
             'EMIN': str(Emin), 'ITERMAX': str(iterMax), 'DTMIN': str(dtmin),
                 'DT0': str(dt0), 'DTMAX': str(dtmax)})
     proc.wait()
+
+    stderr.write(
+        "[end] %s (elapsed: %s)\n\n"
+        % (time.getFinal(), time.getElapsed()))
