@@ -96,7 +96,7 @@ int main() {
     double D = getEnvDouble("D", inputDat.getTransDiffusivity()); // translational diffusivity
     double v0 =
       #if AOUP // simulation of AOUPs
-      sqrt(D*Dr)
+      Dr != 0.0 ? sqrt(D*Dr) : inputDat.getPropulsionVelocity()
       #else // simulation of ABPs (default)
       getEnvDouble("V0", inputDat.getPropulsionVelocity())
       #endif
