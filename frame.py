@@ -8,10 +8,11 @@ https://github.com/yketa/active_particles/tree/master/analysis/frame.py)
 from coll_dyn_activem.init import get_env, mkdir
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.maths import normalise1D, amplogwidth, cooperativity,\
-    relative_positions
-from coll_dyn_activem.flow import Displacements
+    relative_positions, angle
+from coll_dyn_activem.flow import Displacements, Velocities
 from coll_dyn_activem.structure import Positions
 from coll_dyn_activem.force import Force
+from coll_dyn_activem.pycpp import pairIndex
 
 from os import getcwd
 from os import environ as envvar
@@ -30,13 +31,18 @@ from matplotlib.colors import Normalize as ColorsNormalise
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.cm import ScalarMappable
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib.lines import Line2D
+from matplotlib.collections import PatchCollection
+from matplotlib.patches import Polygon
 
 plt.rc('text', usetex=True)
-plt.rc('text.latex', preamble=r'\usepackage{amsmath}')
+plt.rc('text.latex', preamble=r'\usepackage{amsmath,amsfonts}')
 
 from datetime import datetime
 
 from collections import OrderedDict
+
+from operator import itemgetter
 
 import subprocess
 
@@ -71,7 +77,9 @@ class _Frame:
         arrow_width=_arrow_width,
         arrow_head_width=_arrow_head_width,
         arrow_head_length=_arrow_head_length,
-        WCA_diameter=False, **kwargs):
+        WCA_diameter=False, rasterized=False,
+        linewidth=None, colorbar_position='right', colorbar_label=None,
+        **kwargs):
         """
         Initialises figure.
 
@@ -93,6 +101,15 @@ class _Frame:
             Length of the arrows' head.
         WCA_diameter : bool
             Multiply diameters by 2^(1/6). (default: False)
+        rasterized : bool
+            Force rasterized (bitmap) drawing for vector graphics output.
+            (default: False)
+        linewidth : float or None
+            Linewidth of circles and arrows. (default: None)
+        colorbar_position : string
+            Position of the colorbar ('right' or 'top'). (default: 'right')
+        colorbar_label : string or None
+            Label of the colorbar. (default: None)
 
         Optional keyword parameters
         ---------------------------
@@ -104,9 +121,9 @@ class _Frame:
         self.fig, self.ax = plt.subplots()
         self.box_size = box_size
         self.ax.set_xlim([-self.box_size/2, self.box_size/2])
-        self.ax.set_xlabel(r'$x$')
+        # self.ax.set_xlabel(r'$x$')
         self.ax.set_ylim([-self.box_size/2, self.box_size/2])
-        self.ax.set_ylabel(r'$y$')
+        # self.ax.set_ylabel(r'$y$')
         self.ax.set_aspect('equal')
         self.ax.tick_params(axis='both', which='both', direction='in',
             bottom=True, top=True, left=True, right=True)
@@ -114,9 +131,12 @@ class _Frame:
 
         self.dat = dat
         self.frame = frame
+        self.centre = centre
         self.positions = self.dat.getPositions(frame)
         if 'remove_cm' in kwargs:
             if kwargs['remove_cm'] != None:
+                # self.ax.set_xlabel(r'$\Delta^{\mathrm{CM}} x$')
+                # self.ax.set_ylabel(r'$\Delta^{\mathrm{CM}} y$')
                 self.positions -= self.dat.getDisplacements(
                     kwargs['remove_cm'], frame).mean(axis=0, keepdims=True)
                 self.positions -= (self.positions//self.dat.L)*self.dat.L
@@ -130,6 +150,13 @@ class _Frame:
         self.arrow_width = arrow_width
         self.arrow_head_width = arrow_head_width
         self.arrow_head_length = arrow_head_length
+
+        self.rasterized = rasterized
+
+        self.linewidth = linewidth
+
+        self.colorbar_position = colorbar_position
+        self.colorbar_label = colorbar_label
 
     def __del__(self):
         """
@@ -170,12 +197,14 @@ class _Frame:
 
             circle = plt.Circle(position,
                 self.diameters[particle]/2, color=color, fill=fill,
-                zorder=0)       # circle artist representing particle
+                linewidth=self.linewidth,
+                zorder=0, rasterized=self.rasterized)   # circle artist representing particle
             self.ax.add_artist(circle)
-            if border != None:  # add black border
+            if border != None:                          # add border
                 circleBorder = plt.Circle(position,
                     self.diameters[particle]/2, color=border, fill=False,
-                    zorder=1)
+                    linewidth=self.linewidth,
+                    zorder=1, rasterized=self.rasterized)
                 self.ax.add_artist(circleBorder)
 
         _draw_circle(self.positions[particle])
@@ -219,7 +248,64 @@ class _Frame:
         self.ax.arrow(*self.positions[particle], dx, dy, color=color,
             width=length*self.arrow_width,
             head_width=length*self.arrow_head_width,
-            head_length=length*self.arrow_head_length, zorder=1)
+            head_length=length*self.arrow_head_length,
+            length_includes_head=True,
+            zorder=1,
+            linewidth=self.linewidth,
+            rasterized=self.rasterized)
+
+    def draw_arrow_in(self, particle, orientation, color='black'):
+        """
+        Draws arrow in particle.
+
+        Parameters
+        ----------
+        particle : int
+            Particle index.
+        orientation : float
+            Orientation of particle in radians.
+        color : any matplotlib color
+            Arrow color. (default: 'black')
+        """
+
+        direction = np.array([np.cos(orientation), np.sin(orientation)])
+        length = self.diameters[particle]*0.75
+        self.ax.arrow(
+            *(self.positions[particle] - direction*length/(2*np.sqrt(2))),
+            *direction*length/np.sqrt(2),
+            color=color,
+            width=length*self.arrow_width,
+            head_width=length*self.arrow_head_width,
+            head_length=length*self.arrow_head_length, zorder=1,
+            length_includes_head=True,
+            linewidth=self.linewidth,
+            rasterized=self.rasterized)
+
+    def draw_link(self, particle1, particle2, width=4, color='black'):
+        """
+        Draw link between particles.
+
+        Parameters
+        ----------
+        particle1 : int
+            First particle index.
+        particle2 : int
+            Second particle index.
+        width : int
+            Line width. (default: 4)
+        color : any matplotlib color
+            Link color. (default: 'black')
+        """
+
+        ri, rj = self.positions[particle1], self.positions[particle2]
+        self.ax.add_artist(Line2D(
+            [ri[0], ri[0] + self.dat._diffPeriodic(ri[0], rj[0])],
+            [ri[1], ri[1] + self.dat._diffPeriodic(ri[1], rj[1])],
+            lw=width, color=color, rasterized=self.rasterized))
+        self.ax.add_artist(Line2D(
+            [rj[0], rj[0] + self.dat._diffPeriodic(rj[0], ri[0])],
+            [rj[1], rj[1] + self.dat._diffPeriodic(rj[1], ri[1])],
+            lw=width, color=color, rasterized=self.rasterized))
 
     def colorbar(self, vmin, vmax, cmap=plt.cm.jet):
         """
@@ -235,15 +321,91 @@ class _Frame:
             Matplotlib colorbar to be used. (default: matplotlib.pyplot.cm.jet)
         """
 
+        self.cmap = cmap
+
         vNorm = ColorsNormalise(vmin=vmin, vmax=vmax)
-        self.scalarMap = ScalarMappable(norm=vNorm, cmap=cmap)
+        self.scalarMap = ScalarMappable(norm=vNorm, cmap=self.cmap)
 
-        self.colormap_ax = make_axes_locatable(self.ax).append_axes('right',
-            size='5%', pad=0.05)
-        self.colormap = mpl.colorbar.ColorbarBase(self.colormap_ax, cmap=cmap,
-            norm=vNorm, orientation='vertical')
+        class Colormap(mpl.colorbar.ColorbarBase):
+            def set_label(_, label, **kwargs):
+                super().set_label(
+                    label if self.colorbar_label == None
+                        else self.colorbar_label,
+                    **kwargs,
+                    rotation=270 if self.colorbar_position == 'right' else 0)
 
-    def colorbar_discrete(self, nColors, vmin, vmax, cmap=plt.cm.jet):
+        if self.colorbar_position == 'right':
+
+            self.colormap_ax = make_axes_locatable(self.ax).append_axes('right',
+                size='5%', pad=0.05)
+            self.colormap = Colormap(
+                self.colormap_ax, cmap=self.cmap,
+                norm=vNorm, orientation='vertical')
+
+        elif self.colorbar_position == 'top':
+
+            self.colormap_ax = make_axes_locatable(self.ax).append_axes('top',
+                size='5%', pad=0.05)
+            self.colormap = Colormap(
+            	self.colormap_ax, cmap=self.cmap,
+                norm=vNorm, orientation='horizontal')
+            self.colormap_ax.xaxis.set_label_position('top')
+            self.colormap_ax.xaxis.set_ticks_position('top')
+
+        else:
+            raise ValueError(
+                "Position '%s' is not recognised." % self.colorbar_position)
+
+    def colorbar_discrete(self, bounds, cmap=plt.cm.jet):
+        """
+        Adds discrete colorbar to plot.
+
+        Parameters
+        ----------
+        bounds : (*,) array-like
+            Bounds of values to map to colors.
+        cmap : matplotlib colorbar
+            Matplotlib colorbar to be used. (default: matplotlib.pyplot.cm.jet)
+        """
+
+        self.colormap_bounds = np.array(sorted(bounds))
+
+        _cmap = mpl.colors.LinearSegmentedColormap.from_list('custom_cmap',
+            list(map(cmap, range(cmap.N))), cmap.N)
+        vNorm = mpl.colors.BoundaryNorm(self.colormap_bounds, cmap.N)
+        self.scalarMap = mpl.cm.ScalarMappable(norm=vNorm, cmap=_cmap)
+
+        class Colormap(mpl.colorbar.ColorbarBase):
+            def set_label(_, label, **kwargs):
+                super().set_label(
+                    label if self.colorbar_label == None
+                        else self.colorbar_label,
+                    **kwargs,
+                    rotation=270 if self.colorbar_position == 'right' else 0)
+
+        if self.colorbar_position == 'right':
+
+            self.colormap_ax = make_axes_locatable(self.ax).append_axes('right',
+                size='5%', pad=0.05)
+            self.colormap = Colormap(
+                self.colormap_ax, cmap=_cmap,
+                norm=vNorm, orientation='vertical')
+
+        elif self.colorbar_position == 'top':
+
+            self.colormap_ax = make_axes_locatable(self.ax).append_axes('top',
+                size='5%', pad=0.05)
+            self.colormap = Colormap(
+            	self.colormap_ax, cmap=_cmap,
+                norm=vNorm, orientation='horizontal')
+            self.colormap_ax.xaxis.set_label_position('top')
+            self.colormap_ax.xaxis.set_ticks_position('top')
+
+        else:
+            raise ValueError(
+                "Position '%s' is not recognised." % self.colorbar_position)
+
+    def _colorbar_discrete(self, nColors, vmin, vmax, cmap=plt.cm.jet):
         """
         Adds discrete colorbar to plot.
 
@@ -327,36 +489,11 @@ class Orientation(_Frame):
             dat.getOrientations(frame, *self.particles)%(2*np.pi))  # particles' orientations at frame
 
         self.colorbar(0, 2, cmap=plt.cm.hsv)                                    # add colorbar to figure
-        self.colormap.set_label(r'$\theta_i/\pi$', labelpad=pad, rotation=270)  # colorbar legend
+        self.colormap.set_label(r'$\theta_i/\pi$', labelpad=pad)  # colorbar legend
 
         self.label = label  # write labels
 
         self.draw()
-
-    def draw_arrow(self, particle, orientation, color='black'):
-        """
-        Draws arrow in particle.
-
-        Parameters
-        ----------
-        particle : int
-            Particle index.
-        orientation : float
-            Orientation of particle in radians.
-        color : any matplotlib color
-            Arrow color. (default: 'black')
-        """
-
-        direction = np.array([np.cos(orientation), np.sin(orientation)])
-        length = self.diameters[particle]*0.75
-        self.ax.arrow(
-            *(self.positions[particle] - direction*length/(2*np.sqrt(2))),
-            *direction*length/np.sqrt(2),
-            color=color,
-            width=length*self.arrow_width,
-            head_width=length*self.arrow_head_width,
-            head_length=length*self.arrow_head_length, zorder=1,
-            length_includes_head=True)
 
     def draw(self):
         """
@@ -368,7 +505,7 @@ class Orientation(_Frame):
             self.draw_circle(particle,
                 color=self.scalarMap.to_rgba(orientation/np.pi), fill=False,
                 label=self.label)                                   # draw particle circle with color corresponding to displacement amplitude
-            self.draw_arrow(particle, orientation,
+            self.draw_arrow_in(particle, orientation,
                 color=self.scalarMap.to_rgba(orientation/np.pi))    # draw displacement direction arrow
 
 class Displacement(_Frame):
@@ -451,16 +588,12 @@ class Displacement(_Frame):
 
         self.colorbar(self.vmin, self.vmax) # add colorbar to figure
         self.colormap.set_label(            # colorbar legend
-            # r'$\log_{10} ||\delta \Delta \vec{r}_i(t, t + \Delta t)||$'
-            #     + (r'$/\sqrt{\left<|\ldots|^2\right>_i}$'
-            #         if self.rescale else '')
-            #     + ' ' + r'$(\zeta_{\Delta \vec{r}} = %.4f)$' % self.zetad,
             r'$\log_{10} ||\delta \Delta \boldsymbol{r}_i(t, t + \Delta t)||$'
                 + (r'$/\sqrt{\left<|\ldots|^2\right>_i}$'
                     if self.rescale else '')
                 + ' '
                 + r'$(\zeta_{\Delta \boldsymbol{r}} = %.4f)$' % self.zetad,
-            labelpad=pad, rotation=270)
+            labelpad=pad)
 
         self.label = label  # write labels
 
@@ -481,6 +614,204 @@ class Displacement(_Frame):
             self.draw_arrow(particle,
                 *normalise1D(displacement)*0.75*self.diameters[particle])   # draw displacement direction arrow
 
+class Odisplacement(_Frame):
+    """
+    Plotting class specific to 'odisplacement' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        pad=_colormap_label_pad, dt=1, jump=1, a1=1.15, a2=1.5,
+        label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        dt : int
+            Lag time for displacement. (default: 1)
+        jump : int
+            Period in number of frames at which to check if particles have
+            crossed any boundary. (default: 1)
+            NOTE: `jump' must be chosen so that particles do not move a distance
+                  greater than half the box size during this time.
+        a1 : float
+            Distance relative to their diameters below which particles are
+            considered bonded. (default: 1.15)
+        a2 : float
+            Distance relative to their diameters above which particles are
+            considered unbonded. (default: 1.5)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            **kwargs)   # initialise superclass
+
+        self.a1, self.a2 = a1, a2
+        self.odisplacements = np.array(itemgetter(*self.particles)(
+            Displacements(self.dat.filename).orientationNeighbours(
+                frame, dt, A1=self.a1, jump=jump, remove_cm=True)[0]))
+        self.brokenPairs = (
+            Displacements(self.dat.filename).brokenPairs(
+                frame, frame + dt, A1=self.a1, A2=self.a2))
+
+        self.colorbar_discrete([0, 4, 5, 7], cmap=  # add colorbar to figure
+            mpl.colors.LinearSegmentedColormap.from_list('custom_cmap', [
+                (1, 1, 1),                          # white
+                (255./255., 195./255., 0./255.),    # yellow
+                (255./255., 87./255., 51./255.)]))  # orange
+        self.colormap.set_label(                    # colorbar legend
+            (r'$\sum_{j \in \mathcal{V}_i} \Theta($'
+                + r'$\hat{\delta\Delta\boldsymbol{r}}_i(t, t + \Delta t) \cdot$'
+                + r'$\hat{\delta\Delta\boldsymbol{r}}_j$'
+                + r'$- 0.5), A_1=%.2f, A_2=%.2f$' % (self.a1, self.a2)),
+            labelpad=pad)
+
+        self.label = label  # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        for particle, odisplacement in zip(
+            self.particles, self.odisplacements):   # for particle and particle's number of same displacement orientation neighbours
+            self.draw_circle(particle,
+                color=self.scalarMap.to_rgba(odisplacement),
+                fill=True,
+                border='black',
+                label=self.label)                   # draw particle circle with color corresponding to number of same displacement orientation neighbours
+        for i in range(self.dat.N):
+            for j in range(i + 1, self.dat.N):
+                if (i in self.particles and j in self.particles
+                    and self.brokenPairs[pairIndex(i, j, self.dat.N)]):
+                    self.draw_link(i, j) # draw broken bond line from i to j
+
+class Oridisplacement(_Frame):
+    """
+    Plotting class specific to 'oridisplacement' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        pad=_colormap_label_pad, dt=1, jump=1,
+        brokenPairs=False, a1=1.15, a2=1.5, minimum=0,
+        border=True, label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        dt : int
+            Lag time for displacement. (default: 1)
+        jump : int
+            Period in number of frames at which to check if particles have
+            crossed any boundary. (default: 1)
+            NOTE: `jump' must be chosen so that particles do not move a distance
+                  greater than half the box size during this time.
+        brokenPairs : bool
+            Compute and display broken bonds between. (default: True)
+        a1 : float
+            Distance relative to their diameters below which particles are
+            considered bonded. (default: 1.15)
+        a2 : float
+            Distance relative to their diameters above which particles are
+            considered unbonded. (default: 1.5)
+        minimum : float
+            Display particles with squared displcaments greater than this
+            minimum. (default: 0)
+        border : bool
+            Draw black border of particles. (default: True)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            **kwargs)   # initialise superclass
+
+        self.a1, self.a2 = a1, a2
+        self.minimum = minimum
+        self.displacements = dat.getDisplacements(frame, frame + dt,
+            jump=jump, remove_cm=True)
+        self.oridisplacements = np.array(list(map(
+            angle,
+            *np.transpose(itemgetter(*self.particles)(self.displacements)))))
+        if brokenPairs:
+            self.brokenPairs = (
+                Displacements(self.dat.filename).brokenPairs(
+                    frame, frame + dt, A1=self.a1, A2=self.a2))
+        else:
+            self.brokenPairs = np.zeros((int(self.dat.N*(self.dat.N - 1)/2),))
+
+        self.colorbar(-1, 1, cmap=plt.cm.hsv)   # add colorbar to figure
+        self.colormap.set_label(
+            r'$\mathrm{arg}($'
+                + r'$\delta \Delta \boldsymbol{r}_i(t, t + \Delta t))/\pi$'
+                + ((' ' + r'$(\mathrm{minimum} = %.2f)$' % self.minimum)
+                    if self.minimum > 0 else '')
+                + (r'$, A_1=%.2f, A_2=%.2f$' % (self.a1, self.a2)
+                    if brokenPairs else ''),
+            labelpad=pad)                       # colorbar legend
+
+        self.border = border    # draw borders
+        self.label = label      # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        for particle, oridisplacement in zip(
+            self.particles, self.oridisplacements): # for particle and particle's orientation of displacement
+            self.draw_circle(particle,
+                color=(
+                    self.scalarMap.to_rgba(oridisplacement/np.pi)
+                        if ((self.displacements[particle]**2).sum(axis=-1)
+                            >= self.minimum**2)
+                        else 'white'),
+                fill=True,
+                border='black' if self.border else None,
+                label=self.label)                   # draw particle circle with color corresponding to orientation of displacement
+        if self.brokenPairs.sum() == 0: return
+        for i in range(self.dat.N):
+            for j in range(i + 1, self.dat.N):
+                if (i in self.particles and j in self.particles
+                    and self.brokenPairs[pairIndex(i, j, self.dat.N)]):
+                    self.draw_link(i, j) # draw broken bond line from i to j
+
 class Movement(_Frame):
     """
     Plotting class specific to 'movement' mode.
@@ -491,7 +822,7 @@ class Movement(_Frame):
         arrow_head_width=_arrow_head_width,
         arrow_head_length=_arrow_head_length,
         dt=1, jump=1,
-        arrow_factor=1,
+        arrow_factor=1, minimum=0,
         label=False, **kwargs):
         """
         Initialises and plots figure.
@@ -521,6 +852,9 @@ class Movement(_Frame):
                   greater than half the box size during this time.
         arrow_factor : float
             Displacement arrow dilatation factor. (default: 1)
+        minimum : float
+            Display particles with squared displcaments greater than this
+            minimum. (default: 0)
         label : bool
             Write indexes of particles in circles. (default: False)
 
@@ -540,12 +874,22 @@ class Movement(_Frame):
             **kwargs)   # initialise superclass
 
         self.arrow_factor = arrow_factor    # displacement arrow dilatation factor
-        self.fig.text(1.03, 0,
-            r'$\mathrm{factor} = %.2e$' % self.arrow_factor,
+        self.minimum = minimum
+        self.side_text = self.fig.text(1.03, 0,
+            ((r'$\mathrm{minimum} = %.2f,$' % self.minimum + ' ')
+                if self.minimum > 0 else '')
+                + r'$\mathrm{factor} = %.2e$' % self.arrow_factor,
             rotation=270, transform=self.ax.transAxes)
 
         self.displacements = dat.getDisplacements(
             frame, frame + dt, *self.particles, jump=jump, remove_cm=True)  # particles' displacements at frame
+
+        for i in range(len(self.displacements)):
+            for dim in range(2):
+                while self.displacements[i, dim] > self.dat.L/2:
+                    self.displacements[i, dim] -= self.dat.L
+                while self.displacements[i, dim] < -self.dat.L/2:
+                    self.displacements[i, dim] += self.dat.L
 
         self.label = label  # write labels
 
@@ -558,6 +902,11 @@ class Movement(_Frame):
 
         for particle, displacement in zip(
             self.particles, self.displacements):                            # for particle and particle's displacement in rendered box
+            self.draw_circle(particle,                                      # draw particle
+                color='black',
+                fill=False,
+                label=self.label)
+            if (displacement**2).sum(axis=-1) < self.minimum**2: continue
             self.draw_arrow(particle, *(self.arrow_factor*displacement))    # draw displacement arrow
 
 class Overlap(_Frame):
@@ -605,20 +954,16 @@ class Overlap(_Frame):
             **kwargs)   # initialise superclass
 
         self.a = a
-        self.overlaps = np.exp(
-            -(dat.getDisplacements(
-                frame, frame + dt, *self.particles, jump=jump, remove_cm=True,
-                norm=True)/self.a)**2)  # particles' overlaps between frame and frame + dt
+        self.overlaps = (dat.getDisplacements(
+            frame, frame + dt, *self.particles, jump=jump, remove_cm=True,
+            norm=True)/self.a > 1)*1.0  # particles' overlaps between frame and frame + dt
 
-        self.colorbar(0, 1, cmap=plt.cm.jet.reversed())# add colorbar to figure
-        self.colormap.set_label(                            # colorbar legend
-            # (r'$\exp(-[$'
-            #     + r'$||\delta \Delta \vec{r}_i(t, t + \Delta t)||/a]^2)$'
-            #     + r'$,$' + ' ' + r'$a=%.2f$' % self.a),
-            (r'$\exp(-[$'
-                + r'$||\delta \Delta \boldsymbol{r}_i(t, t + \Delta t)||/a]^2)$'
-                + r'$,$' + ' ' + r'$a=%.2f$' % self.a),
-            labelpad=pad, rotation=270)
+        self.colorbar_discrete((0, 0.5, 1), cmap=plt.cm.binary) # add colorbar to figure
+        self.colormap.set_label(                                # colorbar legend
+            (r'$\Theta($'
+                + r'$||\delta \Delta \boldsymbol{r}_i(t, t + \Delta t)||/a$'
+                + r'$-1),$' + ' ' + r'$a=%.2f$' % self.a),
+            labelpad=pad)
 
         self.label = label  # write labels
 
@@ -632,6 +977,7 @@ class Overlap(_Frame):
         for particle, overlap in zip(
             self.particles, self.overlaps):                                 # for particle and particle's overlap in rendered box
             self.draw_circle(particle,
+                border='black',
                 color=self.scalarMap.to_rgba(overlap),
                 fill=True,
                 label=self.label)                                           # draw particle circle with color corresponding to overlap
@@ -680,17 +1026,18 @@ class Bond(_Frame):
             **kwargs)   # initialise superclass
 
         self.a1, self.a2 = a1, a2
-        self.brokenBonds = Displacements(
+        self.brokenBonds = np.array(itemgetter(*self.particles)(Displacements(
             dat.filename, corruption=dat.corruption).brokenBonds(
-                frame, frame + dt, A1=self.a1, A2=self.a2)[0]   # particles' number of broken bonds between frame and frame + dt
+                np.min([frame, frame + dt]), np.abs(dt),
+                A1=self.a1, A2=self.a2)[0]))    # particles' number of broken bonds between frame and frame + dt
 
-        self.colorbar_discrete(7, 0, 6) # add colorbar to figure
-        self.colormap.set_label(        # colorbar legend
+        self.colorbar_discrete([0, 1, 2, 3, 4]) # add colorbar to figure
+        self.colormap.set_label(                # colorbar legend
             # (r'$B_i(t, t + \Delta t, A_1=%.2f, A_2=%.2f)$'
             #     % (self.a1, self.a2))
             (r'$\mathcal{B}_i(t, t + \Delta t, A_1=%.2f, A_2=%.2f)$'
                 % (self.a1, self.a2)),
-            labelpad=pad, rotation=270)
+            labelpad=pad)
 
         self.label = label  # write labels
 
@@ -753,9 +1100,9 @@ class D2min(_Frame):
             **kwargs)   # initialise superclass
 
         self.a1 = a1
-        self.d2min = Displacements(
+        self.d2min = np.array(itemgetter(*self.particles)(Displacements(
             dat.filename, corruption=dat.corruption).d2min(
-                frame, frame + dt, A1=self.a1)  # particles' nonaffine squared displacements between frame and frame + dt
+                frame, frame + dt, A1=self.a1)))    # particles' nonaffine squared displacements between frame and frame + dt
 
         self.vmin, self.vmax = amplogwidth(np.reshape(self.d2min, (dat.N, 1)))
         try:
@@ -769,7 +1116,7 @@ class D2min(_Frame):
         self.colormap.set_label(                                            # colorbar legend
             r'$\log_{10} D^2_{i,\mathrm{min}}(t, t + \Delta t, A_1=%.2f)$'
                 % self.a1,
-            labelpad=pad, rotation=270)
+            labelpad=pad)
 
         self.label = label  # write labels
 
@@ -794,11 +1141,12 @@ class Velocity(_Frame):
     """
 
     def __init__(self, dat, frame, box_size, centre,
+        direction=True,
         arrow_width=_arrow_width,
         arrow_head_width=_arrow_head_width,
         arrow_head_length=_arrow_head_length,
         pad=_colormap_label_pad,
-        label=False, **kwargs):
+        border=False, label=False, **kwargs):
         """
         Initialises and plots figure.
 
@@ -812,6 +1160,8 @@ class Velocity(_Frame):
             Length of the square box to render.
         centre : 2-uple like
             Centre of the box to render.
+        direction : bool
+            Draw arrow in the direction of the velocity. (default: True)
         arrow_width : float
             Width of the arrows.
         arrow_head_width : float
@@ -821,6 +1171,8 @@ class Velocity(_Frame):
         pad : float
             Separation between label and colormap.
             (default: coll_dyn_activem.frame._colormap_label_pad)
+        border : bool
+            Draw black border of particles. (default: True)
         label : bool
             Write indexes of particles in circles. (default: False)
 
@@ -839,6 +1191,8 @@ class Velocity(_Frame):
             arrow_head_length=arrow_head_length,
             **kwargs)   # initialise superclass
 
+        self.direction = direction
+
         self.zetav = cooperativity(dat.getVelocities(
             frame, remove_cm=False))
         self.velocities = dat.getVelocities(
@@ -854,13 +1208,12 @@ class Velocity(_Frame):
 
         self.colorbar(self.vmin, self.vmax) # add colorbar to figure
         self.colormap.set_label(            # colorbar
-            # r'$\log_{10}||\delta \vec{v}_i(t)||$' + ' '
-            #     + r'$(\zeta_{\vec{v}} = %.4f)$' % self.zetav,
             r'$\log_{10}||\delta \boldsymbol{v}_i(t)||$' + ' '
                 + r'$(\zeta_{\boldsymbol{v}} = %.4f)$' % self.zetav,
-            labelpad=pad, rotation=270)
+            labelpad=pad)
 
-        self.label = label  # write labels
+        self.border = border    # draw borders
+        self.label = label      # write labels
 
         self.draw()
 
@@ -870,14 +1223,157 @@ class Velocity(_Frame):
         """
 
         for particle, velocity in zip(
-            self.particles, self.velocities):                           # for particle and particle's velocity in rendered box
+            self.particles, self.velocities):                               # for particle and particle's velocity in rendered box
             self.draw_circle(particle,
                 color=self.scalarMap.to_rgba(
                     np.log10(np.linalg.norm(velocity))),
                 fill=True,
-                label=self.label)                                       # draw particle circle with color corresponding to velocity amplitude
-            self.draw_arrow(particle,
-                *normalise1D(velocity)*0.75*self.diameters[particle])   # draw velocity direction arrow
+                border='black' if self.border else None,
+                label=self.label)                                           # draw particle circle with color corresponding to velocity amplitude
+            if self.direction:
+                self.draw_arrow(particle,
+                    *normalise1D(velocity)*0.75*self.diameters[particle])   # draw velocity direction arrow
+
+class Ovelocity(_Frame):
+    """
+    Plotting class specific to 'ovelocity' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        pad=_colormap_label_pad, a1=1.15,
+        border=True, label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        a1 : float
+            Distance relative to their diameters below which particles are
+            considered bonded. (default: 1.15)
+        border : bool
+            Draw black border of particles. (default: True)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            **kwargs)   # initialise superclass
+
+        self.a1 = a1
+        self.ovelocities = np.array(itemgetter(*self.particles)(
+            Velocities(self.dat.filename).orientationNeighbours(
+                frame, A1=self.a1, remove_cm=True)[0]))
+
+        self.colorbar_discrete([0, 4, 5, 7], cmap=  # add colorbar to figure
+            mpl.colors.LinearSegmentedColormap.from_list('custom_cmap', [
+                (1, 1, 1),                          # white
+                (255./255., 195./255., 0./255.),    # yellow
+                (255./255., 87./255., 51./255.)]))  # orange
+        self.colormap.set_label(                    # colorbar legend
+            (r'$\sum_{j \in \mathcal{V}_i} \Theta($'
+                + r'$\hat{\delta\dot{\boldsymbol{r}}}_i(t, t + \Delta t) \cdot$'
+                + r'$\hat{\delta\dot{\boldsymbol{r}}}_j(t, t + \Delta t)$'
+                + r'$- 0.5), A_1=%.2f$' % (self.a1,)),
+            labelpad=pad)
+
+        self.border = border    # draw borders
+        self.label = label      # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        for particle, ovelocity in zip(
+            self.particles, self.ovelocities):   # for particle and particle's number of same velocity orientation neighbours
+            self.draw_circle(particle,
+                color=self.scalarMap.to_rgba(ovelocity),
+                fill=True,
+                border='black' if self.border else None,
+                label=self.label)                   # draw particle circle with color corresponding to number of same velocity orientation neighbours
+
+class Orivelocity(_Frame):
+    """
+    Plotting class specific to 'orivelocity' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        pad=_colormap_label_pad,
+        border=True, label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        border : bool
+            Draw black border of particles. (default: True)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            **kwargs)   # initialise superclass
+
+        self.velocities = dat.getVelocities(frame, remove_cm=True)
+        self.orivelocities = np.array(list(map(
+            angle,
+            *np.transpose(itemgetter(*self.particles)(self.velocities)))))
+
+        self.colorbar(-1, 1, cmap=plt.cm.hsv)   # add colorbar to figure
+        self.colormap.set_label(
+            r'$\mathrm{arg}($'
+                + r'$\delta \dot{\boldsymbol{r}}_i(t, t + \Delta t))/\pi$',
+            labelpad=pad)                       # colorbar legend
+
+        self.border = border    # draw borders
+        self.label = label      # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        for particle, oridisplacement in zip(
+            self.particles, self.orivelocities):    # for particle and particle's orientation of velocity
+            self.draw_circle(particle,
+                color=self.scalarMap.to_rgba(oridisplacement/np.pi),
+                fill=True,
+                border='black' if self.border else None,
+                label=self.label)                   # draw particle circle with color corresponding to orientation of velocity
 
 class Kinetic(_Frame):
     """
@@ -933,13 +1429,10 @@ class Kinetic(_Frame):
 
         self.colorbar(self.vmin, self.vmax) # add colorbar to figure
         self.colormap.set_label(            # colorbar
-            # r'$||\delta \vec{v}_i(t)||^2$' + ' '
-            #     + (r'$(\left<||\delta \vec{v}_i(t)||^2\right>_i = %.4e)$'
-            #         % self.mke),
             r'$||\delta \boldsymbol{v}_i(t)||^2$' + ' '
                 + (r'$(\left<||\delta \boldsymbol{v}_i(t)||^2\right>_i = %.4e)$'
                     % self.mke),
-            labelpad=pad, rotation=270)
+            labelpad=pad)
 
         self.label = label  # write labels
 
@@ -1025,9 +1518,8 @@ class Interaction(_Frame):
 
         self.colorbar(self.vmin, self.vmax) # add colorbar to figure
         self.colormap.set_label(            # colorbar
-            # r'$\log_{10}||\vec{F}_i(t)||$',
             r'$\log_{10}||\boldsymbol{F}_i(t)||$',
-            labelpad=pad, rotation=270)
+            labelpad=pad)
 
         self.label = label  # write labels
 
@@ -1054,9 +1546,6 @@ class Order(_Frame):
     """
 
     def __init__(self, dat, frame, box_size, centre,
-        arrow_width=_arrow_width,
-        arrow_head_width=_arrow_head_width,
-        arrow_head_length=_arrow_head_length,
         pad=_colormap_label_pad,
         label=False, **kwargs):
         """
@@ -1095,7 +1584,7 @@ class Order(_Frame):
         self.colormap.set_label(                    # colorbar legend
             r'$|\psi_{6,i}|$' + ' '
                 + r'$(\left<|\psi_{6,i}|\right>=%.3f)$' % self.bondOrder.mean(),
-            labelpad=pad, rotation=270)
+            labelpad=pad)
 
         self.label = label  # write labels
 
@@ -1112,12 +1601,80 @@ class Order(_Frame):
                 fill=True, border='black',
                 label=self.label)                                   # draw particle circle with color corresponding to bond orientation order parameter norm
 
+class Polar(_Frame):
+    """
+    Plotting class specific to 'polar' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        minimum=0,
+        pad=_colormap_label_pad,
+        label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        minimum : float
+            Display particles with bond orientation order parameter norm
+            greater than this minimum. (default: 0)
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            **kwargs)   # initialise superclass
+
+        self.minimum = minimum
+
+        self.bond = Positions(
+            dat.filename, corruption=dat.corruption).getBondOrderParameter(
+                frame, *self.particles)
+
+        self.colorbar(-1, 1, cmap=plt.cm.jet)   # add colorbar to figure
+        self.colormap.set_label(                # colorbar legend
+            r'$\mathfrak{R}(\psi_{6,i})$'
+                + ((' ' + r'$(\min |\psi_{6,i}| = %.2f)$' % self.minimum)
+                    if self.minimum > 0 else ''),
+            labelpad=pad)
+
+        self.label = label  # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        for particle, polar, order in zip(
+            self.particles, self.bond.real, np.abs(self.bond)): # for particle and particle's bond orientation real part of the order parameter in rendered box
+            self.draw_circle(particle,
+                color=self.scalarMap.to_rgba(polar),
+                fill=(order >= minimum), border='black',
+                label=self.label)                               # draw particle circle with color corresponding to bond orientation order parameter norm
+
 class Density(_Frame):
     """
     Plotting class specific to 'density' mode.
     """
 
-    def __init__(self, dat, frame, box_size, centre,
+    def __init__(self, dat, frame, box_size, centre, a=None,
         arrow_width=_arrow_width,
         arrow_head_width=_arrow_head_width,
         arrow_head_length=_arrow_head_length,
@@ -1136,6 +1693,10 @@ class Density(_Frame):
             Length of the square box to render.
         centre : 2-uple like
             Centre of the box to render.
+        a : float or None
+            Size of the box in which to compute local packing fractions.
+            (default: None)
+            NOTE: if a == None, then a = dat.L.
         pad : float
             Separation between label and colormap.
             (default: coll_dyn_activem.frame._colormap_label_pad)
@@ -1150,16 +1711,33 @@ class Density(_Frame):
         super().__init__(dat, frame, box_size, centre,
             **kwargs)   # initialise superclass
 
-        self.localDensity = np.abs(
-            Positions(
-                dat.filename, corruption=dat.corruption).getLocalDensity(frame))
+        # localDensity = np.abs(
+        #     Positions(
+        #         dat.filename, corruption=dat.corruption).getLocalDensityVoronoi(
+        #             frame))
+        # self.localDensity = np.array(itemgetter(*self.particles)(localDensity))
+        #
+        # self.colorbar(0, 1, cmap=plt.cm.tab10)      # add colorbar to figure
+        # self.colormap.set_label(                    # colorbar legend
+        #     r'$\phi_{v,i}$' + ' '
+        #         + r'$(\phi_{v,i}^{\mathrm{min}}/\phi_{v,i}^{\mathrm{max}}=$'
+        #         + r'$%.3f)$'
+        #             % (localDensity.min()/localDensity.max()),
+        #     labelpad=pad)
 
-        self.colorbar(0, 1, cmap=plt.cm.inferno)    # add colorbar to figure
+        localDensity = Positions(dat.filename, corruption=dat.corruption
+            ).getLocalParticleDensity(
+                frame, dat.L if type(a) == type(None) else a)
+        self.localDensity = np.array(itemgetter(*self.particles)(localDensity))
+
+        self.colorbar(0, 1, cmap=plt.cm.tab20)      # add colorbar to figure
         self.colormap.set_label(                    # colorbar legend
-            r'$\rho_{\mathrm{loc}}$' + ' '
-                + r'$(f_{\rho}=%.3f)$'
-                    % (self.localDensity.min()/self.localDensity.max()),
-            labelpad=pad, rotation=270)
+            r'$\phi_{i}$' + ' '
+                + r'$(a=%.1f, \phi_{i}^{\mathrm{min}}/\phi_{i}^{\mathrm{max}}=$'
+                    % a
+                + r'$%.3f)$'
+                    % (localDensity.min()/localDensity.max()),
+            labelpad=pad)
 
         self.label = label  # write labels
 
@@ -1175,6 +1753,78 @@ class Density(_Frame):
                 color=self.scalarMap.to_rgba(density),
                 fill=True, border='black',
                 label=self.label)                                           # draw particle circle with color corresponding to local density
+
+class Voronoi(_Frame):
+    """
+    Plotting class specific to 'voronoi' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        pad=_colormap_label_pad,
+        **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
+        vmin : float
+            Minimum value of the colorbar.
+        vmax : float
+            Maximum value of the colorbar.
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            **kwargs)   # initialise superclass
+
+        self.voronoi = (
+            Positions(dat.filename, corruption=dat.corruption)._voronoi(
+                frame, centre=centre))
+
+        self.vmin = self.voronoi.volumes.min()
+        self.vmax = self.voronoi.volumes.max()
+        try:
+            if kwargs['vmin'] == None: raise TypeError
+            self.vmin = kwargs['vmin']
+        except (KeyError, AttributeError, TypeError): pass  # 'vmin' not in keyword arguments or None
+        try:
+            if kwargs['vmax'] == None: raise TypeError
+            self.vmax = kwargs['vmax']
+        except (KeyError, AttributeError, TypeError): pass  # 'vmax' not in keyword arguments or None
+
+        self.colorbar(self.vmin, self.vmax, cmap=plt.cm.PiYG)   # add colorbar to figure
+        self.colormap.set_label(                                # colorbar legend
+            r'$V_i$',
+            labelpad=pad)
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        pc = PatchCollection(
+            [Polygon(poly[:, :2]) for poly in self.voronoi.polytopes],
+            edgecolors='black')
+        pc.set_fc(list(map(self.scalarMap.to_rgba, self.voronoi.volumes)))
+        pc.set_rasterized(self.rasterized)
+
+        self.ax.add_collection(pc)
 
 class Bare(_Frame):
     """
@@ -1219,6 +1869,60 @@ class Bare(_Frame):
             self.draw_circle(particle, color='black', fill=False,   # draw black circle
                 label=self.label)
 
+class FRAP(_Frame):
+    """
+    Plotting class specific to 'frap' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre, dt=1, n=4,
+        label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        dt : int
+            Lag time for displacement. (default: 1)
+        n : int
+            Number of checkerboard boxes in each direction. (default: 4)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
+        """
+
+        super().__init__(dat, frame, box_size, centre, **kwargs)    # initialise superclass
+
+        self.fill = np.array([
+            (True if (
+                (position[0]//(self.box_size/n))%2
+                    == (position[1]//(self.box_size/n))%2)
+            else False)
+            for position in self.dat.getPositions(frame + dt)])
+
+        self.label = label  # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        for particle in self.particles:                                         # for particle in rendered box
+            self.draw_circle(particle, color='black', fill=self.fill[particle], # draw black circle and fill according to checkerboard
+                label=self.label)
+
 # SCRIPT
 
 if __name__ == '__main__':  # executing as script
@@ -1232,16 +1936,26 @@ if __name__ == '__main__':  # executing as script
         plotting_object = Orientation
     elif mode == 'displacement':
         plotting_object = Displacement
+    elif mode == 'odisplacement':
+        plotting_object = Odisplacement
+    elif mode == 'oridisplacement':
+        plotting_object = Oridisplacement
     elif mode == 'movement':
         plotting_object = Movement
     elif mode == 'overlap':
         plotting_object = Overlap
     elif mode == 'bond':
         plotting_object = Bond
+    elif mode == 'polar':
+        plotting_object = Polar
     elif mode == 'd2min':
         plotting_object = D2min
     elif mode == 'velocity':
         plotting_object = Velocity
+    elif mode == 'ovelocity':
+        plotting_object = Ovelocity
+    elif mode == 'orivelocity':
+        plotting_object = Orivelocity
     elif mode == 'kinetic':
         plotting_object = Kinetic
     elif mode == 'interaction':
@@ -1250,8 +1964,12 @@ if __name__ == '__main__':  # executing as script
         plotting_object = Order
     elif mode == 'density':
         plotting_object = Density
+    elif mode == 'voronoi':
+        plotting_object = Voronoi
     elif mode == 'bare':
         plotting_object = Bare
+    elif mode == 'frap':
+        plotting_object = FRAP
     else: raise ValueError('Mode %s is not known.' % mode)  # mode is not known
 
     dat_file = get_env('DAT_FILE', default=joinpath(getcwd(), 'out.dat'))   # data file
@@ -1260,11 +1978,13 @@ if __name__ == '__main__':  # executing as script
 
     init_frame = get_env('INITIAL_FRAME', default=-1, vartype=int)  # initial frame to render
 
-    dt = get_env('DT', default=-1, vartype=int)     # displacement lag time (PLOT mode)
-    jump = get_env('JUMP', default=1, vartype=int)  # jump when computing displacements
-    a = get_env('A', default=0.3, vartype=float)    # length scale to compute overlaps
-    a1 = get_env('A1', default=1.15, vartype=float) # distance relative to their diameters below which particles are considered bonded
-    a2 = get_env('A2', default=1.5, vartype=float)  # distance relative to their diameters above which particles are considered unbonded
+    dt = get_env('DT', default=-1, vartype=int)                     # displacement lag time (PLOT mode)
+    jump = get_env('JUMP', default=1, vartype=int)                  # jump when computing displacements
+    a = get_env('A', default=0.3, vartype=float)                    # length scale to compute overlaps or local packing fractions
+    a1 = get_env('A1', default=1.15, vartype=float)                 # distance relative to their diameters below which particles are considered bonded
+    a2 = get_env('A2', default=1.5, vartype=float)                  # distance relative to their diameters above which particles are considered unbonded
+    minimum = get_env('MINIMUM', default=0, vartype=float)          # minimum squared displacement
+    n = get_env('N', default=4, vartype=int)                        # number of checkerboard boxes in each direction
 
     rescale = get_env('RESCALE', default=False, vartype=bool)   # rescale values by root mean square
 
@@ -1292,6 +2012,12 @@ if __name__ == '__main__':  # executing as script
         vartype=float)  # vertical size of the frame (in inches)
     mpl.rcParams['figure.figsize'] = (frame_hor, frame_ver)
 
+    # subplot layout
+    figure_top = get_env('FIGURE_TOP', vartype=float)
+    figure_bottom = get_env('FIGURE_BOTTOM', vartype=float)
+    figure_left = get_env('FIGURE_LEFT', vartype=float)
+    figure_right = get_env('FIGURE_RIGHT', vartype=float)
+
     frame_def = get_env('FRAME_DEFINITION', default=_frame_def,
         vartype=float)                                                  # definition of image (in dots per inches (dpi))
     font_size = get_env('FONT_SIZE', default=_font_size, vartype=float) # font size
@@ -1307,6 +2033,11 @@ if __name__ == '__main__':  # executing as script
         vartype=float)  # arrow dilatation factor
 
     pad = get_env('PAD', default=_colormap_label_pad, vartype=float)    # separation between label and colormap
+
+    rasterized = get_env('RASTERIZED', default=False, vartype=bool) # force rasterized (bitmap) drawing for vector graphics output
+
+    colorbar_position = get_env('COLORBAR_POSITION', default='right')   # colorbar position
+    colorbar_label = get_env('COLORBAR_LABEL')                          # colorbar label
 
     # LEGEND SUPTITLE
 
@@ -1352,13 +2083,22 @@ if __name__ == '__main__':  # executing as script
         suptitle += '\n'
         if 'X_ZERO' in envvar or 'Y_ZERO' in envvar:
             suptitle += str(r'$x_0 = %.3e, y_0 = %.3e$' % centre) + '\n'
-        suptitle += str(r'$D_r t = %.5e$'
-            % (frame*dat.dt*dat.dumpPeriod*Dr))
+        if Dr == 0:
+            suptitle += str(r'$t = %.5e$'
+                % (frame*dat.dt*dat.dumpPeriod))
+        else:
+            suptitle += str(r'$D_r t = %.5e$'
+                % (frame*dat.dt*dat.dumpPeriod*Dr))
         if lag_time != None:
-            suptitle += str(
-                r'$, \Delta t = %.5e, D_r \Delta t = %.5e$'
-                % (lag_time*dat.dt*dat.dumpPeriod,
-                    lag_time*dat.dt*dat.dumpPeriod*Dr))
+            if Dr == 0:
+                suptitle += str(
+                    r'$, \Delta t = %.5e$'
+                    % (lag_time*dat.dt*dat.dumpPeriod))
+            else:
+                suptitle += str(
+                    r'$, \Delta t = %.5e, D_r \Delta t = %.5e$'
+                    % (lag_time*dat.dt*dat.dumpPeriod,
+                        lag_time*dat.dt*dat.dumpPeriod*Dr))
 
         return suptitle
 
@@ -1366,21 +2106,31 @@ if __name__ == '__main__':  # executing as script
 
     if get_env('PLOT', default=False, vartype=bool):    # PLOT mode
 
-        if mode in ('displacement', 'movement', 'overlap', 'bond', 'd2min'):
-            try:
-                dt = dt if dt >= 0 else dat.frameIndices[
-                    dat.frameIndices.tolist().index(init_frame) + dt]
-            except AttributeError:
-                dt = dt if dt >=0 else Nentries - init_frame + dt
+        if mode in (
+            'displacement', 'odisplacement', 'oridisplacement', 'movement',
+            'overlap', 'bond', 'polar', 'd2min', 'frap'):
+            if get_env('NEGATIVE_DT', default=False, vartype=bool): pass
+            else:
+                try:
+                    dt = dt if dt >= 0 else dat.frameIndices[
+                        dat.frameIndices.tolist().index(init_frame) + dt]
+                except AttributeError:
+                    dt = dt if dt >=0 else Nentries - init_frame + dt
         else: dt = None
 
         figure = plotting_object(dat, init_frame, box_size, centre,
             arrow_width=arrow_width, arrow_head_width=arrow_head_width,
             arrow_head_length=arrow_head_length, arrow_factor=arrow_factor,
+            rasterized=rasterized,
+            colorbar_position=colorbar_position, colorbar_label=colorbar_label,
             pad=pad, dt=dt, jump=jump, a=a, a1=a1, a2=a2, rescale=rescale,
-            vmin=vmin, vmax=vmax,
+            minimum=minimum, n=n, vmin=vmin, vmax=vmax,
+            remove_cm=get_env('REMOVE_CM', vartype=int),
             label=get_env('LABEL', default=False, vartype=bool))
         figure.fig.suptitle(suptitle(init_frame, lag_time=dt))
+        figure.fig.subplots_adjust(
+            top=figure_top, bottom=figure_bottom,
+            left=figure_left, right=figure_right)
 
         if get_env('SAVE', default=False, vartype=bool):    # SAVE mode
             figure_name = get_env('FIGURE_NAME', default='out')
@@ -1415,21 +2165,25 @@ if __name__ == '__main__':  # executing as script
 
             plot_frame = frame
             lag = frame_per
-            if mode in ('overlap', 'bond'):
-                plot_frame = init_frame
-                lag = frame - plot_frame
+            if mode in ('displacement', 'overlap', 'bond', 'frap'):
+                if get_env('MOVE', default=True, vartype=bool):
+                    remove_cm = init_frame
+                    plot_frame = frame
+                    lag = init_frame - plot_frame
+                else:
+                    plot_frame = init_frame
+                    lag = frame - plot_frame
 
             figure = plotting_object(dat, plot_frame, box_size, centre,
                 arrow_width=arrow_width, arrow_head_width=arrow_head_width,
                 arrow_head_length=arrow_head_length, arrow_factor=arrow_factor,
                 pad=pad, dt=lag, jump=jump, a=a, a1=a1, a2=a2, rescale=rescale,
-                vmin=vmin, vmax=vmax,
+                minimum=minimum, n=n, vmin=vmin, vmax=vmax,
+                colorbar_position=colorbar_position,
+                colorbar_label=colorbar_label,
                 remove_cm=remove_cm,
                 label=get_env('LABEL', default=False, vartype=bool))    # plot frame
             figure.fig.suptitle(suptitle(frame, frame_per))
-            if remove_cm != None:
-                figure.ax.set_xlabel(r'$\Delta^{\mathrm{CM}} x$')
-                figure.ax.set_ylabel(r'$\Delta^{\mathrm{CM}} y$')
 
             tracer = get_env('TRACER', vartype=int)
             if tracer != None:
@@ -1437,19 +2191,33 @@ if __name__ == '__main__':  # executing as script
                     figure.draw_circle(tracer,
                         color='black', fill=True, border=None,
                         label=False)
+                    if get_env('DRAW_PATH', default=False, vartype=bool):
+                        try:
+                            if (
+                                ((figure.positions[tracer] - path[-1])**2
+                                    ).sum(axis=-1)
+                                > (figure.box_size/2)**2):
+                                path += [(np.nan, np.nan)]
+                            path += [figure.positions[tracer]]
+                        except NameError: path = [figure.positions[tracer]]
+                        figure.ax.plot(*np.transpose(path), color='black', lw=4)
                     if get_env('NEIGHBOURS', default=False, vartype=bool):
                         for neighbour, _ in (
                             Positions(figure.dat.filename).getNeighbourList(
                                 init_frame)[tracer]):
                             figure.draw_circle(neighbour,
-                                color='red', fill=True, border=None,
+                                color='#0173b2', fill=True, border=None,
                                 label=False)
                         for neighbour, _ in (
                             Positions(figure.dat.filename).getNeighbourList(
                                 frame)[tracer]):
                             figure.draw_circle(neighbour,
-                                color='green', fill=True, border=None,
+                                color='#de8f05', fill=True, border=None,
                                 label=False)
+
+            figure.fig.subplots_adjust(
+                top=figure_top, bottom=figure_bottom,
+                left=figure_left, right=figure_right)
 
             figure.fig.savefig(joinpath(movie_dir, 'frames',
                 '%010d' % frames.index(frame) + '.png'))    # save frame
