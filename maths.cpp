@@ -29,8 +29,8 @@ double algDistPeriod(double const& x1, double const& x2, double const& length) {
 
 double dist2DPeriod(double* pos0, double* pos1, double const& length,
   double* diff) {
-  // Returns distance between points on a plane, with positions `pos0' and
-  // `pos1' taking into account period boundary condition in a square system
+  // Returns distance from point `0' to `1' on a plane, with positions `pos0'
+  // and `pos1' taking into account period boundary condition in a square system
   // of size `length', and saving in `diff' the difference vector.
 
   diff[0] = algDistPeriod(pos0[0], pos1[0], length); // separation in x position

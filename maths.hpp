@@ -20,9 +20,9 @@ class Random {
 
     // CONTRUCTORS
 
-    Random(int seed = 0, double g_co = 3) :
+    Random(int const& seed = 0, double const& g_co = 3) :
       g_cutoff(g_co) { generator.seed(seed); }
-    Random(std::default_random_engine rndeng, double g_co = 3) :
+    Random(std::default_random_engine rndeng, double const& g_co = 3) :
       generator(rndeng), g_cutoff(g_co) {;}
 
     // DESTRUCTORS
@@ -37,7 +37,7 @@ class Random {
 
     // member functions for generating random double in [0,1] and random integer in [0,max-1]
     double random01() { return (*real01)(generator); }
-    int randomInt(int max) { return (*intmax)(generator) % max; }
+    int randomInt(int const& max) { return (*intmax)(generator) % max; }
     // member functions for generating normally distributed random doubles
     double gauss() { return (*normal)(generator); }
     double gauss_cutoff() {
@@ -47,7 +47,7 @@ class Random {
       }
       return g;
     }
-    double gauss(double mean, double std) {
+    double gauss(double const& mean, double const& std) {
       return std::normal_distribution<double>(mean, std)(generator);
     }
 
@@ -92,8 +92,8 @@ double algDistPeriod(double const& x1, double const& x2, double const& length);
 
 double dist2DPeriod(double* pos0, double* pos1, double const& length,
   double* diff);
-  // Returns distance between points on a plane, with positions `pos0' and
-  // `pos1' taking into account period boundary condition in a square system
+  // Returns distance from point `0' to `1' on a plane, with positions `pos0'
+  // and `pos1' taking into account period boundary condition in a square system
   // of size `length', and saving in `diff' the difference vector.
 
 
@@ -141,6 +141,14 @@ template<class vecClass> bool
   typename std::vector<vecClass>::const_iterator lower =
     std::lower_bound(vec->begin(), vec->end(), element);
   return ( lower != vec->end() && *lower == element );
+}
+
+template<typename T> bool compareVec(std::vector<T>& v1, std::vector<T>& v2) {
+  // Check if two vectors have the same elements.
+
+  std::sort(v1.begin(), v1.end());
+  std::sort(v2.begin(), v2.end());
+  return v1 == v2;
 }
 
 #endif
