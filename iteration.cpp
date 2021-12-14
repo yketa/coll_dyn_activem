@@ -139,6 +139,7 @@ template<> void iterate_ABP_WCA(
     }
 
     // FORCES AND ALIGNING TORQUES
+    system->updateCellList(); // update cell list since positions have changed
     system_WCA<System>(system); // re-compute forces
     if ( considerTorque ) {
       aligningTorque<System>(system,

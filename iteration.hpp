@@ -28,14 +28,17 @@ template<class SystemClass, typename F, typename G> void aligningTorque(
   // function returning a pointer to the orientation and an other to the applied
   // torque on a particle specified by its index.
 
-  double torque;
+  std::vector<double> orientations(0);
   for (int i=0; i < system->getNumberParticles(); i++) {
-    for (int j=i + 1; j < system->getNumberParticles(); j++) {
-      torque = 2.0*system->getTorqueParameter()/system->getNumberParticles()
-        *sin(getOrientation(i)[0] - getOrientation(j)[0]);
-      getTorque(i)[0] += torque;
-      getTorque(j)[0] -= torque;
-    }
+    orientations.push_back(getOrientation(i)[0]);
+  }
+  std::vector<double> order = getOrderParameter(orientations);
+  double nu = sqrt(pow(order[0], 2.0) + pow(order[1], 2.0));
+  double phi = getAngle(order[0]/nu, order[1]);
+
+  for (int i=0; i < system->getNumberParticles(); i++) {
+    getTorque(i)[0] +=
+      2*system->getTorqueParameter()*nu*sin(orientations[i] - phi);
   }
 }
 
@@ -138,6 +141,7 @@ template<class SystemClass> void iterate_ABP_WCA(
     }
 
     // FORCES
+    system->updateCellList(); // update cell list since positions have changed
     system_WCA<SystemClass>(system); // re-compute forces
 
     for (int i=0; i < parameters->getNumberParticles(); i++) {
@@ -280,6 +284,7 @@ template<class SystemClass> void iterate_AOUP_WCA(
     }
 
     // FORCES
+    system->updateCellList(); // update cell list since positions have changed
     system_WCA<SystemClass>(system); // re-compute forces
 
     for (int i=0; i < parameters->getNumberParticles(); i++) {
