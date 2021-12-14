@@ -1,5 +1,5 @@
 """
-Module _pycpp provides interfaces between python and C++.
+Module pycpp provides interfaces between python and C++.
 
 (see coll_dyn_activem/pycpp.cpp)
 (see https://docs.python.org/3/library/ctypes.html)
@@ -163,6 +163,91 @@ def pairIndex(i, j, N):
 
     return _pycpp.pairIndex(i, j, N)
 
+def invPairIndex(index, N):
+    """
+    For `N' particles, return the pair (`i', `j') corresponding to the unique
+    pair index `index'. (see pycpp.pairIndex)
+
+    Parameters
+    ----------
+    index : int
+        Unique index.
+    N : int
+        Number of particles.
+
+    Returns
+    -------
+    i : int
+        Index of first particle.
+    j : int
+        Index of second particle.
+    """
+
+    row = np.floor(np.sqrt(2*index + 1./4.) - 1./2.)
+    i = index - row*(row + 1)/2
+    j = N - 1 + index - row*(row + 3)/2
+    assert index == pairIndex(i, j, N)
+
+    return int(i), int(j)
+
+def getDifferences(positions, L, diameters=None):
+    """
+    Compute position differences between the particles with `positions' of a
+    system of size `L'. Differences are rescaled by the sum of the radii of the
+    particles in the pair if `diameters' != None.
+
+    Parameters
+    ----------
+    positions : (*, 2) float array-like
+        Positions of the particles.
+    L : float
+        Size of the system box.
+    diameters : (*,) float array-like or None
+        Diameters of the particles. (default: None)
+
+    Returns
+    -------
+    differences : (*, 2) float Numpy array
+        Array of position differences between pairs.
+    """
+
+    positions = np.array(positions, dtype=np.double)
+    N = len(positions)
+    assert positions.shape == (N, 2)
+    scale_diameter = not(type(diameters) is type(None))
+    if scale_diameter:
+        diameters = np.array(diameters, dtype=np.double)
+    else:
+        diameters = np.empty((N,), dtype=np.double)
+    assert diameters.shape == (N,)
+    differences_x = np.empty((int(N*(N - 1)/2),), dtype=np.double)
+    differences_y = np.empty((int(N*(N - 1)/2),), dtype=np.double)
+
+    _pycpp.getDifferences.argtypes = [
+        ctypes.c_int,
+        ctypes.c_double,
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        ctypes.c_bool]
+    _pycpp.getDifferences(
+        N,
+        L,
+        np.ascontiguousarray(positions[:, 0]),
+        np.ascontiguousarray(positions[:, 1]),
+        np.ascontiguousarray(diameters),
+        np.ascontiguousarray(differences_x),
+        np.ascontiguousarray(differences_y),
+        scale_diameter)
+
+    return np.concatenate(
+        (
+            differences_x.reshape(len(differences_x), 1),
+            differences_y.reshape(len(differences_y), 1)),
+        axis=-1)
+
 def getDistances(positions, L, diameters=None):
     """
     Compute distances between the particles with `positions' of a system of size
@@ -175,7 +260,7 @@ def getDistances(positions, L, diameters=None):
         Positions of the particles.
     L : float
         Size of the system box.
-    diameters : float array-like or None
+    diameters : (*,) float array-like or None
         Diameters of the particles. (default: None)
 
     Returns
@@ -214,7 +299,71 @@ def getDistances(positions, L, diameters=None):
 
     return distances
 
-def getBrokenBonds(A1, A2, L, diameters, positions0, *positions1):
+def getOrientationNeighbours(A1, L, diameters, positions, *displacements):
+    """
+    Computer for each particle the number of other particles at distance lesser
+    than `A1' relative to their average diameter with the same orientation of
+    `displacements'.
+
+    Parameters
+    ----------
+    A1 : float
+        Distance relative to their diameters below which particles are
+        considered bonded.
+    L : float
+        Size of the system box.
+    diameters : (*,) float array-like
+        Array of diameters.
+    positions : (*, 2) float array-like
+        Initial positions.
+    displacements : (*, 2) float array-like
+        Displacements of the particles.
+
+    Returns
+    -------
+    oneigbours : (**, *) int Numpy array
+        Number of neighbours with same displacement orientation with:
+            *  : the number of particles,
+            ** : the number of `displacements' provided.
+    """
+
+    positions = np.array(positions, dtype=np.double)
+    N = len(positions)
+    assert positions.shape == (N, 2)
+    displacements = np.array(displacements, dtype=np.double)
+    nDisp = len(displacements)
+    assert displacements.shape == (nDisp, N, 2)
+    diameters = np.array(diameters, dtype=np.double)
+    assert diameters.shape == (N,)
+    _oneighbours = np.empty((N,), dtype=np.intc)
+    oneighbours = []
+
+    distances = getDistances(positions, L, diameters=None)
+
+    _pycpp.getOrientationNeighbours.argtypes = [
+        ctypes.c_int,
+        ctypes.c_double,
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.intc, ndim=1, flags='C_CONTIGUOUS')]
+
+    for i in range(nDisp):
+
+        _pycpp.getOrientationNeighbours(
+            N,
+            A1,
+            np.ascontiguousarray(diameters),
+            np.ascontiguousarray(distances),
+            np.ascontiguousarray(displacements[i][:, 0]),
+            np.ascontiguousarray(displacements[i][:, 1]),
+            np.ascontiguousarray(_oneighbours))
+        oneighbours += [_oneighbours.tolist()]
+
+    return np.array(oneighbours)
+
+def getBrokenBonds(A1, A2, L, diameters, positions0, *positions1, pairs=False):
     """
     Compute the number of broken bonds for particles from `positions0' to
     `positions1'.
@@ -229,19 +378,26 @@ def getBrokenBonds(A1, A2, L, diameters, positions0, *positions1):
         considered unbonded.
     L : float
         Size of the system box.
-    diameters : float array-like
+    diameters : (*,) float array-like
         Array of diameters.
     positions0 : (*, 2) float array-like
         Initial positions.
     positions1 : (*, 2) float array-like
         Final positions.
+    pairs : bool
+        Return array of broken pairs (see pycpp.pairIndex for indexing).
+        (default: False)
 
     Returns
     -------
-    brokenBonds : (**, ***) int Numpy array
+    brokenBonds : (**, *) int Numpy array
         Number of broken bonds between `positions0' and `positions1' with:
-            **  : the number of `positions1' provided,
-            *** : the number of particles.
+            *  : the number of particles,
+            ** : the number of `positions1' provided.
+    [pairs] brokenPairs : (**, *(* - 1)/2) bool Numpy array
+        Broken bond between particles of pair truth values with:
+            *  : the number of particles,
+            ** : the number of `positions1' provided.
     """
 
     positions0 = np.array(positions0, dtype=np.double)
@@ -254,6 +410,10 @@ def getBrokenBonds(A1, A2, L, diameters, positions0, *positions1):
     assert diameters.shape == (N,)
     _brokenBonds = np.empty((N,), dtype=np.intc)
     brokenBonds = []
+    _brokenPairs = np.empty((int(N*(N - 1)/2),), dtype=np.bool_)
+    brokenPairs = []
+
+    distances0 = getDistances(positions0, L, diameters=None)
 
     _pycpp.getBrokenBonds.argtypes = [
         ctypes.c_int,
@@ -262,11 +422,11 @@ def getBrokenBonds(A1, A2, L, diameters, positions0, *positions1):
         np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
         np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
         np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
-        np.ctypeslib.ndpointer(dtype=np.intc, ndim=1, flags='C_CONTIGUOUS')]
+        np.ctypeslib.ndpointer(dtype=np.intc, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.bool_, ndim=1, flags='C_CONTIGUOUS')]
 
     for i in range(nPos):
 
-        distances0 = getDistances(positions0, L, diameters=None)
         distances1 = getDistances(positions1[i], L, diameters=None)
         _pycpp.getBrokenBonds(
             N,
@@ -275,10 +435,15 @@ def getBrokenBonds(A1, A2, L, diameters, positions0, *positions1):
             np.ascontiguousarray(diameters),
             np.ascontiguousarray(distances0),
             np.ascontiguousarray(distances1),
-            np.ascontiguousarray(_brokenBonds))
+            np.ascontiguousarray(_brokenBonds),
+            np.ascontiguousarray(_brokenPairs))
         brokenBonds += [_brokenBonds.tolist()]
+        brokenPairs += [_brokenPairs.tolist()]
 
-    return np.array(brokenBonds)
+    brokenBonds = np.array(brokenBonds)
+    brokenPairs = np.array(brokenPairs)
+    if pairs: return brokenBonds, brokenPairs
+    return brokenBonds
 
 def getVanHoveDistances(positions, displacements, L):
     """
@@ -342,7 +507,7 @@ def nonaffineSquaredDisplacement(positions0, positions1, L, A1, diameters):
     A1 : float
         Distance relative to their diameters below which particles are
         considered bonded.
-    diameters : float array-like
+    diameters : (*,) float array-like
         Array of diameters.
 
     Returns
@@ -404,7 +569,7 @@ def pairDistribution(nBins, vmin, vmax, positions, L, diameters=None):
         Positions of the particles.
     L : float
         Size of the system box.
-    diameters : float array-like or None
+    diameters : (*,) float array-like or None
         Diameters of the particles. (default: None)
 
     Returns
@@ -522,6 +687,105 @@ def S4Fs(filename, time0, dt, q, k):
         np.ascontiguousarray(S4var))
 
     return S4, S4var
+
+def getLocalParticleDensity(a, positions, L, diameters):
+    """
+    Returns local packing fraction for each particle.
+
+    Parameters
+    ----------
+    a : float
+        Size of the box in which to compute local packing fractions.
+    positions : (*, 2) float array-like
+        Positions of the particles.
+    L : float
+        Size of the system box.
+    diameters : (*,) float array-like
+        Diameters of the particles.
+
+    Returns
+    -------
+    densities : (*,) float Numpy array
+        Array of local packing fractions.
+    """
+
+    positions = np.array(positions, dtype=np.double)
+    N = len(positions)
+    assert positions.shape == (N, 2)
+    diameters = np.array(diameters, dtype=np.double)
+    assert diameters.shape == (N,)
+    densities = np.empty((N,), dtype=np.double)
+
+    _pycpp.getLocalParticleDensity.argtypes = [
+        ctypes.c_int,
+        ctypes.c_double,
+        ctypes.c_double,
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS')]
+    _pycpp.getLocalParticleDensity(
+        N,
+        L,
+        a,
+        np.ascontiguousarray(positions[:, 0]),
+        np.ascontiguousarray(positions[:, 1]),
+        np.ascontiguousarray(diameters),
+        np.ascontiguousarray(densities))
+
+    return densities
+
+def isNotInBubble(philim, dlim, positions, L, phi):
+    """
+    Returns particles which are not within distance `dlim' of particles which
+    packing fractions `phi' are below `philim'.
+
+    Parameters
+    ----------
+    philim : float
+        Packing fraction below which particles are considered in a bubble.
+    dlim : float
+        Distance from bubble within which to discard particles.
+    positions : (*, 2) float array-like
+        Positions of the particles.
+    L : float
+        Size of the system box.
+    phi : (*,) float array-like
+        Local packing fractions of particles.
+
+    Returns
+    -------
+    notInBubble : (*,) bool Numpy array
+        Particles not in bubbles.
+    """
+
+    positions = np.array(positions, dtype=np.double)
+    N = len(positions)
+    assert positions.shape == (N, 2)
+    phi = np.array(phi, dtype=np.double)
+    assert phi.shape == (N,)
+    notInBubble = np.empty((N,), dtype=np.bool_)
+
+    _pycpp.isNotInBubble.argtypes = [
+        ctypes.c_int,
+        ctypes.c_double,
+        ctypes.c_double,
+        ctypes.c_double,
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
+        np.ctypeslib.ndpointer(dtype=np.bool_, ndim=1, flags='C_CONTIGUOUS')]
+    _pycpp.isNotInBubble(
+        N,
+        L,
+        philim,
+        dlim,
+        np.ascontiguousarray(positions[:, 0]),
+        np.ascontiguousarray(positions[:, 1]),
+        np.ascontiguousarray(phi),
+        np.ascontiguousarray(notInBubble))
+
+    return notInBubble
 
 # GRIDS
 
@@ -708,10 +972,10 @@ def g2Dto1Dgridhist(g2D, grid, nBins, vmin=None, vmax=None):
 # CORRELATIONS
 
 def getRadialCorrelations(positions, L, values, nBins, min=None, max=None,
-    rescale_pair_distribution=False):
+    rescale_pair_distribution=False, values2=None):
     """
-    Compute radial correlations between `values' associated to each of the
-    `positions' of a system of size `L'.
+    Compute radial correlations between `values' (and `values2') associated to
+    each of the `positions' of a system of size `L'.
 
     Parameters
     ----------
@@ -735,6 +999,10 @@ def getRadialCorrelations(positions, L, values, nBins, min=None, max=None,
         NOTE: if max == None then max = L/2.
     rescale_pair_distribution : bool
         Rescale correlations by pair distribution function. (default: False)
+    values2 : None or (*, **)  float array-like
+        Values to compute the correlations of `values' with.
+        NOTE: if values2 == None then the autocorrelations of `values' are
+              computed.
 
     Returns
     -------
@@ -749,6 +1017,9 @@ def getRadialCorrelations(positions, L, values, nBins, min=None, max=None,
     assert values.shape[0] == N
     assert values.ndim <= 2
     if values.ndim == 1: values = values.reshape(values.shape + (1,))
+    if type(values2) == type(None): values2 = values
+    if values2.ndim == 1: values2 = values2.reshape(values2.shape + (1,))
+    assert values.shape == values2.shape
     nBins = int(nBins)
     min = 0 if min == None else min
     max = L/2 if max == None else max
@@ -760,6 +1031,7 @@ def getRadialCorrelations(positions, L, values, nBins, min=None, max=None,
         np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
         np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
         ctypes.c_int,
+        ctypes.POINTER(ctypes.POINTER(ctypes.c_double)),
         ctypes.POINTER(ctypes.POINTER(ctypes.c_double)),
         ctypes.c_int,
         ctypes.c_double,
@@ -773,6 +1045,7 @@ def getRadialCorrelations(positions, L, values, nBins, min=None, max=None,
         np.ascontiguousarray(positions[:, 1]),
         values.shape[1],
         pointerArray(values),
+        pointerArray(values2),
         nBins,
         min,
         max,
