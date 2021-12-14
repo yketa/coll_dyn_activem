@@ -18,7 +18,9 @@ import seaborn as sns
 
 # DEFAULT VARIABLES
 
-_markers = mpl.markers.MarkerStyle.filled_markers   # default markers list
+_markers = (                        # default markers list
+    # mpl.markers.MarkerStyle.filled_markers)
+    'o', '^', 's', '*', 'X', 'D', '8', 'v', '<', '>', 'h', 'H', 'p', 'd', 'P')
 if mpl.__version__ >= '3':
     _linestyles = (
         (0, ()),                    # solid
@@ -149,7 +151,8 @@ def list_linestyles(value_list, linestyle_list=_linestyles, sort=True):
     return {value_list[index]: linestyle_list[index]
         for index in range(len(value_list))}
 
-def contours(x, y, z, vmin=None, vmax=None, contours=20, cmap=plt.cm.jet):
+def contours(x, y, z, vmin=None, vmax=None, contours=20, cmap=plt.cm.jet,
+        colorbar_position='right', colorbar_orientation='vertical'):
     """
     Plot contours from 3D data.
 
@@ -157,7 +160,7 @@ def contours(x, y, z, vmin=None, vmax=None, contours=20, cmap=plt.cm.jet):
     ----------
     x : (*,) float array-like
         x-axis data.
-    y : (**,) float array-like
+    y : (**,) or (*, **) float array-like
         y-axis data.
     z : (*, **) float array-like
         z-axis data to represent with color map.
@@ -172,6 +175,10 @@ def contours(x, y, z, vmin=None, vmax=None, contours=20, cmap=plt.cm.jet):
         (see matplotlib.pyplot.tricontourf)
     cmap : matplotlib colorbar
         Matplotlib colorbar to be used. (default: matplotlib.pyplot.cm.jet)
+    colorbar_position : string
+        Position of colorbar relative to axis. (default: 'right')
+    colorbar_orientation : string
+        Orientation of colorbar. (default: 'vertical')
 
     Returns
     -------
@@ -186,9 +193,10 @@ def contours(x, y, z, vmin=None, vmax=None, contours=20, cmap=plt.cm.jet):
     x = np.array(x)
     assert x.ndim == 1
     y = np.array(y)
-    assert y.ndim == 1
+    if y.ndim == 1: y = np.full((x.size, y.size), fill_value=y)
+    assert y.ndim == 2 and y.shape[0] == x.size
     z = np.array(z)
-    assert z.shape == (x.size, y.size)
+    assert z.shape == y.shape
 
     vmin = vmin if vmin != None else z.min()
     vmax = vmax if vmax != None else z.max()
@@ -197,13 +205,13 @@ def contours(x, y, z, vmin=None, vmax=None, contours=20, cmap=plt.cm.jet):
 
     fig, ax = plt.subplots()
     divider = make_axes_locatable(ax)
-    cax = divider.append_axes('right', size='5%', pad=0.05)
+    cax = divider.append_axes(colorbar_position, size='5%', pad=0.05)
     colorbar = mpl.colorbar.ColorbarBase(cax, cmap=cmap, norm=norm,
-        orientation='vertical')
+        orientation=colorbar_orientation)
 
     ax.tricontourf(
-        *np.transpose([[x[i], y[j], z[i, j]]
-            for i in range(x.size) for j in range(y.size)]),
+        *np.transpose([[x[i], y[i, j], z[i, j]]
+            for i in range(x.size) for j in range(y[i].size)]),
         contours, cmap=cmap, norm=norm)
 
     return fig, ax, colorbar
