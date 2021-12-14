@@ -72,6 +72,8 @@ class Force(Dat):
             Correction to forces from Heun integration.
         """
 
+        _force = self._WCA
+
         if particle == (): particle = range(self.N)
 
         if self.from_velocity:
@@ -80,7 +82,7 @@ class Force(Dat):
             forces = np.full((self.N, 2), fill_value=0, dtype='float64')
             for i in range(self.N):
                 for j in range(1 + i, self.N):
-                    force = self._WCA(time, i, j, positions=None)
+                    force = _force(time, i, j, positions=None)
                     forces[i] += force
                     forces[j] -= force
 
@@ -98,7 +100,7 @@ class Force(Dat):
             newForces = np.full((self.N, 2), fill_value=0, dtype='float64')
             for i in range(self.N):
                 for j in range(1 + i, self.N):
-                    force = self._WCA(time, i, j, positions=newPositions)
+                    force = _force(time, i, j, positions=newPositions)
                     newForces[i] += force
                     newForces[j] -= force
 
@@ -459,6 +461,56 @@ class Force(Dat):
             np.array([
                 self._diffPeriodic(pos1[0], pos0[0]),
                 self._diffPeriodic(pos1[1], pos0[1])]))
+        return self.epsilon*force
+
+    def _1ra(self, time, particle0, particle1, positions=None, a=12):
+        """
+        Returns force derived from regularised 1/r^a potential applied on
+        `particle0' by `particle1' at time `time'.
+
+        Parameters
+        ----------
+        time : int
+            Index of the frame.
+        particle0 : int
+            Index of the first particle.
+        particle1 : int
+            Index of the second particle.
+        positions : (self.N, 2) float array-like or None
+            Custom positions from which to compute distances. (default: None)
+            NOTE: if positions == None, actual positions of particles at `time'
+                  are considered.
+        a : float
+            Inverse power of the potential. (default: 12)
+
+        Returns
+        -------
+        force : (2,) float numpy Array
+        """
+
+        force = np.array([0, 0])
+
+        if particle0 == particle1: return force # same particle
+
+        dist, pos0, pos1 = self.getDistancePositions(
+            time, particle0, particle1, positions=positions)
+
+        sigma = ((self.diameters[particle0] + self.diameters[particle1])/2
+            *(1 - 0.2*
+                np.abs(self.diameters[particle0] - self.diameters[particle1])))
+
+        rcut = 1.25
+        # c0 = -(8 + a*(a + 6))/(8*(rcut**a))
+        c1 = (a*(a + 4))/(4*(rcut**(a + 2)))
+        c2 = -(a*(a + 2))/(8*(rcut**(a + 4)))
+
+        if dist/sigma >= rcut: return force # distance greater than cut-off
+
+        force = (a*((sigma/dist)**a)
+            - 2*c1*((dist/sigma)**2) - 4*c2*((dist/sigma)**4))*(
+                np.array([
+                    self._diffPeriodic(pos1[0], pos0[0]),
+                    self._diffPeriodic(pos1[1], pos0[1])]))/(dist**2)
         return self.epsilon*force
 
     def _dt(self, n_max=100, int_max=None, min=None, max=None, log=False):
