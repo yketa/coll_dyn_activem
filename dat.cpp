@@ -82,6 +82,8 @@ Dat::~Dat() {}
 
 // METHODS
 
+Read* Dat::getInput() { return &input; }
+
 int Dat::getNumberParticles() const { return numberParticles; }
 double Dat::getPersistenceLength() const { return persistenceLength; }
 double Dat::getPackingFraction() const { return packingFraction; }
@@ -218,6 +220,8 @@ Dat0::Dat0(std::string filename, bool loadWork, bool corruption) :
 Dat0::~Dat0() {}
 
 // METHODS
+
+Read* Dat0::getInput() { return &input; }
 
 int Dat0::getNumberParticles() const { return numberParticles; }
 double Dat0::getPotentialParameter() const { return potentialParameter; }
@@ -364,6 +368,8 @@ DatN::~DatN() {}
 
 // METHODS
 
+Read* DatN::getInput() { return &input; }
+
 int DatN::getNumberParticles() const { return numberParticles; }
 double DatN::getPotentialParameter() const { return potentialParameter; }
 double DatN::getPropulsionVelocity() const { return propulsionVelocity; }
@@ -502,6 +508,8 @@ DatR::DatR(std::string filename, bool loadOrder) :
 DatR::~DatR() {}
 
 // METHODS
+
+Read* DatR::getInput() { return &input; }
 
 int DatR::getNumberParticles() const { return numberParticles; }
 double DatR::getRotDiffusivity() const { return rotDiffusivity; }

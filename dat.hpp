@@ -35,6 +35,8 @@ class Dat {
 
     // METHODS
 
+    Read* getInput(); // returns pointer to input class
+
     int getNumberParticles() const; // returns number of particles
     double getPersistenceLength() const; // returns persistence length
     double getPackingFraction() const; // returns packing fraction
@@ -124,6 +126,8 @@ class Dat0 {
     ~Dat0();
 
     // METHODS
+
+    Read* getInput(); // returns pointer to input class
 
     int getNumberParticles() const; // returns number of particles
     double getPotentialParameter() const; // returns coefficient parameter of potential
@@ -217,6 +221,8 @@ class DatN {
 
     // METHODS
 
+    Read* getInput(); // returns pointer to input class
+
     int getNumberParticles() const; // returns number of particles
     double getPotentialParameter() const; // returns coefficient parameter of potential
     double getPropulsionVelocity() const; // returns self-propulsion velocity
@@ -301,6 +307,8 @@ class DatR {
     ~DatR();
 
     // METHODS
+
+    Read* getInput(); // returns pointer to input class
 
     int getNumberParticles() const; // returns number of rotors
     double getRotDiffusivity() const; // returns rotational diffusivity
