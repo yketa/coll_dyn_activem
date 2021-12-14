@@ -9,6 +9,7 @@ from numpy.polynomial.polynomial import polyadd, polypow
 import math
 from collections import OrderedDict
 from scipy import optimize
+from scipy import interpolate
 
 from coll_dyn_activem.scde import PDF
 import coll_dyn_activem.pycpp as pycpp
@@ -231,15 +232,18 @@ def pearson(array1, array2):
         Correlation coefficient.
     """
 
-    for array in (array1, array2):
-        if array.ndim == 1: array = array.reshape(array.shape + (1,))
-        array -= array.mean(axis=0)
+    array1 = np.array(array1)
+    array2 = np.array(array2)
+
+    if array1.ndim == 1: array1 = array1.reshape(array1.shape + (1,))
+    array1 -= array1.mean(axis=0)
+    if array2.ndim == 1: array2 = array2.reshape(array2.shape + (1,))
+    array2 -= array2.mean(axis=0)
     assert array1.shape == array2.shape
     dim = array1.shape[1]
 
     return np.sum([cov(array1[:, d], array2[:, d]) for d in range(dim)])/(
-        np.sqrt(
-            (array1**2).sum(axis=-1).mean()*(array2**2).sum(axis=-1).mean()))
+        np.sqrt(array1.var(axis=0).sum()*array2.var(axis=0).sum()))
 
 def cooperativity(array):
     """
@@ -263,7 +267,9 @@ def cooperativity(array):
     if array.ndim == 1: array = array.reshape(array.shape + (1,))
     assert array.ndim == 2
 
-    return (array.mean(axis=0)**2).sum(axis=-1)/((array**2).sum(axis=-1).mean())
+    denom = ((array**2).sum(axis=-1).mean())
+    if denom == 0: return 0
+    return (array.mean(axis=0)**2).sum(axis=-1)/denom
 
 def divide_arrays(array1, array2):
     """
@@ -390,6 +396,23 @@ def angle(dx, dy):
     norm = np.sqrt(dx**2 + dy**2)
     return math.atan2(dy/norm, dx/norm)
 
+def angles(*vec):
+    """
+    Returns angles from coordinates vectors.
+
+    Parameters
+    ----------
+    vec : (2,) float array-like
+        Vector coordinates.
+
+    Returns
+    -------
+    ang : (*,) float numpy array
+        Corresponding angles in radians.
+    """
+
+    return np.array(list(map(lambda v: angle(*v), vec)))
+
 def angleVec(vec1, vec2):
     """
     Get angle from 2D vector `vec1' to `vec2'.
@@ -414,10 +437,57 @@ def angleVec(vec1, vec2):
 
     cosinus = np.dot(vec1, vec2)
     if np.abs(cosinus) > 1:
-        raise ValueError((vec1, vec2, cosinus))
+        cosinus = round(cosinus, 6)
+        if np.abs(cosinus) > 1:
+            raise ValueError((vec1, vec2, cosinus))
     sinus = vec1[0]*vec2[1] - vec2[0]*vec1[1]
 
     return np.arccos(cosinus)*(1 if sinus > 0 else -1)
+
+def gaussian_smooth_1D(X, Y, sigma, *x):
+    """
+    From y-coordinates Y at corresponding x-coordinates X, returns smoothed
+    y-coordinates with smoothing function \\exp(-(x/\\sigma)^2) at
+    x-coordinates.
+
+    Parameters
+    ----------
+    X : (*,) float array-like
+        Input x-coordinates.
+    Y : (*,) float array-like
+        Input y-coordinates.
+    sigma : float
+        Smoothing length scale.
+        NOTE: if sigma == 0 or None, a linear interpolation is performed.
+    x : float
+        Output x-coordinates.
+        NOTE: if no x is passed, then smoothed y-coordinates are returned at X.
+
+    Returns
+    -------
+    smoothedY : (len(x),) or (*,) float numpy array
+        Smoothed y-coordinates.
+    """
+
+    X = np.array(X)
+    Y = np.array(Y)
+
+    if len(x) == 0: x = X
+    else: x = np.array(x)
+
+    if sigma == 0 or sigma == None: # perform linear interpolation
+        return interpolate.interp1d(X, Y,
+            kind='linear', fill_value='extrapolate')(x)
+
+    smoothing_function = lambda x: np.exp(-(x/sigma)**2)
+    smoothedY = np.empty(len(x))
+
+    for index in range(len(x)):
+        smoothing_coefficients = list(map(smoothing_function, X - x[index]))
+        smoothedY[index] =\
+            np.sum(Y*smoothing_coefficients)/np.sum(smoothing_coefficients)
+
+    return smoothedY
 
 class CurveFit:
     """
@@ -510,6 +580,33 @@ class CurveFit:
 ###################
 ### POLYNOMIALS ###
 ###################
+
+def lagrange_deriv(x, yp, x0=0, y0=0):
+    """
+    Returns the Lagrange interpolating polynomial with derivatives `yp' at `x'
+    and value `y0' at `x0'.
+
+    Parameters
+    ----------
+    x : float array-like
+        Values at which derivatives are evaluated.
+    yp : float array-like
+        Derivatives at values.
+    x0 : float
+        Value `x0' at which to fix integrated polynomial. (default: 0)
+    y0 : float
+        Value of integrated polynomial at `x0'. (default: 0)
+
+    Returns
+    -------
+    lagrange : numpy.poly1d
+        Lagrange interpolating polynomial.
+    """
+
+    lagrange = interpolate.lagrange(x, yp).integ()
+    lagrange += y0 - lagrange(x0)
+
+    return lagrange
 
 def evalPol(pol, *x):
     """
