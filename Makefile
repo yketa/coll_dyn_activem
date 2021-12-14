@@ -85,6 +85,26 @@ ifeq ($(ROTORS),yes)
 	CPP=mainR.cpp
 else
 
+# ADD
+ifeq ($(ADD),yes)
+	CPP=add.cpp
+	EXEC=$(BU)/add
+ifeq ($(ADD_MD),yes)
+	CFLAGS+=-DADD_MD
+	EXEC:=$(EXEC)_md
+else
+	EXEC:=$(EXEC)_cg
+endif
+ifeq ($(ADD_NO_LIMIT),yes)
+	CFLAGS+=-DADD_NO_LIMIT
+	EXEC:=$(EXEC)0
+endif
+ifeq ($(ADD_NEXT_PROPULSION),yes)
+CFLAGS+=-DADD_NEXT_PROPULSION
+EXEC:=$(EXEC)-1
+endif
+else
+
 # SIMULATIONS
 ifeq ($(SIM),dat)
 	CPP=main.cpp
@@ -114,6 +134,7 @@ endif
 endif
 endif
 endif
+endif
 
 # DEBUGGING OUTPUT
 ifeq ($(DEBUG),yes)
@@ -136,8 +157,8 @@ ifneq ($(EXEC_NAME),)
 	EXEC=$(BU)/$(EXEC_NAME)
 endif
 
-MAIN=main.cpp main0.cpp mainN.cpp mainR.cpp cloning.cpp cloningR.cpp test.cpp																	# files with main()
-SRC=$(filter-out $(filter-out $(CPP), $(MAIN) pycpp.cpp), $(filter-out $(wildcard old*), $(wildcard *.cpp)))	# compile all files but the ones with wrong main()
+MAIN=add.cpp main.cpp main0.cpp mainN.cpp mainR.cpp cloning.cpp cloningR.cpp test.cpp																			# files with main()
+SRC=$(filter-out $(filter-out $(CPP), $(MAIN) pycpp.cpp), $(filter-out $(wildcard __* old*), $(wildcard *.cpp)))	# compile all files but the ones with wrong main()
 
 OBJ=$(addprefix $(OB)/, $(SRC:.cpp=.o))
 
@@ -172,6 +193,9 @@ $(OB)/particle.o: particle.cpp particle.hpp maths.hpp readwrite.hpp
 	$(CC) -o $(OB)/particle.o -c particle.cpp $(CFLAGS)
 
 ##
+
+$(OB)/add.o: add.cpp add.hpp alglib.hpp dat.hpp env.hpp maths.hpp particle.hpp readwrite.hpp
+	$(CC) -o $(OB)/add.o -c add.cpp $(CFLAGS) $(MPIFLAGS)
 
 $(OB)/cloning.o: cloning.cpp cloningserial.hpp env.hpp particle.hpp readwrite.hpp
 	$(CC) -o $(OB)/cloning.o -c cloning.cpp $(CFLAGS) $(MPIFLAGS)

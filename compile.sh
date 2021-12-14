@@ -11,6 +11,15 @@ USE_HEUN=yes
 # python/C++ interface
 make clean && make _pycpp.so
 
+# ADD
+for MD in yes no; do  # using MD or CG
+  for LIMIT in yes no; do # limit on displacements (CG) or iterations (MD)
+    for NEXT in yes no; do  # next frame propulsion
+      make clean && ADD=yes ADD_MD=$MD ADD_NO_LIMIT=$LIMIT ADD_NEXT_PROPULSION=$NEXT CELLLIST=yes make;
+    done
+  done
+done
+
 # ROTORS
 make clean && ROTORS=yes HEUN=$USE_HEUN make;
 
