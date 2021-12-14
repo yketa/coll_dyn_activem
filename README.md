@@ -32,6 +32,8 @@ Production of movies, via [`frame.py`](https://github.com/yketa/coll_dyn_activem
 
 Memory error detection and profiling, using `make memcheck` and `make massif` (see [`Makefile`](https://github.com/yketa/coll_dyn_activem/blob/master/Makefile)), necessitates `valgrind`.
 
+Minimisation procedures from [`ALGLIB`](https://www.alglib.net/download.php) are used in [`alglib.hpp`]((https://github.com/yketa/coll_dyn_activem/blob/master/alglib.hpp) — the library must be downloaded and added as `alglib` to the [`g++` path](https://commandlinefanatic.com/cgi-bin/showarticle.cgi?article=art026).
+
 ## Execution
 
 Compilation of all relevant executables, using `g++`, is possible by running [`compile.sh`](https://github.com/yketa/coll_dyn_activem/blob/master/compile.sh) — which essentially performs all relevant `make` commands (see [`Makefile`](https://github.com/yketa/coll_dyn_activem/blob/master/Makefile)).
