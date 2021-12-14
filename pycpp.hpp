@@ -56,6 +56,17 @@ extern "C" int pairIndex(int i, int j, int N);
   // and (`j', `i') in {0, ..., `N'(`N' + 1)/2 - 1}.
   // (adapted from Paul Mangold)
 
+extern "C" void getDifferences(
+  int N, double L, double* x, double* y, double *diameters,
+  double* differences_x, double* differences_y,
+  bool scale_diameter);
+  // Compute position differences between the `N' particles of a system of size
+  // `L', with x-axis positions given by `x' and y-axis positions given by `y'.
+  // Differences are rescaled by the sum of the radii of the particles in the
+  // pair if `scale_diameter'.
+  // NOTE: `differences_x' and `differences_y' must have (at least)
+  //       `N'(`N' - 1)/2 entries.
+
 extern "C" void getDistances(
   int N, double L, double* x, double* y, double* diameters, double* distances,
   bool scale_diameter = false);
@@ -65,17 +76,31 @@ extern "C" void getDistances(
   // if `scale_diameter'.
   // NOTE: distances must have (at least) `N'(`N' - 1)/2 entries.
 
+extern "C" void getOrientationNeighbours(
+  int N, double A1, double* diameters, double* distances,
+  double* dx, double* dy,
+  int* oneighbours);
+  // Compute for each of the `N' particles the number of other particles, at
+  // distance lesser than `A1' relative to their average diameter in
+  // `distances', with the same orientation of displacement (`dx', `dy').
+  // NOTE: `distances' must have at least `N'(`N' - 1)/2 entries and follow
+  //       the indexing of pairs given by pairIndex (such as returned by
+  //       getDistances).
+  // NOTE: `oneighbours' must have at least `N' entries.
+
 extern "C" void getBrokenBonds(
   int N, double A1, double A2, double* diameters,
   double* distances0, double* distances1,
-  int* brokenBonds);
+  int* brokenBonds, bool* brokenPairs);
   // Compute for each of `N' particles the number of other particles which are
   // at distance lesser than `A1' in `distances0' and distance greater than `A2'
   // in `distances1' relative to their average diameter.
+  // Broken pair indices are flagged as true in `brokenPairs'.
   // NOTE: `distances0' and `distances1' must have at least `N'(`N' - 1)/2
   //       entries and follow the indexing of pairs given by pairIndex (such as
   //       returned by getDistances).
   // NOTE: `brokenBonds' must have at least `N' entries.
+  // NOTE: `brokenPairs' must have at least `N(N - 1)/2' entries.
 
 extern "C" void getVanHoveDistances(
   int N, double L, double* x, double* y, double* dx, double* dy,
@@ -118,6 +143,23 @@ extern "C" void S4Fs(
   // Means are saved in `S4' and variances are saved in `S4var', for each value
   // of the lag time.
 
+extern "C" void getLocalParticleDensity(
+  int N, double L, double a, double* x, double* y, double* diameters,
+  double* densities);
+  // Compute for each of the `N' particles of a system of size `L', with x-axis
+  // positions given by `x' and y-axis positions given by `y', the sum of the
+  // areas of the particles in a box of size `a' centred on the particle divided
+  // by the area of the box.
+  // Particle areas are computed with a factor 2^(1/6) on diameters.
+
+extern "C" void isNotInBubble(
+  int N, double L, double philim, double dlim,
+  double* x, double* y, double* densities,
+  bool* notInBubble);
+  // Determine which of the `N' particles of a system of size `L', with x-axis
+  // positions given by `x' and y-axis positions given by `y', are not within
+  // distance `dlim' of particles with `densities' below `philim'.
+
 // GRIDS
 
 extern "C" void toGrid(
@@ -146,12 +188,13 @@ extern "C" void g2Dto1Dgridhist(
 // CORRELATIONS
 
 extern "C" void getRadialCorrelations(
-  int N, double L, double* x, double* y, int dim, double** values,
+  int N, double L, double* x, double* y, int dim,
+  double** values1, double** values2,
   int nBins, double rmin, double rmax, double* correlations,
-  bool rescale_pair_distribution = false);
-  // Compute radial correlations between the (`dim',) float arrays `values'
-  // associated to each of the `N' particles of a system of size `L', with
-  // x-axis positions given by `x' and y-axis positions given by `y'.
+  bool rescale_pair_distribution);
+  // Compute radial correlations between the (`dim',) float arrays `values1'
+  // and `values2' associated to each of the `N' particles of a system of size
+  // `L', with x-axis positions given by `x' and y-axis positions given by `y'.
   // Correlations are computed on the interval between `rmin' (included) and
   // `rmax' (excluded) with `nBins' bins.
   // Correlations are rescaled by pair distribution function (for bins > 0) if

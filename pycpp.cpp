@@ -156,6 +156,36 @@ extern "C" int pairIndex(int i, int j, int N) {
   return (min + N - 1 - max)*(min + N - max)/2 + min;
 }
 
+extern "C" void getDifferences(
+  int N, double L, double* x, double* y, double *diameters,
+  double* differences_x, double* differences_y,
+  bool scale_diameter) {
+  // Compute position differences between the `N' particles of a system of size
+  // `L', with x-axis positions given by `x' and y-axis positions given by `y'.
+  // Differences are rescaled by the sum of the radii of the particles in the
+  // pair if `scale_diameter'.
+  // NOTE: `differences_x' and `differences_y' must have (at least)
+  //       `N'(`N' - 1)/2 entries.
+
+  double diff_x, diff_y;
+  int pair;
+  for (int i=0; i < N; i++) {
+    for (int j=i + 1; j < N; j++) {
+      diff_x = algDistPeriod(x[i], x[j], L);
+      diff_y = algDistPeriod(y[i], y[j], L);
+      pair = pairIndex(i, j, N);
+      if ( scale_diameter ) {
+        differences_x[pair] = diff_x/((diameters[i] + diameters[j])/2);
+        differences_y[pair] = diff_y/((diameters[i] + diameters[j])/2);
+      }
+      else {
+        differences_x[pair] = diff_x;
+        differences_y[pair] = diff_y;
+      }
+    }
+  }
+}
+
 extern "C" void getDistances(
   int N, double L, double* x, double* y, double* diameters, double* distances,
   bool scale_diameter) {
@@ -163,7 +193,7 @@ extern "C" void getDistances(
   // x-axis positions given by `x' and y-axis positions given by `y'.
   // Distances are rescaled by the sum of the radii of the particles in the pair
   // if `scale_diameter'.
-  // NOTE: distances must have (at least) `N'(`N' - 1)/2 entries.
+  // NOTE: `distances' must have (at least) `N'(`N' - 1)/2 entries.
 
   double dist;
   int pair;
@@ -181,29 +211,67 @@ extern "C" void getDistances(
   }
 }
 
+extern "C" void getOrientationNeighbours(
+  int N, double A1, double* diameters, double* distances,
+  double* dx, double* dy,
+  int* oneighbours) {
+  // Compute for each of the `N' particles the number of other particles, at
+  // distance lesser than `A1' relative to their average diameter in
+  // `distances', with the same orientation of displacement (`dx', `dy').
+  // NOTE: `distances' must have at least `N'(`N' - 1)/2 entries and follow
+  //       the indexing of pairs given by pairIndex (such as returned by
+  //       getDistances).
+  // NOTE: `oneighbours' must have at least `N' entries.
+
+  for (int i=0; i < N; i++) { oneighbours[i] = 0; }
+
+  double prod;
+  for (int i=0; i < N; i++) {
+    for (int j=i + 1; j < N; j++) {
+      if (
+        withinDistance(A1, diameters, i, j, distances[pairIndex(i, j, N)]) ) {
+        prod = (dx[i]*dx[j] + dy[i]*dy[j])/
+          sqrt(
+            (pow(dx[i], 2.0) + pow(dy[i], 2.0))
+            *(pow(dx[j], 2.0) + pow(dy[j], 2.0)));
+        if ( prod >= 0.5 ) {
+          oneighbours[i]++;
+          oneighbours[j]++;
+        }
+      }
+    }
+  }
+}
+
 extern "C" void getBrokenBonds(
   int N, double A1, double A2, double* diameters,
   double* distances0, double* distances1,
-  int* brokenBonds) {
+  int* brokenBonds, bool* brokenPairs) {
   // Compute for each of `N' particles the number of other particles which are
   // at distance lesser than `A1' in `distances0' and distance greater than `A2'
   // in `distances1' relative to their average diameter.
+  // Broken pair indices are flagged as true in `brokenPairs'.
   // NOTE: `distances0' and `distances1' must have at least `N'(`N' - 1)/2
   //       entries and follow the indexing of pairs given by pairIndex (such as
   //       returned by getDistances).
   // NOTE: `brokenBonds' must have at least `N' entries.
+  // NOTE: `brokenPairs' must have at least `N(N - 1)/2' entries.
 
   for (int i=0; i < N; i++) { brokenBonds[i] = 0; }
+  for (int index=0; index < N*(N- 1)/2; index++) { brokenPairs[index] = false; }
 
+  int index;
   for (int i=0; i < N; i++) {
     for (int j=i + 1; j < N; j++) {
+      index = pairIndex(i, j, N);
       if (
         withinDistance(
-          A1, diameters, i, j, distances0[pairIndex(i, j, N)])      // bonded at time0
+          A1, diameters, i, j, distances0[index])     // bonded at time0
         && !withinDistance(
-          A2, diameters, i, j, distances1[pairIndex(i, j, N)]) ) {  // unbonded at time1
+          A2, diameters, i, j, distances1[index]) ) { // unbonded at time1
         brokenBonds[i]++;
         brokenBonds[j]++;
+        brokenPairs[index] = true;
       }
     }
   }
@@ -361,7 +429,6 @@ extern "C" void S4Fs(
 
   DatN dat(filename);
   const int N = dat.getNumberParticles();
-  const double L = dat.getSystemSize();
 
   const std::vector<std::vector<std::vector<double>>> positions
     = getPositions(filename, nTime0, time0);
@@ -417,6 +484,54 @@ extern "C" void S4Fs(
     }
     S4[t] /= nTime0*nq;
     S4var[t] /= nTime0*nq;
+  }
+}
+
+extern "C" void getLocalParticleDensity(
+  int N, double L, double a, double* x, double* y, double* diameters,
+  double* densities) {
+  // Compute for each of the `N' particles of a system of size `L', with x-axis
+  // positions given by `x' and y-axis positions given by `y', the sum of the
+  // areas of the particles in a box of size `a' centred on the particle divided
+  // by the area of the box.
+  // Particle areas are computed with a factor 2^(1/6) on diameters.
+
+  for (int i=0; i < N; i++) { densities[i] = 0; }
+
+  for (int i=0; i < N; i++) {
+    densities[i] += (M_PI/4)*pow(pow(2., 1./6.)*diameters[i], 2)/pow(a, 2);
+    for (int j=i + 1; j < N; j++) {
+      if (
+        abs(algDistPeriod(x[i], x[j], L)) <= a/2
+        && abs(algDistPeriod(y[i], y[j], L)) <= a/2 ) {
+        densities[i] += (M_PI/4)*pow(pow(2., 1./6.)*diameters[j], 2)/pow(a, 2);
+        densities[j] += (M_PI/4)*pow(pow(2., 1./6.)*diameters[i], 2)/pow(a, 2);
+      }
+    }
+  }
+}
+
+extern "C" void isNotInBubble(
+  int N, double L, double philim, double dlim,
+  double* x, double* y, double* densities,
+  bool* notInBubble) {
+  // Determine which of the `N' particles of a system of size `L', with x-axis
+  // positions given by `x' and y-axis positions given by `y', are not within
+  // distance `dlim' of particles with `densities' below `philim'.
+
+  for (int i=0; i < N; i++) { notInBubble[i] = true; }
+
+  for (int i=0; i < N; i++) {
+    if ( densities[i] < philim ) {
+      notInBubble[i] = false;
+      for (int j=0; j < N; j++) {
+        if ( notInBubble[j] ) {
+          if ( getDistance(x[i], y[i], x[j], y[j], L) < dlim ) {
+            notInBubble[j] = false;
+          }
+        }
+      }
+    }
   }
 }
 
@@ -521,12 +636,13 @@ extern "C" void g2Dto1Dgridhist(
 // CORRELATIONS
 
 extern "C" void getRadialCorrelations(
-  int N, double L, double* x, double* y, int dim, double** values,
+  int N, double L, double* x, double* y, int dim,
+  double** values1, double** values2,
   int nBins, double rmin, double rmax, double* correlations,
   bool rescale_pair_distribution) {
-  // Compute radial correlations between the (`dim',) float arrays `values'
-  // associated to each of the `N' particles of a system of size `L', with
-  // x-axis positions given by `x' and y-axis positions given by `y'.
+  // Compute radial correlations between the (`dim',) float arrays `values1'
+  // and `values2' associated to each of the `N' particles of a system of size
+  // `L', with x-axis positions given by `x' and y-axis positions given by `y'.
   // Correlations are computed on the interval between `rmin' (included) and
   // `rmax' (excluded) with `nBins' bins.
   // Correlations are rescaled by pair distribution function (for bins > 0) if
@@ -544,7 +660,8 @@ extern "C" void getRadialCorrelations(
       bin = (getDistance(x[i], y[i], x[j], y[j], L) - rmin)/dbin;
       if ( bin < 0 || bin >= nBins ) { continue; }
       for (int d=0; d < dim; d++) {
-        correlations[bin] += values[i][d]*values[j][d];
+        correlations[bin] +=
+          (values1[i][d]*values2[j][d] + values1[j][d]*values2[i][d])/2;
       }
       occupancy[bin] += 1;
     }
