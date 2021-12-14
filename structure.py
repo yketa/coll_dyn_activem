@@ -8,7 +8,7 @@ the structure of systems of ABPs.
 
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.maths import pycpp, g2Dto1D, wave_vectors_2D, DictList,\
-    angle, linspace, Histogram, mean_sterr
+    angle, linspace, Histogram, mean_sterr, relative_positions
 
 import numpy as np
 
@@ -62,7 +62,7 @@ class Positions(Dat):
             Frame index.
         nBoxes : int
             Number of grid boxes in each direction. (default: None)
-            NOTE: if nBoxes==None, then nBoxes = int(sqrt(self.N)).
+            NOTE: if nBoxes == None, then nBoxes = int(sqrt(self.N)).
 
         Returns
         -------
@@ -74,15 +74,87 @@ class Positions(Dat):
 
         if nBoxes == None: nBoxes = np.sqrt(self.N)
         nBoxes = int(nBoxes)
+        dV = (self.L/nBoxes)**2
 
         return self.toGrid(time,
             np.full((self.N,), fill_value=1),
-            nBoxes=nBoxes, box_size=self.L, centre=(0, 0), average=False)
+            nBoxes=nBoxes, box_size=self.L, centre=(0, 0), average=False)/dV
 
-    def getLocalDensity(self, time):
+    def getLocalDensity(self, time, nBoxes=None):
+        """
+        Returns local packing fraction defined as the ratio of particles'
+        volume to the volume of the corresponding box, where the system has been
+        divided in `nBoxes'x`nBoxes' linearly spaced square boxes of identical
+        size.
+
+        NOTE: particle volumes are computed with a factor 2^(1/6) on diameters.
+
+        Parameters
+        ----------
+        time : int
+            Frame index.
+        nBoxes : int
+            Number of grid boxes in each direction. (default: None)
+            NOTE: if nBoxes == None, then nBoxes = int(sqrt(self.N)).
+
+        Returns
+        -------
+        localPhi : (nBoxes**2,) float numpy array
+            Array of local packing fraction.
+        """
+
+        time = int(time)
+
+        if nBoxes == None: nBoxes = np.sqrt(self.N)
+        nBoxes = int(nBoxes)
+        dV = (self.L/nBoxes)**2
+
+        surfaces = self.toGrid(time,
+            (np.pi/4.)*(((2**(1./6.))*self.diameters)**2),
+            nBoxes=nBoxes, box_size=self.L, centre=(0, 0), average=False)
+        return surfaces.flatten()/dV
+
+    def getLocalParticleDensity(self, time, a):
+        """
+        Returns local packing fraction for each particle defined as the ratio of
+        particles' volume to the volume of the square box of size `a' around
+        each particle.
+
+        NOTE: particle volumes are computed with a factor 2^(1/6) on diameters.
+
+        Parameters
+        ----------
+        time : int
+            Frame index.
+        a : float
+            Size of the box in which to compute densities.
+
+        Returns
+        -------
+        localPhi : (self.N,) float numpy array
+            Array of local packing fraction.
+        """
+
+        # positions = self.getPositions(time)
+        #
+        # surfaces = np.zeros((self.N,))
+        # for particle in range(self.N):
+        #     surfaces[particle] = ((np.pi/4.)*(((2**(1./6.))*self.diameters[
+        #         (np.abs(
+        #             relative_positions(positions, positions[particle], self.L))
+        #         < a/2).all(axis=-1)])**2)).sum()
+        #
+        # return surfaces/(a**2)
+
+        return pycpp.getLocalParticleDensity(
+            a, self.getPositions(time), self.L, self.diameters)
+
+    def getLocalDensityVoronoi(self, time, phi=True):
         """
         Returns local packing fraction defined as the ratio of particles'
         volume to the volume of the corresponding voronoi cells.
+
+        NOTE: particle volumes are computed with a factor 2^(1/6) on diameters.
 
         (see self._voronoi)
         (see https://yketa.github.io/PhD_Wiki/#Structure%20characteristics)
@@ -91,6 +163,9 @@ class Positions(Dat):
         ----------
         time : int
             Frame index.
+        phi : bool
+            Returns local packing fraction instead of inverse local volume.
+            (default: True)
 
         Returns
         -------
@@ -98,7 +173,9 @@ class Positions(Dat):
             Array of local packing fraction.
         """
 
-        return ((np.pi/4.)*(self.diameters**2))/self._voronoi(time).volumes
+        volumes = self._voronoi(time).volumes
+        if phi: return ((np.pi/4.)*(((2**(1./6.))*self.diameters)**2))/volumes
+        else: return 1./volumes
 
     def getNeighbourList(self, time):
         """
@@ -405,7 +482,7 @@ class Positions(Dat):
         indexes = linspace(0, time0.size, int_max, endpoint=False)
         return np.array(itemgetter(*indexes)(time0), ndmin=1)
 
-    def _voronoi(self, time):
+    def _voronoi(self, time, centre=None):
         """
         Compute Voronoi tesselation of the system at `time'.
 
@@ -413,6 +490,9 @@ class Positions(Dat):
         ----------
         time : int
             Frame index.
+        centre : (2,) float array-like or None
+            Centre of the box to consider. (default: None)
+            NOTE: if centre == None, then centre = (self.L/2, self.L/2).
 
         Returns
         -------
@@ -420,11 +500,13 @@ class Positions(Dat):
             Voronoi tesselation.
         """
 
+        if type(centre) is type(None): centre = (self.L/2., self.L/2.)
+
         voro = Voronoi()
         voro.compute((
             Box.square(self.L),
             np.concatenate(
-                (self.getPositions(time, centre=(self.L/2., self.L/2.)),
+                (self.getPositions(time, centre=centre),
                 np.zeros((self.N, 1))),
                 axis=-1)))
 
