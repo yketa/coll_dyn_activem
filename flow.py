@@ -292,11 +292,13 @@ class Displacements(Positions):
             time0 = np.array(itemgetter(
                 *linspace(self.skip, len(self.time0) - 1, int_max,
                     endpoint=True))(
-                    self.time0))
+                    self.time0),
+                ndmin=1)
         else:
             time0 = np.array(list(OrderedDict.fromkeys(
                 np.linspace(self.skip, self.frames - dt.max() - 1, int_max,
-                    endpoint=False, dtype=int))))
+                    endpoint=False, dtype=int))),
+                ndmin=1)
 
         if self._type == 'dat':
 
@@ -452,7 +454,8 @@ class Displacements(Positions):
         return msd_th_AOUP(self.D, self.Dr, dt)
 
     def displacementsCor(self, dt, nBins, int_max=100, min=None, max=None,
-        jump=1, remove_cm=False, rescale_pair_distribution=False):
+        jump=1, transformation=(lambda disp: disp), remove_cm=False,
+        rescale_pair_distribution=False):
         """
         Compute radial correlations of particles' displacements.
 
@@ -466,7 +469,6 @@ class Displacements(Positions):
         int_max : int
             Maximum number of different intervals to consider when computing
             displacements for a given lag time. (default: 100)
-            NOTE: This is overridden if dtDisplacements != None.
         min : float or None
             Minimum distance (included) at which to compute the correlations.
             (default: None)
@@ -478,6 +480,12 @@ class Displacements(Positions):
         jump : int
             Period in number of frames at which to check if particles have
             crossed any boundary. (default: 1) (see self.getDisplacements)
+        transformation : function of numpy array to numpy array
+            Transformation to apply on individual particles' displacement
+            ((2,) float numpy array) before computing the correlations.
+            (default: (lambda disp: disp))
+            NOTE: transformed displacements are then divided by their root mean
+                  square.
         remove_cm : bool
             Remove centre of mass displacement. (default: False)
             NOTE: does not affect result if self.N == 1.
@@ -488,21 +496,26 @@ class Displacements(Positions):
         -------
         Cuu : (*, 3) float Numpy array
             Array of (r, Cuu(r), errCuu(r)) with Cuu(r) the cylindrically
-            averaged spatial correlations of displacement and errCvv(r) the
+            averaged spatial correlations of displacement and errCuu(r) the
             standard error on this measure.
         zeta : (2,) float Numpy array
             Cooperativity and standard error on this measure.
         """
 
-        corZeta = [
-            (lambda d:
-                self.getRadialCorrelations(
-                    t, d/np.sqrt((d**2).sum(axis=-1).mean()),
-                    nBins, min=min, max=max,
-                    rescale_pair_distribution=rescale_pair_distribution))(
-                self.getDisplacements(t, t + dt, jump=jump, norm=False,
-                    remove_cm=remove_cm, cage_relative=False, neighbours=None))
-            for t in self._time0(dt, int_max=int_max)]
+        time0 = self._time0(dt, int_max=int_max)
+        displacements = np.array(list(map(
+            lambda t: (lambda d: d/np.sqrt((d**2).sum(axis=-1).mean()))(
+                np.array(list(map(
+                    lambda disp: np.array(transformation(disp), ndmin=1),
+                    self.getDisplacements(t, t + dt,
+                        jump=jump, norm=False, remove_cm=remove_cm,
+                        cage_relative=False, neighbours=None))))),
+            time0)))
+        corZeta = list(map(
+            lambda t, d: self.getRadialCorrelations(
+                t, d, nBins, min=min, max=max,
+                rescale_pair_distribution=rescale_pair_distribution),
+            *(time0, displacements)))
         correlations = np.array([corZeta[t][0] for t in range(len(corZeta))])
         zeta = np.array([corZeta[t][1] for t in range(len(corZeta))])
 
@@ -514,7 +527,7 @@ class Displacements(Positions):
             mean_sterr(zeta))
 
     def overlap(self, a=1, n_max=100, int_max=100, min=None, max=None, jump=1,
-        cage_relative=False, dtDisplacements=None):
+        cage_relative=False, dtDisplacements=None, heaviside=False):
         """
         Compute dynamical overlap function.
 
@@ -552,6 +565,9 @@ class Displacements(Positions):
             neighbours at initial time. (default: False)
             (see self.getDisplacements)
             NOTE: This is overridden if dtDisplacements != None.
+        heaviside : bool
+            Use Heaviside function rather than exponential of square as window
+            function. (default: False)
         dtDisplacements : ((*,) int array-like,
                           (**, *, self.N, 2) float array-like) or None
             Lag time and displacements at these lag times from which to compute
@@ -577,9 +593,10 @@ class Displacements(Positions):
                 initial_times=False)
         else:
             dt, displacements = dtDisplacements
+        displacements2 = (wo_mean(displacements/a, axis=-2)**2).sum(axis=-1)
 
-        quantities = (
-            np.exp(-(wo_mean(displacements, axis=-2)**2).sum(axis=-1)/(a**2)))
+        if heaviside: quantities = (displacements2 > 1)*1.0
+        else: quantities = np.exp(-displacements2)
         return self._mean_stderr_chi(dt, quantities)
 
     def overlap_relaxation_free_AOUP(q=0.5, a=1):
@@ -693,6 +710,27 @@ class Displacements(Positions):
             _msc[:, :, 3].mean(axis=0)])                # susceptibility
         return msc, wave_vectors
 
+    def selfIntScattFunc_relaxation_free_AOUP(k):
+        """
+        Returns structural relaxation time for a free Ornstein-Uhlenbeck
+        particle, given as the time for the self-intermediate scattering
+        function to decrease below \\exp(-1).
+
+        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+
+        Parameters
+        ----------
+        k : float
+            Wave-vector norm.
+
+        Returns
+        -------
+        t : float
+            Relaxation time.
+        """
+
+        return selfIntScattFunc_relaxation_free_AOUP(k, self.D, self.Dr)
+
     def vanHove(self, dt, nBins, int_max=None, jump=1, remove_cm=False,
         vmin=None, vmax=None):
         """
@@ -770,6 +808,48 @@ class Displacements(Positions):
             for b, gs in zip(bins, np.transpose(_Gs))])
         return G, Gs
 
+    def orientationNeighbours(self, time0, *dt, A1=1.15, jump=1,
+        remove_cm=False):
+        """
+        Returns arrays of number of neighbouring particles which have the same
+        displacement orientation between `time0' and `time0' + `dt'.
+
+        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+
+        Parameters
+        ----------
+        time0 : int
+            Initial time.
+        dt : int
+            Lag time.
+        A1 : float
+            Distance relative to their diameters below which particles are
+            considered bonded. (default: 1.15)
+        jump : int
+            Period in number of frames at which to check if particles have
+            crossed any boundary. (default: 1)
+            NOTE: `jump' must be chosen so that particles do not move a distance
+                  greater than half the box size during this time.
+            NOTE: This is only relevant for .dat files since these do not embed
+                  unfolded positions.
+        remove_cm : bool
+            Remove centre of mass displacement. (default: False)
+            NOTE: does not affect result if self.N == 1.
+
+        Returns
+        -------
+        oneigbours : (**, self.N) int numpy array
+            Number of neighbouring particles with same displacement orientation
+            between `time0' and `time0' + `dt' with ** the number of `dt'
+            provided.
+        """
+
+        return pycpp.getOrientationNeighbours(A1, self.L, self.diameters,
+            self.getPositions(time0),
+            *[self.getDisplacements(
+                time0, time0 + t, jump=jump, remove_cm=remove_cm)
+                for t in dt])
+
     def brokenBonds(self, time0, *dt, A1=1.15, A2=1.5):
         """
         Returns arrays of number of broken bonds for each particle, defined by
@@ -801,6 +881,108 @@ class Displacements(Positions):
         return pycpp.getBrokenBonds(A1, A2, self.L, self.diameters,
             self.getPositions(time0),
             *[self.getPositions(time0 + t) for t in dt])
+
+    def brokenBondsCor(self, dt, nBins, brokenBondsMin=1, A1=1.15, A2=1.5,
+        int_max=100, min=None, max=None, rescale_pair_distribution=False):
+        """
+        Compute radial correlations of broken bonds.
+
+        Parameters
+        ----------
+        dt : int
+            Lag time at which to compute broken bonds.
+        nBins : int
+            Number of intervals of distances on which to compute the
+            correlations.
+        brokenBondsMin : int
+            Threshold on the number of broken bonds. (default: 1)
+        A1 : float
+            Distance relative to their diameters below which particles are
+            considered bonded. (default: 1.15)
+        A2 : float
+            Distance relative to their diameters above which particles are
+            considered unbonded. (default: 1.5)
+        int_max : int
+            Maximum number of different intervals to consider when computing
+            broken boonds for a given lag time. (default: 100)
+        min : float or None
+            Minimum distance (included) at which to compute the correlations.
+            (default: None)
+            NOTE: if min == None then min = 0.
+        max : float or None
+            Maximum distance (excluded) at which to compute the correlations.
+            (default: None)
+            NOTE: if max == None then max = self.L/2.
+        rescale_pair_distribution : bool
+            Rescale correlations by pair distribution function. (default: False)
+
+        Returns
+        -------
+        Cbb : (*, 3) float Numpy array
+            Array of (r, Cbb(r), errCbb(r)) with Cbb(r) the cylindrically
+            averaged spatial correlations of broken bonds and errCbb(r) the
+            standard error on this measure.
+        zeta : (2,) float Numpy array
+            Cooperativity and standard error on this measure.
+        chi : float
+            Susceptibility of broken bonds.
+        """
+
+        time0 = self._time0(dt, int_max=int_max)
+        bonds = np.array(list(map(
+            lambda t:
+                (self.brokenBonds(t, dt, A1=A1, A2=A2)[0] >= brokenBondsMin)*1,
+            time0)))
+        corZeta = list(map(
+            lambda t, b: self.getRadialCorrelations(
+                t, b/((lambda B: 1 if B == 0 else B)(np.sqrt((b**2).mean()))),
+                nBins, min=min, max=max,
+                rescale_pair_distribution=rescale_pair_distribution),
+            *(time0, bonds)))
+        correlations = np.array([corZeta[t][0] for t in range(len(corZeta))])
+        zeta = np.array([corZeta[t][1] for t in range(len(corZeta))])
+        chi = self.N*bonds.mean(axis=-1).var()
+
+        return (
+            np.array([
+                [correlations[0, bin, 0],
+                    *mean_sterr(correlations[:, bin, 1])]
+                for bin in range(nBins)]),
+            mean_sterr(zeta),
+            chi)
+
+    def brokenPairs(self, time0, time1, A1=1.15, A2=1.5):
+        """
+        Returns array of broken bond truth values for each pair, where particles
+        in the pair are at distance lesser than `A1' at `time0' and greater than
+        `A2' at `time1'.
+
+        (see pycpp.pairIndex)
+
+        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+
+        Parameters
+        ----------
+        time0 : int
+            Initial time.
+        time1 : int
+            Final time.
+        A1 : float
+            Distance relative to their diameters below which particles are
+            considered bonded. (default: 1.15)
+        A2 : float
+            Distance relative to their diameters above which particles are
+            considered unbonded. (default: 1.5)
+
+        Returns
+        -------
+        brokenPairs : (self.N*(self.N - 1)/2,) bool numpy array
+            Broken bond between `time0' and `time1' truth values for each pair.
+        """
+
+        return pycpp.getBrokenBonds(A1, A2, self.L, self.diameters,
+            self.getPositions(time0), self.getPositions(time1),
+            pairs=True)[1][0]
 
     def brokenBondDensity(self, time0, *dt, A1=1.15, A2=1.5, k=0):
         """
@@ -953,7 +1135,9 @@ class Displacements(Positions):
         # array of lag times
         if self._type == 'datN':
             dt = self.deltat[(self.deltat >= min)*(self.deltat <= max)]
-            dt = itemgetter(*linspace(0, len(dt) - 1, n_max, endpoint=True))(dt)
+            dt = np.array(
+                itemgetter(*linspace(0, len(dt) - 1, n_max, endpoint=True))(dt),
+                ndmin=1)
         else:
             dt = logspace(min, max, n_max)
 
@@ -1351,6 +1535,37 @@ class Velocities(Dat):
             *(range(len(dt)), dt))))
 
         return cvv, v0sq, kurtosis
+
+    def orientationNeighbours(self, *time0, A1=1.15, remove_cm=False):
+        """
+        Returns arrays of number of neighbouring particles which have the same
+        velocity orientation at `time0'.
+
+        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+
+        Parameters
+        ----------
+        time0 : int
+            Initial time.
+        A1 : float
+            Distance relative to their diameters below which particles are
+            considered bonded. (default: 1.15)
+        remove_cm : bool
+            Remove centre of mass velocity. (default: False)
+            NOTE: does not affect result if self.N == 1.
+
+        Returns
+        -------
+        oneigbours : (**, self.N) int numpy array
+            Number of neighbouring particles with same velocity orientation at
+            `time0' with ** the number of `time0' provided.
+        """
+
+        return np.array([
+            pycpp.getOrientationNeighbours(A1, self.L, self.diameters,
+                self.getPositions(t),
+                self.getVelocities(t, norm=False, remove_cm=remove_cm))[0]
+            for t in time0])
 
     def _dt(self, n_max=100, int_max=100, min=None, max=None):
         """
@@ -2116,7 +2331,7 @@ def msd_th_AOUP(D, Dr, dt):
 
 def overlap_free_AOUP(D, Dr, dt, a=1):
     """
-    Returns value of the dynamical overlap funtionat lag time `dt' for a free
+    Returns value of the dynamical overlap funtion at lag time `dt' for a free
     Ornstein-Uhlenbeck particle.
 
     (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
@@ -2168,3 +2383,57 @@ def overlap_relaxation_free_AOUP(D, Dr, q=0.5, a=1):
         ((a**2)*Dr*(1 - q)
             + 4*q*D*(1 + lambertw(-np.exp(-1 + (a**2)*(q - 1)*Dr/(4*q*D)))))
         /(4*q*D*Dr)).real
+
+def selfIntScattFunc_free_AOUP(k, D, Dr, dt):
+    """
+    Returns value of the self-intermediate scattering function at lag time `dt'
+    for a free Ornstein-Uhlenbeck particle.
+
+    (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+
+    Parameters
+    ----------
+    k : float
+        Wave-vector norm.
+    D : float
+        Translational diffusivity.
+    Dr : float
+        Rotational diffusivity.
+    dt : float
+        Lag time at which to evaluate the self-intermediate scattering function.
+
+    Returns
+    -------
+    Q : float
+        Dynamical overlap.
+    """
+
+    return np.exp(-(k**2)*msd_th_AOUP(D, Dr, dt)/2)
+
+def selfIntScattFunc_relaxation_free_AOUP(k, D, Dr):
+    """
+    Returns structural relaxation time for a free Ornstein-Uhlenbeck particle,
+    given as the time for the self-intermediate scattering function to decrease
+    below \\exp(-1).
+
+    (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
+
+    Parameters
+    ----------
+    k : float
+        Wave-vector norm.
+    D : float
+        Translational diffusivity.
+    Dr : float
+        Rotational diffusivity.
+
+    Returns
+    -------
+    t : float
+        Relaxation time.
+    """
+
+    return (
+        (Dr
+            + 2*D*(k**2)*(1 + lambertw(-np.exp(-1 - Dr/(2*D*(k**2))))))
+        /(2*D*Dr*(k**2)))
