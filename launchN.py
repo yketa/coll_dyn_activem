@@ -69,10 +69,6 @@ _Emin = 1   # default minimum energy at which to stop the minimisation
 
 _launch = 0 # default launch identifier
 
-_nWork = 0  # default number of frames on which to sum the active work before dumping
-_dump = 1   # default boolean to indicate to dump positions and orientations to output file
-_period = 1 # default period of dumping of positions and orientations in number of frames
-
 _N_cell = 100                                                           # number of particles above which simulations should be launched with a cell list
 _exec_dir = path.join(path.dirname(path.realpath(__file__)), 'build')   # default executable directory
 _exec_name = ['simulationN%s', 'simulationN%s_cell_list']               # default executable name without and with a cell list
@@ -109,7 +105,7 @@ if __name__ == '__main__':
             ratioN = N/dat.N                                                    # ratio of number of particles
             Dr = get_env('DR', default=dat.Dr, vartype=float)                   # rotational diffusivity
             epsilon = get_env('EPSILON', default=dat.epsilon, vartype=float)    # coefficient parameter of potential
-            D = get_env('D', default=dat.D, vartype=float)                      # translational diffusivity
+            D = 0 if Dr == 0 else get_env('D', default=dat.D, vartype=float)    # translational diffusivity
             v0 = get_env('V0', default=dat.v0, vartype=float)                   # self-propulsion velocity
             phi = get_env('PHI', default=dat.phi, vartype=float)                # packing fraction
             I = get_env('I', default=-1, vartype=float)                         # polydispersity index
