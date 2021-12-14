@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <random>
+#include <assert.h>
 #include <iostream>
 
 #include "dat.hpp"
@@ -82,6 +83,7 @@ class Particle {
  */
 
 class CellList {
+  // https://aiichironakano.github.io/cs596/01-1LinkedListCell.pdf
   // Particles are assigned dynamically to cells tiling the system and
   // represented schematically below.
   //  _____ _____ _____
@@ -102,254 +104,89 @@ class CellList {
   // (1), (2), (3), (4)} to compute all interactions.
   // Cells (1) to (4) are denoted as the "right" (R) block, and cells (5) to (8)
   // as the "left" (L) block.
-  // Confinement, if present, is applied on the vertical (1) direction, and the
-  // horizontal (0) direction remains periodic.
-  // NOTE: This decomposition works ONLY when there at least 3 blocks in the
-  //       PERIODIC direction.
 
   public:
 
-    // CONSTRUCTORS
+    // CONSTRUCTOR
 
-    CellList(double const& L, double const& Lc = 0) :
-      systemSize(L),
-      isConfined((Lc > 0)),
-      confiningLength(Lc),
-      cutOff(), dispMax(), numberParticles(), numberBoxes(), sizeBox(),
-      cellList(), rightNeigbours(), leftNeigbours() {}
+    CellList() : N(0), L(0), n_cells(0), l_cell(0), linkedList(0), head(0) {}
 
-    // DESTRUCTORS
+    CellList(int const& N_, double const& L_, double const& r_cut_) :
+      N(N_), L(L_), n_cells(floor(L/r_cut_)), l_cell(L/n_cells),
+      linkedList(N, 0), head(n_cells*n_cells, 0) {
+      // assert(n_cells >= 3); // only works for 9+ boxes grids
+    }
 
-    ~CellList() {;}
+    CellList(
+      std::vector<std::vector<double>> const& positions_,
+      double const& L_, double const& r_cut_) :
+      N(positions_.size()), L(L_), n_cells(floor(L/r_cut_)), l_cell(L/n_cells),
+      linkedList(N, 0), head(n_cells*n_cells, 0) {
+      // assert(n_cells >= 3); // only works for 9+ boxes grids
+      listConstructor<std::vector<double>>(positions_); // build linked list
+    }
 
     // METHODS
 
-    int getNumberBoxes() { return numberBoxes[0]*numberBoxes[1]; } // return number of boxes
-    int* getNumberBoxesFull() { return &(numberBoxes[0]); } // return pointer to number of boxes
-    std::vector<int>* getCell(int const& index) { return &(cellList[index]); } // return pointer to vector of indexes in cell
+    template<typename T> void listConstructor(std::vector<T> const& positions) {
+      //  Construct linked list.
 
-    void initialise(std::vector<double> const& diameters,
-      double const& potentialCutOff = pow(2.0, 1./6.)) {
-      // Initialise cell list.
-
-      numberParticles = diameters.size();
-
-      #ifdef USE_CELL_LIST // this is not useful when not using cell lists
-
-      // parameters of cell list
-      cutOff = potentialCutOff
-        *(*std::max_element(diameters.begin(), diameters.end()));
-      numberBoxes[0] =
-        std::max((int) (systemSize/cutOff), 1);
-      numberBoxes[1] = isConfined ?
-        std::max((int) (confiningLength/cutOff), 1) : numberBoxes[0];
-      if ( numberBoxes[0] <= 2 && numberBoxes[1] <= 2 ) { // all boxes interact with each others
-        numberBoxes[0] = 1;
-        numberBoxes[1] = 1;
+      int c; // cell index
+      for (c=0; c < n_cells*n_cells; c++) { head[c] = -1; }
+      for (int i=0; i < N; i++) {
+        c =
+          floor(positions[i][0]/l_cell) + n_cells*floor(positions[i][1]/l_cell);
+        linkedList[i] = head[c]; // link to previous occupant
+        head[c] = i; // last one goes to the header
       }
-      sizeBox[0] = systemSize/numberBoxes[0];
-      sizeBox[1] = isConfined ? confiningLength/numberBoxes[1] : sizeBox[0];
-      dispMax = (std::min(sizeBox[0], sizeBox[1]) - cutOff)/2;
-
-      // set size of cell list
-      cellList.clear();
-      for (int i=0; i < numberBoxes[0]*numberBoxes[1]; i++) {
-        cellList.push_back(std::vector<int>());
-      }
-
-      // create neighbouring cells lists
-      rightNeigbours.clear();
-      leftNeigbours.clear();
-      std::vector<std::tuple<int,int>> rightIncrements(0);
-      rightIncrements.push_back(std::make_tuple(0, -1));
-      rightIncrements.push_back(std::make_tuple(1, -1));
-      rightIncrements.push_back(std::make_tuple(1, 0));
-      rightIncrements.push_back(std::make_tuple(1, 1));
-      int i;
-      int dx, dy;
-      int neighbour;
-      bool flag = true;
-      for (int y=0; y < numberBoxes[1]; y++) {
-        for (int x=0; x < numberBoxes[0]; x++) {
-          i = x + numberBoxes[0]*y; // cell index
-          rightNeigbours.push_back(std::vector<int>());
-          leftNeigbours.push_back(std::vector<int>());
-          for (std::tuple<int,int> rI : rightIncrements) {
-            if ( getNumberBoxes() == 1 ) { break; }
-            // *** right neighbours ***
-            if ( numberBoxes[0] > 2 ) { // at least 3 blocks in the periodic direction
-              dx = std::get<0>(rI);
-              dy = std::get<1>(rI);
-            }
-            else { // only 2 blocks in the periodic direction (trick is to take increments {-dy, dx})
-              dx = -std::get<1>(rI);
-              dy = std::get<0>(rI);
-              if ( x + dx >= numberBoxes[0] || x + dx < 0 ) { flag = false; }
-            }
-            if ( flag &&
-              ( !isConfined || ( y + dy < numberBoxes[1] && y + dy >= 0 ) ) ) {
-              neighbour =
-                  (numberBoxes[0] + (x + dx))%numberBoxes[0]    // neighbour x
-                + numberBoxes[0]*
-                  ((numberBoxes[1] + (y + dy))%numberBoxes[1]); // neighbour y
-              rightNeigbours[i].push_back(neighbour);
-            }
-            flag = true;
-            // *** left neighbours ***
-            if ( numberBoxes[0] > 2 ) { // at least 3 blocks in the periodic direction
-              dx = -std::get<0>(rI);
-              dy = -std::get<1>(rI);
-            }
-            else { // only 2 blocks in the periodic direction (trick is to take increments {-dy, dx})
-              dx = std::get<1>(rI);
-              dy = -std::get<0>(rI);
-              if ( x + dx >= numberBoxes[0] || x + dx < 0 ) { flag = false; }
-            }
-            if ( flag &&
-              ( !isConfined || ( y + dy < numberBoxes[1] && y + dy >= 0 ) ) ) {
-              neighbour =
-                  (numberBoxes[0] + (x + dx))%numberBoxes[0]    // neighbour x
-                + numberBoxes[0]*
-                  ((numberBoxes[1] + (y + dy))%numberBoxes[1]); // neighbour y
-              leftNeigbours[i].push_back(neighbour);
-            }
-            flag = true;
-          }
-        }
-      }
-
-      #endif
-    }
-
-    void update(std::vector<double*> const& positions) {
-      // Put particles in the cell list.
-
-      #ifdef USE_CELL_LIST // this is not useful when not using cell lists
-
-      // flush old lists
-      for (int i=0; i < (int) cellList.size(); i++) {
-        cellList[i].clear();
-      }
-
-      // create new lists
-      for (int i=0; i < (int) positions.size(); i++) {
-        cellList[index(positions[i])].push_back(i); // particles are in increasing order of indices
-      }
-
-      #endif
-    }
-
-    int index(double* const& position) {
-      // Index of the box corresponding to a given position.
-
-      int x = std::floor(position[0]/sizeBox[0]);
-      int y = std::floor(position[1]/sizeBox[1]);
-      // check values are in {0, ..., numberBoxes - 1}
-      while ( x < 0 ) x += numberBoxes[0];
-      while ( x >= numberBoxes[0] ) x -= numberBoxes[0];
-      while ( y < 0 ) y += numberBoxes[1];
-      while ( y >= numberBoxes[1] ) y -= numberBoxes[1];
-
-      return x + numberBoxes[0]*y;
-    }
-
-    std::vector<int>* getRightNeighbourCells(int const& cellIndex) {
-      // Returns pointer to vector of indexes of "right" (R) neighbouring cells.
-      return &(rightNeigbours[cellIndex]);
-    }
-    std::vector<int>* getLeftNeighbourCells(int const& cellIndex) {
-      // Returns pointer to vector of indexes of "left" (L) neighbouring cells.
-      return &(leftNeigbours[cellIndex]);
-    }
-
-    std::vector<int> getNeighbours(double* const& position) {
-      // Returns vector of indexes of particles neighbouring a given position.
-
-      std::vector<int> neighbours(0); // vector of neighbouring particles
-
-      int cellIndex = index(position);
-
-      // particles in same cell
-      for (int i : cellList[cellIndex]) {
-        neighbours.push_back(i);
-      }
-      // right neighbours
-      for (int c : rightNeigbours[cellIndex]) {
-        for (int i : cellList[c]) {
-          neighbours.push_back(i);
-        }
-      }
-      // left neighbours
-      for (int c : leftNeigbours[cellIndex]) {
-        for (int i : cellList[c]) {
-          neighbours.push_back(i);
-        }
-      }
-
-      return neighbours;
     }
 
     template<typename F> void pairs(F function) {
-      // Given a function `function` with parameters (int index1, int index2),
-      // call this function with every unique pair of interacting particles.
+      // Compute function for all neighbouring particles.
 
-      #ifdef USE_CELL_LIST
+      int  i, j; // particle indices
+      int cx1, cy1, c1; // index of cell
+      int cx2, cy2, c2; // index of neighbouring cell
+      for (cx1=0; cx1 < n_cells; cx1++) {
+        for (cy1=0; cy1 < n_cells; cy1++) {
+          c1 = cx1 + n_cells*cy1;
+          for (int inc=0; inc < 5; inc++) {
+            cx2 = cx1 + increments[inc][0];
+            if ( cx2 == -1 ) { cx2 = n_cells - 1; }
+            if ( cx2 == n_cells ) { cx2 = 0; }
+            cy2 = cy1 + increments[inc][1];
+            if ( cy2 == -1 ) { cy2 = n_cells - 1; }
+            if ( cy2 == n_cells ) { cy2 = 0; }
+            c2 = cx2 + n_cells*cy2;
 
-      int index1, index2; // index of the couple of particles
-      // int i, j; // indexes of the cells
-      int k, l; // indexes of the particles in the cell
-      std::vector<int> cell1, cell2; // cells
-      for (int i=0; i < getNumberBoxes(); i++) { // loop over cells
-
-        cell1 = cellList[i]; // indexes of particles in the first cell
-        for (k=0; k < (int) cell1.size(); k++) { // loop over particles in the first cell
-          index1 = cell1[k];
-
-          // interactions with particles in the same cell
-          for (l=k+1; l < (int) cell1.size(); l++) { // loop over particles in the first cell
-            index2 = cell1[l];
-            function(index1, index2);
-          }
-
-          // interations with particles in other cells
-          for (int j : rightNeigbours[i]) { // loop over "right" (R) neighbouring cells
-            cell2 = cellList[j]; // indexes of particles in the second cell
-            for (int index2 : cell2) { // loop over particles in the second cell
-              function(index1, index2);
+            // COMPUTE PAIRS
+            i = head[c1];
+            while ( i != -1 ) { // loop over particles of cell
+              j = head[c2];
+              while ( j != -1 ) { // loop over particles of neighbouring cell
+                if ( c1 != c2 || i < j ) { // avoid double counting of pair (i, j) in same box
+                  function(i, j);
+                }
+                j = linkedList[j];
+              }
+              i = linkedList[i];
             }
           }
         }
       }
-
-      #else
-
-      for (int index1=0; index1 < numberParticles; index1++) {
-        for (int index2=index1 + 1; index2 < numberParticles; index2++) {
-          function(index1, index2);
-        }
-      }
-
-      #endif
     }
 
   private:
 
-    // ATTRIBUTES
+    double N; // number of particles
+    double L; // system size
+    double n_cells; // linear number of cells in the cell list
+    double l_cell; // linear size of a cell
 
-    double const systemSize; // size of the system
-    bool const isConfined; // confinement state of the system
-    double const confiningLength; // confining length
+    double increments[5][2] = {{1, -1}, {0, 0}, {1, 0}, {0, 1}, {1, 1}}; // increments to RIGHT neighbouring cells (including cell itself)
 
-    double cutOff; // cut-off radius of the interactions
-    double dispMax; // maximum allowed displacement before recomputing the celllist
-
-    int numberParticles; // number of particles
-    int numberBoxes[2]; // number of boxes in each dimension
-    double sizeBox[2]; // size of each box
-
-    std::vector<std::vector<int>> cellList; // cells with indexes of particles
-    std::vector<std::vector<int>> rightNeigbours; // "right" (R) neighbouring cells
-    std::vector<std::vector<int>> leftNeigbours; // "left" (L) neighbouring cells
+    std::vector<int> linkedList; // linkedList[i] = particle indices to which the i-th particle points
+    std::vector<int> head; // head[c] = index of the first particle in the c-th cell or -1 if there is no particle in the cell
 
 };
 
@@ -958,160 +795,6 @@ class SystemN {
 };
 
 
-// /*  SYSTEMC
-//  *  -------
-//  *  Store physical and integration parameter.
-//  *  Access to distance and potentials.
-//  *  Save system state to output file ONLY for pre-defined frames.
-//  *  Using all free parameters.
-//  */
-//
-// class SystemC {
-//   /*  Contains all the details to simulate a system of confinded active
-//    *  particles.
-//    *  (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
-//    *  (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
-//    *  (see https://yketa.github.io/PhD_Wiki/#Confined%AOUP)
-//    *
-//    *  Parameters are stored in a binary file with the following structure:
-//    *
-//    *  [HEADER (see System::System)]
-//    *  | (int) N | (double) epsilon | (double) v0 | (double) D | (double) Dr | (double) lp | (double) phi | (double) L | (double) Lc | (int) seed | (double) dt |
-//    *  || (int) NinitialTimes | (int) initialTimes[0] | ... | initialTimes[NinitialTimes - 1] ||
-//    *  || (int) NlagTimes | (int) lagTimes[0]  | ... | (int) lagTimes[NlagTimes - 1] ||
-//    *  || (int) Nframes | (int) frameIndices[0] | ... | (int) frameIndices[Nframes - 1] ||
-//    *  ||    PARTICLE 1     | ... |     PARTICLE N    ||
-//    *  || (double) diameter | ... | (double) diameter ||
-//    *
-//    *  [FRAMES (see SystemC::saveInitialState & SystemC::saveNewState)] (all double)
-//    *  ||                                 FRAME I                                 ||
-//    *  ||                      PARTICLE 1                      | ... | PARTICLE N ||
-//    *  ||   R   | ORIENTATION |   V   |     P     | UNFOLDED R | ... |     ...    ||
-//    *  || X | Y |    theta    | 0 | 0 | P_X | P_Y |   X  |  Y  | ... |     ...    ||
-//    */
-//
-//   public:
-//
-//     // CONSTRUCTORS
-//
-//     SystemC();
-//     SystemC(
-//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
-//         std::vector<int>* time0, std::vector<int>* deltat,
-//       Parameters* parameters, int seed = 0, std::string filename = "");
-//     SystemC(
-//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
-//         std::vector<int>* time0, std::vector<int>* deltat,
-//       Parameters* parameters, std::vector<double>& diameters, int seed = 0,
-//       std::string filename = "");
-//     SystemC(
-//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
-//         std::vector<int>* time0, std::vector<int>* deltat,
-//       SystemC* system, int seed = 0, std::string filename = "");
-//     SystemC(
-//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
-//         std::vector<int>* time0, std::vector<int>* deltat,
-//       SystemC* system, std::vector<double>& diameters, int seed = 0,
-//       std::string filename = "");
-//     SystemC(
-//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
-//         std::vector<int>* time0, std::vector<int>* deltat,
-//       std::string inputFilename, int inputFrame = 0, double dt = 0,
-//       int seed = 0, std::string filename = "");
-//     SystemC(
-//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
-//         std::vector<int>* time0, std::vector<int>* deltat,
-//       std::string inputFilename, int inputFrame = 0, Parameters* parameters = 0,
-//       int seed = 0, std::string filename = "");
-//     SystemC(
-//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
-//         std::vector<int>* time0, std::vector<int>* deltat,
-//       std::string inputFilename, int inputFrame = 0, Parameters* parameters = 0,
-//         std::vector<double> const diameters = {0},
-//       int seed = 0, std::string filename = "");
-//
-//     // DESTRUCTORS
-//
-//     ~SystemC();
-//
-//     // METHODS
-//
-//     std::vector<int> const* getFrames(); // returns pointer to vector of indices of frames to save
-//
-//     Parameters* getParameters(); // returns pointer to class of parameters
-//     std::vector<double> getDiameters() const; // returns vector of diameters
-//
-//     int getNumberParticles() const; // returns number of particles
-//     double getPotentialParameter() const; // returns coefficient parameter of potential
-//     double getPropulsionVelocity() const; // returns self-propulsion velocity
-//     double getTransDiffusivity() const; // returns translational diffusivity
-//     double getRotDiffusivity() const; // returns rotational diffusivity
-//     double getPersistenceLength() const; // returns persistence length
-//     double getPackingFraction() const; // returns packing fraction
-//     double getSystemSize() const; // returns system size
-//     double getConfiningLength() const; // returns confining length
-//     double getTimeStep() const; // returns time step
-//
-//     int getRandomSeed() const; // returns random seed
-//     Random* getRandomGenerator(); // returns pointer to random generator
-//
-//     Particle* getParticle(int const& index); // returns pointer to given particle
-//     std::vector<Particle> getParticles(); // returns vector of particles
-//
-//     CellList* getCellList(); // returns pointer to CellList object
-//     void initialiseCellList(double const& cutOff = pow(2.0, 1./6.)); // initialise cell list
-//     void updateCellList(); // update cell list with current positions
-//
-//     std::string getOutputFile() const; // returns output file name
-//
-//     int* getDump(); // returns number of frames dumped since last reset
-//     void resetDump();
-//       // Reset time-extensive quantities over trajectory.
-//     void copyDump(SystemC* system);
-//       // Copy dumps from other system.
-//       // WARNING: This also copies the index of last frame dumped. Consistency
-//       //          has to be checked.
-//
-//     void copyState(std::vector<Particle>& newParticles);
-//       // Copy positions and orientations.
-//     void copyState(SystemC* system);
-//       // Copy positions and orientations.
-//
-//     void saveInitialState();
-//       // Saves initial state of particles to output file.
-//     void saveNewState(std::vector<Particle>& newParticles);
-//       // Saves new state of particles to output file then copy it.
-//
-//     bool isConfined() const { return true; }
-//
-//   private:
-//
-//     // ATTRIBUTES
-//
-//     std::vector<int> const frameIndices; // indices of frames to save
-//     // NOTE: This vector is sorted and the element 0 is removed.
-//     // NOTE: Frame 0 is ALWAYS saved first.
-//
-//     Parameters param; // class of simulation parameters
-//
-//     int const randomSeed; // random seed
-//     Random randomGenerator; // random number generator
-//
-//     std::vector<Particle> particles; // vector of particles
-//
-//     CellList cellList; // cell list
-//
-//     Write output; // output class
-//     std::vector<long int> velocitiesDumps; // locations in output file to dump velocities
-//
-//     int dumpFrame; // number of frames dumped since last reset
-//
-//     double kineticEnergy = 0; // sum of squared velocities
-//     double kineticEnergyFactor = 1e3; // threshold in units of squared self-propulsion velocity not to exceed for mean squared velocities
-//
-// };
-
-
 /*  ROTORS
  *  ------
  *  Store physical and integration parameter.
@@ -1472,9 +1155,9 @@ template<class DatClass> void checkCellList(
       positions[i][dim] = dat.getPosition(frame, i, dim, false);
     }
   }
-  CellList cl(L);
-  cl.initialise(diameters, cutOff);
-  cl.update(positionsPTR);
+  CellList cl(N, L,
+    cutOff*(*std::max_element(diameters.begin(), diameters.end())));
+  cl.listConstructor<double*>(positionsPTR);
 
   std::cout << "FRAME: " << frame << std::endl;
   std::cout << "CUT OFF: " << cutOff << std::endl << std::endl;

@@ -40,7 +40,7 @@ class ADD {
       numberParticles(N), systemSize(L), diameters(sigma),
       positions(2*numberParticles, 0),
       propulsions(2*numberParticles, 0), propulsions0(2*numberParticles, 0),
-      randomSeed(seed), randomGenerator(randomSeed), cellList(systemSize),
+      randomSeed(seed), randomGenerator(randomSeed), cellList(),
       velocity(f), timeStep(dt),
       output(filename != "" ? filename + ".add" : ""),
       system(
@@ -51,18 +51,6 @@ class ADD {
             numberParticles/pow(systemSize, 2),
           const_cast<std::vector<double>&>(diameters), systemSize, timeStep),
         const_cast<std::vector<double>&>(diameters), seed, filename),
-      ////////////////////////////////
-      // NUMBER OF PARTICLES IN EVENTS
-      // n_events(filename != "" ? filename + ".n_events" : ""),
-      // r_max_events(*std::max_element(std::begin(sigma), std::end(sigma))*1.15),
-      ////////////////////////////////
-      /////////////////////////
-      // SQUARED VELOCITY IN MD
-      #ifdef ADD_MD
-      initFrames(init),
-      velo2MD(0), _velo2MD(iterMaxMD/iterMinMD, 0),
-      #endif
-      /////////////////////////
       iterMax(100*numberParticles) {
 
       // propulsions
@@ -73,13 +61,8 @@ class ADD {
       }
 
       // cell list
-      cellList.initialise(diameters, rcut);
-
-      ////////////////////////////////
-      // NUMBER OF PARTICLES IN EVENTS
-      // n_events.write<double>(d_th_events);
-      // n_events.write<double>(r_max_events);
-      ////////////////////////////////
+      cellList = CellList(numberParticles, systemSize,
+          rcut*(*std::max_element(diameters.begin(), diameters.end())));
     }
 
     // DESTRUCTORS
@@ -117,7 +100,7 @@ class ADD {
     Random* getRandomGenerator() { return &randomGenerator; } // returns pointer to random generator
 
     CellList* getCellList() { return &cellList; } // returns pointer to cell list
-    void updateCellList() { cellList.update(getPositions()); } // updates cell list with positions
+    void updateCellList() { cellList.listConstructor<double*>(getPositions()); } // updates cell list with positions
 
     double const getVelocity() { return velocity; } // returns velocity
 
@@ -330,7 +313,7 @@ class ADD {
               rPTR[i][dim] = r[2*i + dim]; // `rPTR' should already point to `positions'
             }
           }
-          cl->update(rPTR);
+          cl->listConstructor<double*>(rPTR);
           // propulsion part
           U[0] = 0;
           double av_prop[2] = {0, 0};
@@ -462,21 +445,11 @@ class ADD {
       int iterations = 0;
       gradUeff = gradientUeff();
       gradUeff2 = gradientUeff2(gradUeff);
-      /////////////////////////
-      // SQUARED VELOCITY IN MD
-      for (int i=0; i < _velo2MD.size(); i++) { _velo2MD[i] = 0; }
-      /////////////////////////
       while (
         #ifndef ADD_NO_LIMIT
         iterations < iterMaxMD &&
         #endif
         sqrt(gradUeff2/numberParticles) > gradMax ) {
-        /////////////////////////
-        // SQUARED VELOCITY IN MD
-        if ( iterations < iterMaxMD ) {
-          _velo2MD[iterations/iterMinMD] = gradUeff2/numberParticles;
-        }
-        /////////////////////////
         for (int step=0; step < iterMinMD; step++) {
           for (int i=0; i < numberParticles; i++) {
             for (int dim=0; dim < 2; dim++) {
@@ -511,51 +484,6 @@ class ADD {
           dms += pow(dr, 2)/numberParticles;
         }
       }
-      ////////////////////////////////
-      // NUMBER OF PARTICLES IN EVENTS
-      // if ( dEp > 0 ) {
-      //   double dr2 = 0;
-      //   std::vector<double> pos_events(0);
-      //   for (int i=0; i < numberParticles; i++) {
-      //     dr2 = 0;
-      //     for (int dim=0; dim < 2; dim++) {
-      //       dr2 += pow(
-      //         algDistPeriod(
-      //           r0[2*i + dim],
-      //           positions[2*i + dim] // wrapped coordinate
-      //             - (wrapCoordinate<SystemN>(&system, positions[2*i + dim])
-      //               *systemSize),
-      //           systemSize),
-      //         2);
-      //     }
-      //     if ( dr2 > d_th_events*d_th_events ) {
-      //       for (int dim=0; dim < 2; dim++) {
-      //         pos_events.push_back(r0[2*i + dim]);
-      //       }
-      //     }
-      //   }
-      //   std::vector<int> clusters = clusters2D(
-      //     (int) pos_events.size()/2, systemSize, &pos_events[0], r_max_events);
-      //   std::vector<int> n_clusters(clusters[0], 0);
-      //   for (int i=0; i < (int) pos_events.size()/2; i++) {
-      //     n_clusters[clusters[i + 1]]++;
-      //     /////
-      //     // TEST
-      //     // n_events_test.write<int>(clusters[i + 1]);
-      //     /////
-      //   }
-      //   for (int n : n_clusters) { n_events.write<int>(n); }
-      // }
-      ////////////////////////////////
-      /////////////////////////
-      // SQUARED VELOCITY IN MD
-      #ifdef ADD_MD
-      if ( dEp > 0 && system.getDump()[0] >= initFrames ) { // save velocities for plastic events
-        velo2MD.push_back(_velo2MD);
-        n_p_events++;
-      }
-      #endif
-      /////////////////////////
       // output
       output.write<int>(termination);
       output.write<int>(iterations);
@@ -599,13 +527,6 @@ class ADD {
     Write output; // output object
     SystemN system; // system object saving purposes
 
-    ////////////////////////////////
-    // NUMBER OF PARTICLES IN EVENTS
-    // Write n_events; // output objects with number of particles in each event
-    // double d_th_events = 0.1; // minimum displacement during a plastic rearrangement to be considered in an event
-    // double r_max_events; // minimum distance between different clusters
-    ////////////////////////////////
-
     int const a = 12; // potential parameter
     double const rcut = 1.25; // potential cut-off radius
     double const c0 = -(8 + a*(a + 6))/(8*pow(rcut, a)); // constant part of potential
@@ -623,17 +544,6 @@ class ADD {
     int const iterMinMD = 1e3; // number of molecular dynamics steps before checking scaled gradient of effective potential
     int const iterMaxMD = 400/dtMD; // maximum number of molecular dynamics steps
 
-  /////////////////////////
-  // SQUARED VELOCITY IN MD
-  #ifdef ADD_MD
-  public:
-    int const initFrames; // number of initialisation frames
-    std::vector<std::vector<double>> velo2MD; // squared velocity in MD minimisation (plastic events)
-    std::vector<double> _velo2MD; // squared velocity in MD minimisation
-    int n_p_events = 0; // number of plastic events
-    double const dtMDstep = dtMD*iterMinMD; // MD time between MD iterations in minisations
-  #endif
-  /////////////////////////
 };
 
 #endif
