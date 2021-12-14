@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <random>
+#include <iostream>
 
 #include "dat.hpp"
 #include "maths.hpp"
@@ -14,7 +15,7 @@
 /////////////
 
 class Particle;
-template<class> class CellList;
+class CellList;
 class Parameters;
 class System;
 class System0;
@@ -38,6 +39,7 @@ class Particle {
       double const& x, double const& y,
       double const& ang, double const& px, double const& py,
       double const& d = 1);
+    Particle(Particle* particle);
 
     // METHODS
 
@@ -79,14 +81,42 @@ class Particle {
  *  Speed up computation by storing closest neighbours.
  */
 
-template<class SystemClass> class CellList {
+class CellList {
+  // Particles are assigned dynamically to cells tiling the system and
+  // represented schematically below.
+  //  _____ _____ _____
+  // |     |     |     |
+  // |L(6)L|L(5)L|R(4)R|
+  // |_____|_____|_____|
+  // |     |     |     |
+  // |L(7)L| (*) |R(3)R|
+  // |_____|_____|_____|
+  // |     |     |     |
+  // |L(8)L|R(1)R|R(2)R|
+  // |_____|_____|_____|
+  //
+  // These cells are built such that all particles interacting with the ones in
+  // cell (*) are either in cell (*) or in cells (1) to (8).
+  // Using Newton's third law, it is only necessary to loop once over all cells
+  // and computing interactions between particles in (*), and particles in {(*),
+  // (1), (2), (3), (4)} to compute all interactions.
+  // Cells (1) to (4) are denoted as the "right" (R) block, and cells (5) to (8)
+  // as the "left" (L) block.
+  // Confinement, if present, is applied on the vertical (1) direction, and the
+  // horizontal (0) direction remains periodic.
+  // NOTE: This decomposition works ONLY when there at least 3 blocks in the
+  //       PERIODIC direction.
 
   public:
 
     // CONSTRUCTORS
 
-    CellList(SystemClass* sys) : system(sys),
-      cutOff(), numberBoxes(), sizeBox(), dmin(), cellList() {}
+    CellList(double const& L, double const& Lc = 0) :
+      systemSize(L),
+      isConfined((Lc > 0)),
+      confiningLength(Lc),
+      cutOff(), dispMax(), numberParticles(), numberBoxes(), sizeBox(),
+      cellList(), rightNeigbours(), leftNeigbours() {}
 
     // DESTRUCTORS
 
@@ -94,41 +124,104 @@ template<class SystemClass> class CellList {
 
     // METHODS
 
-    int getNumberBoxes() { return numberBoxes; } // return number of boxes in each dimension
-    std::vector<int>* getCell(int const& index) { return &cellList[index]; } // return pointer to vector of indexes in cell
-    Particle* getParticle(int const& index) // return pointer to particle
-      { return system->getParticle(index); }
+    int getNumberBoxes() { return numberBoxes[0]*numberBoxes[1]; } // return number of boxes
+    int* getNumberBoxesFull() { return &(numberBoxes[0]); } // return pointer to number of boxes
+    std::vector<int>* getCell(int const& index) { return &(cellList[index]); } // return pointer to vector of indexes in cell
 
-    void initialise() {
+    void initialise(std::vector<double> const& diameters,
+      double const& potentialCutOff = pow(2.0, 1./6.)) {
       // Initialise cell list.
+
+      numberParticles = diameters.size();
 
       #ifdef USE_CELL_LIST // this is not useful when not using cell lists
 
       // parameters of cell list
-      std::vector<double> diameters = system->getDiameters();
-      cutOff = (*std::max_element(diameters.begin(), diameters.end()))
-        *pow(2.0, 1./6.);
-      numberBoxes = std::max((int) (system->getSystemSize()/cutOff), 1);
-      sizeBox = system->getSystemSize()/numberBoxes;
+      cutOff = potentialCutOff
+        *(*std::max_element(diameters.begin(), diameters.end()));
+      numberBoxes[0] =
+        std::max((int) (systemSize/cutOff), 1);
+      numberBoxes[1] = isConfined ?
+        std::max((int) (confiningLength/cutOff), 1) : numberBoxes[0];
+      if ( numberBoxes[0] <= 2 && numberBoxes[1] <= 2 ) { // all boxes interact with each others
+        numberBoxes[0] = 1;
+        numberBoxes[1] = 1;
+      }
+      sizeBox[0] = systemSize/numberBoxes[0];
+      sizeBox[1] = isConfined ? confiningLength/numberBoxes[1] : sizeBox[0];
+      dispMax = (std::min(sizeBox[0], sizeBox[1]) - cutOff)/2;
 
       // set size of cell list
       cellList.clear();
-      for (int i=0; i < pow(numberBoxes, 2); i++) {
+      for (int i=0; i < numberBoxes[0]*numberBoxes[1]; i++) {
         cellList.push_back(std::vector<int>());
       }
 
-      // set number of neighbours to explore
-      if ( numberBoxes == 1 ) { dmin = 1; }
-      else if ( numberBoxes == 2 ) { dmin = 0; }
-      else { dmin = -1; }
-
-      // put particles in the boxes
-      update();
+      // create neighbouring cells lists
+      rightNeigbours.clear();
+      leftNeigbours.clear();
+      std::vector<std::tuple<int,int>> rightIncrements(0);
+      rightIncrements.push_back(std::make_tuple(0, -1));
+      rightIncrements.push_back(std::make_tuple(1, -1));
+      rightIncrements.push_back(std::make_tuple(1, 0));
+      rightIncrements.push_back(std::make_tuple(1, 1));
+      int i;
+      int dx, dy;
+      int neighbour;
+      bool flag = true;
+      for (int y=0; y < numberBoxes[1]; y++) {
+        for (int x=0; x < numberBoxes[0]; x++) {
+          i = x + numberBoxes[0]*y; // cell index
+          rightNeigbours.push_back(std::vector<int>());
+          leftNeigbours.push_back(std::vector<int>());
+          for (std::tuple<int,int> rI : rightIncrements) {
+            if ( getNumberBoxes() == 1 ) { break; }
+            // *** right neighbours ***
+            if ( numberBoxes[0] > 2 ) { // at least 3 blocks in the periodic direction
+              dx = std::get<0>(rI);
+              dy = std::get<1>(rI);
+            }
+            else { // only 2 blocks in the periodic direction (trick is to take increments {-dy, dx})
+              dx = -std::get<1>(rI);
+              dy = std::get<0>(rI);
+              if ( x + dx >= numberBoxes[0] || x + dx < 0 ) { flag = false; }
+            }
+            if ( flag &&
+              ( !isConfined || ( y + dy < numberBoxes[1] && y + dy >= 0 ) ) ) {
+              neighbour =
+                  (numberBoxes[0] + (x + dx))%numberBoxes[0]    // neighbour x
+                + numberBoxes[0]*
+                  ((numberBoxes[1] + (y + dy))%numberBoxes[1]); // neighbour y
+              rightNeigbours[i].push_back(neighbour);
+            }
+            flag = true;
+            // *** left neighbours ***
+            if ( numberBoxes[0] > 2 ) { // at least 3 blocks in the periodic direction
+              dx = -std::get<0>(rI);
+              dy = -std::get<1>(rI);
+            }
+            else { // only 2 blocks in the periodic direction (trick is to take increments {-dy, dx})
+              dx = std::get<1>(rI);
+              dy = -std::get<0>(rI);
+              if ( x + dx >= numberBoxes[0] || x + dx < 0 ) { flag = false; }
+            }
+            if ( flag &&
+              ( !isConfined || ( y + dy < numberBoxes[1] && y + dy >= 0 ) ) ) {
+              neighbour =
+                  (numberBoxes[0] + (x + dx))%numberBoxes[0]    // neighbour x
+                + numberBoxes[0]*
+                  ((numberBoxes[1] + (y + dy))%numberBoxes[1]); // neighbour y
+              leftNeigbours[i].push_back(neighbour);
+            }
+            flag = true;
+          }
+        }
+      }
 
       #endif
     }
 
-    void update() {
+    void update(std::vector<double*> const& positions) {
       // Put particles in the cell list.
 
       #ifdef USE_CELL_LIST // this is not useful when not using cell lists
@@ -139,67 +232,124 @@ template<class SystemClass> class CellList {
       }
 
       // create new lists
-      for (int i=0; i < system->getNumberParticles(); i++) {
-        cellList[index(i)].push_back(i); // particles are in increasing order of indices
+      for (int i=0; i < (int) positions.size(); i++) {
+        cellList[index(positions[i])].push_back(i); // particles are in increasing order of indices
       }
 
       #endif
     }
 
-    int index(int const& particleIndex) {
-      // Index of the box corresponding to a given particle.
+    int index(double* const& position) {
+      // Index of the box corresponding to a given position.
 
-      Particle* particle = getParticle(particleIndex);
-
-      int x = (int) ((particle->position())[0]/sizeBox);
-      int y = (int) ((particle->position())[1]/sizeBox);
+      int x = std::floor(position[0]/sizeBox[0]);
+      int y = std::floor(position[1]/sizeBox[1]);
       // check values are in {0, ..., numberBoxes - 1}
-      while ( x < 0 ) x += numberBoxes;
-      while ( x >= numberBoxes ) x -= numberBoxes;
-      while ( y < 0 ) y += numberBoxes;
-      while ( y >= numberBoxes ) y -= numberBoxes;
+      while ( x < 0 ) x += numberBoxes[0];
+      while ( x >= numberBoxes[0] ) x -= numberBoxes[0];
+      while ( y < 0 ) y += numberBoxes[1];
+      while ( y >= numberBoxes[1] ) y -= numberBoxes[1];
 
-      return x + numberBoxes*y;
+      return x + numberBoxes[0]*y;
     }
 
-    std::vector<int> getNeighbours(int const& particleIndex) {
-      // Returns vector of indexes of neighbouring particles.
+    std::vector<int>* getRightNeighbourCells(int const& cellIndex) {
+      // Returns pointer to vector of indexes of "right" (R) neighbouring cells.
+      return &(rightNeigbours[cellIndex]);
+    }
+    std::vector<int>* getLeftNeighbourCells(int const& cellIndex) {
+      // Returns pointer to vector of indexes of "left" (L) neighbouring cells.
+      return &(leftNeigbours[cellIndex]);
+    }
 
-      std::vector<int> neighbours; // vector of neighbouring particles
+    std::vector<int> getNeighbours(double* const& position) {
+      // Returns vector of indexes of particles neighbouring a given position.
 
-      int indexParticle = index(particleIndex);
-      int x = indexParticle%numberBoxes;
-      int y = indexParticle/numberBoxes;
+      std::vector<int> neighbours(0); // vector of neighbouring particles
 
-      int neighbourIndex;
-      for (int dx=dmin; dx < 2; dx++) {
-        for (int dy=dmin; dy < 2; dy++) {
-          neighbourIndex =
-            (numberBoxes + (x + dx))%numberBoxes
-              + numberBoxes*((numberBoxes + (y + dy))%numberBoxes); // index of neighbouring cell
-          neighbours.insert(
-            std::end(neighbours),
-            std::begin(cellList[neighbourIndex]),
-            std::end(cellList[neighbourIndex])); // add particle indexes of neighbouring cell
+      int cellIndex = index(position);
+
+      // particles in same cell
+      for (int i : cellList[cellIndex]) {
+        neighbours.push_back(i);
+      }
+      // right neighbours
+      for (int c : rightNeigbours[cellIndex]) {
+        for (int i : cellList[c]) {
+          neighbours.push_back(i);
+        }
+      }
+      // left neighbours
+      for (int c : leftNeigbours[cellIndex]) {
+        for (int i : cellList[c]) {
+          neighbours.push_back(i);
         }
       }
 
       return neighbours;
     }
 
+    template<typename F> void pairs(F function) {
+      // Given a function `function` with parameters (int index1, int index2),
+      // call this function with every unique pair of interacting particles.
+
+      #ifdef USE_CELL_LIST
+
+      int index1, index2; // index of the couple of particles
+      // int i, j; // indexes of the cells
+      int k, l; // indexes of the particles in the cell
+      std::vector<int> cell1, cell2; // cells
+      for (int i=0; i < getNumberBoxes(); i++) { // loop over cells
+
+        cell1 = cellList[i]; // indexes of particles in the first cell
+        for (k=0; k < (int) cell1.size(); k++) { // loop over particles in the first cell
+          index1 = cell1[k];
+
+          // interactions with particles in the same cell
+          for (l=k+1; l < (int) cell1.size(); l++) { // loop over particles in the first cell
+            index2 = cell1[l];
+            function(index1, index2);
+          }
+
+          // interations with particles in other cells
+          for (int j : rightNeigbours[i]) { // loop over "right" (R) neighbouring cells
+            cell2 = cellList[j]; // indexes of particles in the second cell
+            for (int index2 : cell2) { // loop over particles in the second cell
+              function(index1, index2);
+            }
+          }
+        }
+      }
+
+      #else
+
+      for (int index1=0; index1 < numberParticles; index1++) {
+        for (int index2=index1 + 1; index2 < numberParticles; index2++) {
+          function(index1, index2);
+        }
+      }
+
+      #endif
+    }
+
   private:
 
     // ATTRIBUTES
 
-    SystemClass* system; // pointer to system
+    double const systemSize; // size of the system
+    bool const isConfined; // confinement state of the system
+    double const confiningLength; // confining length
 
     double cutOff; // cut-off radius of the interactions
+    double dispMax; // maximum allowed displacement before recomputing the celllist
 
-    int numberBoxes; // number of boxes in each dimension
-    double sizeBox; // size of each box
-    int dmin; // trick to avoid putting too much neighbours when rcut is large
+    int numberParticles; // number of particles
+    int numberBoxes[2]; // number of boxes in each dimension
+    double sizeBox[2]; // size of each box
 
     std::vector<std::vector<int>> cellList; // cells with indexes of particles
+    std::vector<std::vector<int>> rightNeigbours; // "right" (R) neighbouring cells
+    std::vector<std::vector<int>> leftNeigbours; // "left" (L) neighbouring cells
 
 };
 
@@ -219,9 +369,17 @@ class Parameters {
     Parameters();
     Parameters( // using custom dimensionless parameters relations
       int N, double lp, double phi, double dt, double g = 0);
-    Parameters( // defining all parameters independently
+    Parameters( // defining all parameters independently (L and lp from others)
       int N, double epsilon, double v0, double D, double Dr,
         double phi, std::vector<double> const& diameters,
+      double dt);
+    Parameters( // defining all parameters independently (all)
+      int N, double epsilon, double v0, double D, double Dr, double lp,
+        double phi, std::vector<double> const& diameters, double L,
+      double dt, double Lc = 0);
+    Parameters( // defining all parameters independently and confining length
+      int N, double epsilon, double v0, double D, double Dr,
+        double phi, double Lc, std::vector<double> const& diameters,
       double dt);
     Parameters( // copy other class
       Parameters const& parameters);
@@ -258,6 +416,18 @@ class Parameters {
         inputDat.getPackingFraction(),
         inputDat.getDiameters(),
         dt > 0 ? dt : inputDat.getTimeStep()) {}
+    // Parameters( // copy .datC files
+    //   DatC const& inputDat, double dt = 0) :
+    //   Parameters(
+    //     inputDat.getNumberParticles(),
+    //     inputDat.getPotentialParameter(),
+    //     inputDat.getPropulsionVelocity(),
+    //     inputDat.getTransDiffusivity(),
+    //     inputDat.getRotDiffusivity(),
+    //     inputDat.getPackingFraction(),
+    //     inputDat.getConfiningLength(),
+    //     inputDat.getDiameters(),
+    //     dt > 0 ? dt : inputDat.getTimeStep()) {}
 
     // METHODS
 
@@ -269,6 +439,7 @@ class Parameters {
     double getPersistenceLength() const; // returns persistence length
     double getPackingFraction() const; // returns packing fraction
     double getSystemSize() const; // returns system size
+    double getConfiningLength() const; // returns confining length
     double getTorqueParameter() const; // returns torque parameter
     double getTimeStep() const; // returns time step
 
@@ -284,6 +455,7 @@ class Parameters {
     double const persistenceLength; // persistence length
     double const packingFraction; // packing fraction
     double const systemSize; // system size
+    double const confiningLength; // confining length
     double const torqueParameter; // torque parameter
     double const timeStep; // time step
 
@@ -382,7 +554,9 @@ class System {
     Particle* getParticle(int const& index); // returns pointer to given particle
     std::vector<Particle> getParticles(); // returns vector of particles
 
-    CellList<System>* getCellList(); // returns pointer to CellList object
+    CellList* getCellList(); // returns pointer to CellList object
+    void initialiseCellList(double const& cutOff = pow(2.0, 1./6.)); // initialise cell list
+    void updateCellList(); // update cell list with current positions
 
     void flushOutputFile(); // flush output file
     std::string getOutputFile() const; // returns output file name
@@ -446,7 +620,7 @@ class System {
 
     std::vector<Particle> particles; // vector of particles
 
-    CellList<System> cellList; // cell list
+    CellList cellList; // cell list
 
     Write output; // output class
     std::vector<long int> velocitiesDumps; // locations in output file to dump velocities
@@ -563,7 +737,9 @@ class System0 {
     Particle* getParticle(int const& index); // returns pointer to given particle
     std::vector<Particle> getParticles(); // returns vector of particles
 
-    CellList<System0>* getCellList(); // returns pointer to CellList object
+    CellList* getCellList(); // returns pointer to CellList object
+    void initialiseCellList(double const& cutOff = pow(2.0, 1./6.)); // initialise cell list
+    void updateCellList(); // update cell list with current positions
 
     std::string getOutputFile() const; // returns output file name
 
@@ -609,7 +785,7 @@ class System0 {
 
     std::vector<Particle> particles; // vector of particles
 
-    CellList<System0> cellList; // cell list
+    CellList cellList; // cell list
 
     Write output; // output class
     std::vector<long int> velocitiesDumps; // locations in output file to dump velocities
@@ -655,10 +831,10 @@ class SystemN {
    *  || (double) diameter | ... | (double) diameter ||
    *
    *  [FRAMES (see SystemN::saveInitialState & SystemN::saveNewState)] (all double)
-   *  ||                                 FRAME I                                 ||
-   *  ||                      PARTICLE 1                      | ... | PARTICLE N ||
-   *  ||   R   | ORIENTATION |   V   |     P     | UNFOLDED R | ... |     ...    ||
-   *  || X | Y |    theta    | 0 | 0 | P_X | P_Y |   X  |  Y  | ... |     ...    ||
+   *  ||                                   FRAME I                                   ||
+   *  ||                        PARTICLE 1                        | ... | PARTICLE N ||
+   *  ||   R   | ORIENTATION |     V     |     P     | UNFOLDED R | ... |     ...    ||
+   *  || X | Y |    theta    | V_X | V_Y | P_X | P_Y |   X  |  Y  | ... |     ...    ||
    */
 
   public:
@@ -728,7 +904,9 @@ class SystemN {
     Particle* getParticle(int const& index); // returns pointer to given particle
     std::vector<Particle> getParticles(); // returns vector of particles
 
-    CellList<SystemN>* getCellList(); // returns pointer to CellList object
+    CellList* getCellList(); // returns pointer to CellList object
+    void initialiseCellList(double const& cutOff = pow(2.0, 1./6.)); // initialise cell list
+    void updateCellList(); // update cell list with current positions
 
     std::string getOutputFile() const; // returns output file name
 
@@ -750,6 +928,8 @@ class SystemN {
     void saveNewState(std::vector<Particle>& newParticles);
       // Saves new state of particles to output file then copy it.
 
+    bool isConfined() const { return false; }
+
   private:
 
     // ATTRIBUTES
@@ -765,7 +945,7 @@ class SystemN {
 
     std::vector<Particle> particles; // vector of particles
 
-    CellList<SystemN> cellList; // cell list
+    CellList cellList; // cell list
 
     Write output; // output class
     std::vector<long int> velocitiesDumps; // locations in output file to dump velocities
@@ -776,6 +956,160 @@ class SystemN {
     double kineticEnergyFactor = 1e3; // threshold in units of squared self-propulsion velocity not to exceed for mean squared velocities
 
 };
+
+
+// /*  SYSTEMC
+//  *  -------
+//  *  Store physical and integration parameter.
+//  *  Access to distance and potentials.
+//  *  Save system state to output file ONLY for pre-defined frames.
+//  *  Using all free parameters.
+//  */
+//
+// class SystemC {
+//   /*  Contains all the details to simulate a system of confinded active
+//    *  particles.
+//    *  (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
+//    *  (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
+//    *  (see https://yketa.github.io/PhD_Wiki/#Confined%AOUP)
+//    *
+//    *  Parameters are stored in a binary file with the following structure:
+//    *
+//    *  [HEADER (see System::System)]
+//    *  | (int) N | (double) epsilon | (double) v0 | (double) D | (double) Dr | (double) lp | (double) phi | (double) L | (double) Lc | (int) seed | (double) dt |
+//    *  || (int) NinitialTimes | (int) initialTimes[0] | ... | initialTimes[NinitialTimes - 1] ||
+//    *  || (int) NlagTimes | (int) lagTimes[0]  | ... | (int) lagTimes[NlagTimes - 1] ||
+//    *  || (int) Nframes | (int) frameIndices[0] | ... | (int) frameIndices[Nframes - 1] ||
+//    *  ||    PARTICLE 1     | ... |     PARTICLE N    ||
+//    *  || (double) diameter | ... | (double) diameter ||
+//    *
+//    *  [FRAMES (see SystemC::saveInitialState & SystemC::saveNewState)] (all double)
+//    *  ||                                 FRAME I                                 ||
+//    *  ||                      PARTICLE 1                      | ... | PARTICLE N ||
+//    *  ||   R   | ORIENTATION |   V   |     P     | UNFOLDED R | ... |     ...    ||
+//    *  || X | Y |    theta    | 0 | 0 | P_X | P_Y |   X  |  Y  | ... |     ...    ||
+//    */
+//
+//   public:
+//
+//     // CONSTRUCTORS
+//
+//     SystemC();
+//     SystemC(
+//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+//         std::vector<int>* time0, std::vector<int>* deltat,
+//       Parameters* parameters, int seed = 0, std::string filename = "");
+//     SystemC(
+//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+//         std::vector<int>* time0, std::vector<int>* deltat,
+//       Parameters* parameters, std::vector<double>& diameters, int seed = 0,
+//       std::string filename = "");
+//     SystemC(
+//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+//         std::vector<int>* time0, std::vector<int>* deltat,
+//       SystemC* system, int seed = 0, std::string filename = "");
+//     SystemC(
+//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+//         std::vector<int>* time0, std::vector<int>* deltat,
+//       SystemC* system, std::vector<double>& diameters, int seed = 0,
+//       std::string filename = "");
+//     SystemC(
+//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+//         std::vector<int>* time0, std::vector<int>* deltat,
+//       std::string inputFilename, int inputFrame = 0, double dt = 0,
+//       int seed = 0, std::string filename = "");
+//     SystemC(
+//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+//         std::vector<int>* time0, std::vector<int>* deltat,
+//       std::string inputFilename, int inputFrame = 0, Parameters* parameters = 0,
+//       int seed = 0, std::string filename = "");
+//     SystemC(
+//       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
+//         std::vector<int>* time0, std::vector<int>* deltat,
+//       std::string inputFilename, int inputFrame = 0, Parameters* parameters = 0,
+//         std::vector<double> const diameters = {0},
+//       int seed = 0, std::string filename = "");
+//
+//     // DESTRUCTORS
+//
+//     ~SystemC();
+//
+//     // METHODS
+//
+//     std::vector<int> const* getFrames(); // returns pointer to vector of indices of frames to save
+//
+//     Parameters* getParameters(); // returns pointer to class of parameters
+//     std::vector<double> getDiameters() const; // returns vector of diameters
+//
+//     int getNumberParticles() const; // returns number of particles
+//     double getPotentialParameter() const; // returns coefficient parameter of potential
+//     double getPropulsionVelocity() const; // returns self-propulsion velocity
+//     double getTransDiffusivity() const; // returns translational diffusivity
+//     double getRotDiffusivity() const; // returns rotational diffusivity
+//     double getPersistenceLength() const; // returns persistence length
+//     double getPackingFraction() const; // returns packing fraction
+//     double getSystemSize() const; // returns system size
+//     double getConfiningLength() const; // returns confining length
+//     double getTimeStep() const; // returns time step
+//
+//     int getRandomSeed() const; // returns random seed
+//     Random* getRandomGenerator(); // returns pointer to random generator
+//
+//     Particle* getParticle(int const& index); // returns pointer to given particle
+//     std::vector<Particle> getParticles(); // returns vector of particles
+//
+//     CellList* getCellList(); // returns pointer to CellList object
+//     void initialiseCellList(double const& cutOff = pow(2.0, 1./6.)); // initialise cell list
+//     void updateCellList(); // update cell list with current positions
+//
+//     std::string getOutputFile() const; // returns output file name
+//
+//     int* getDump(); // returns number of frames dumped since last reset
+//     void resetDump();
+//       // Reset time-extensive quantities over trajectory.
+//     void copyDump(SystemC* system);
+//       // Copy dumps from other system.
+//       // WARNING: This also copies the index of last frame dumped. Consistency
+//       //          has to be checked.
+//
+//     void copyState(std::vector<Particle>& newParticles);
+//       // Copy positions and orientations.
+//     void copyState(SystemC* system);
+//       // Copy positions and orientations.
+//
+//     void saveInitialState();
+//       // Saves initial state of particles to output file.
+//     void saveNewState(std::vector<Particle>& newParticles);
+//       // Saves new state of particles to output file then copy it.
+//
+//     bool isConfined() const { return true; }
+//
+//   private:
+//
+//     // ATTRIBUTES
+//
+//     std::vector<int> const frameIndices; // indices of frames to save
+//     // NOTE: This vector is sorted and the element 0 is removed.
+//     // NOTE: Frame 0 is ALWAYS saved first.
+//
+//     Parameters param; // class of simulation parameters
+//
+//     int const randomSeed; // random seed
+//     Random randomGenerator; // random number generator
+//
+//     std::vector<Particle> particles; // vector of particles
+//
+//     CellList cellList; // cell list
+//
+//     Write output; // output class
+//     std::vector<long int> velocitiesDumps; // locations in output file to dump velocities
+//
+//     int dumpFrame; // number of frames dumped since last reset
+//
+//     double kineticEnergy = 0; // sum of squared velocities
+//     double kineticEnergyFactor = 1e3; // threshold in units of squared self-propulsion velocity not to exceed for mean squared velocities
+//
+// };
 
 
 /*  ROTORS
@@ -979,64 +1313,11 @@ template<class SystemClass, typename F> void pairs_system(
   SystemClass* system, F function) {
   // Given a function `function` with parameters (int index1, int index2),
   // call this function with every unique pair of interacting particles, using
-  // cell list if USE_CELL_LIST is defined or a double loop
+  // cell list if USE_CELL_LIST is defined or a double loop.
 
   #ifdef USE_CELL_LIST // with cell list
 
-  int index1, index2; // index of the couple of particles
-  int i, j; // indexes of the cells
-  int k, l; // indexes of the particles in the cell
-  std::vector<int>* cell1;
-  std::vector<int>* cell2;
-  int numberBoxes = (system->getCellList())->getNumberBoxes();
-  for (i=0; i < pow(numberBoxes, 2); i++) { // loop over cells
-
-    cell1 = (system->getCellList())->getCell(i); // indexes of particles in the first cell
-    for (k=0; k < (int) cell1->size(); k++) { // loop over particles in the first cell
-      index1 = cell1->at(k);
-
-      // interactions with particles in the same cell
-      for (l=k+1; l < (int) cell1->size(); l++) { // loop over particles in the first cell
-        index2 = cell1->at(l);
-        function(index1, index2);
-      }
-
-      if ( numberBoxes == 1 ) { continue; } // only one cell
-
-      // interactions with particles in other cells
-      if ( numberBoxes == 2 ) { // 2 x 2 cells
-
-        for (j=0; j < 4; j++) {
-          if ( i == j ) { continue; } // same cell
-          cell2 = (system->getCellList())->getCell(j); // indexes of particles in the second cell
-
-          for (l=0; l < (int) cell2->size(); l++) { // loop over particles in the second cell
-            index2 = cell2->at(l);
-            if ( index1 < index2 ) { // only count once each couple
-              function(index1, index2);
-            }
-          }
-        }
-      }
-      else { // 3 x 3 cells or more
-
-        int x = i%numberBoxes;
-        int y = i/numberBoxes;
-        for (int dx=0; dx <= 1; dx++) {
-          for (int dy=-1; dy < 2*dx; dy++) { // these two loops correspond to (dx, dy) = {0, -1}, {1, -1}, {1, 0}, {1, 1}, so that half of the neighbouring cells are explored
-            j = (numberBoxes + (x + dx))%numberBoxes
-              + numberBoxes*((numberBoxes + (y + dy))%numberBoxes); // index of neighbouring cell
-            cell2 = (system->getCellList())->getCell(j); // indexes of particles in the second cell
-
-            for (l=0; l < (int) cell2->size(); l++) { // loop over particles in the second cell
-              index2 = cell2->at(l);
-              function(index1, index2);
-            }
-          }
-        }
-      }
-    }
-  }
+  (system->getCellList())->pairs(function);
 
   #else // with double loop
 
@@ -1165,6 +1446,92 @@ template<class SystemClass> void initPropulsionAOUP(SystemClass* system) {
       (system->getParticle(i))->propulsion()[0],
       (system->getParticle(i))->propulsion()[1]);
   }
+}
+
+template<class DatClass> void checkCellList(
+  std::string const& filename, int const& frame,
+  double const& cutOff = pow(2.0, 1./6.)) {
+  // Check that cell list gives consistent neighbour list with brute force
+  // double loop on the `frame'-th frame of `filename'.
+
+  // data file
+  DatClass dat(filename);
+  std::cout << "FILE: " << (dat.getInput())->getInputFile() << std::endl;
+
+  // parameters
+  int N = dat.getNumberParticles();
+  double L = dat.getSystemSize();
+  std::vector<double> diameters = dat.getDiameters();
+
+  // cell list
+  std::vector<std::vector<double>> positions(N, std::vector<double> (2, 0));
+  std::vector<double*> positionsPTR(N);
+  for (int i=0; i < N; i++) {
+    positionsPTR[i] = &(positions[i][0]);
+    for (int dim=0; dim < 2; dim++) {
+      positions[i][dim] = dat.getPosition(frame, i, dim, false);
+    }
+  }
+  CellList cl(L);
+  cl.initialise(diameters, cutOff);
+  cl.update(positionsPTR);
+
+  std::cout << "FRAME: " << frame << std::endl;
+  std::cout << "CUT OFF: " << cutOff << std::endl << std::endl;
+  double diff[2];
+  double dist;
+  double sigmaij;
+  long int couples = 0;
+
+  // brute force neighbours
+  couples = 0;
+  std::vector<std::vector<int>> neighboursBF(N, std::vector<int>(0));
+  for (int i=0; i < N; i++) {
+    for (int j=i + 1; j < N; j++) {
+      dist = dist2DPeriod(positionsPTR[i], positionsPTR[j], L, &diff[0]);
+      sigmaij = (diameters[i] + diameters[j])/2;
+      if ( dist/sigmaij < cutOff ) {
+        neighboursBF[i].push_back(j);
+        neighboursBF[j].push_back(i);
+        couples++;
+      }
+    }
+  }
+  std::cout << "[BRUTE FORCE] couples: " << couples << std::endl;
+
+  // cell list neighbours
+  couples = 0;
+  std::vector<std::vector<int>> neighboursCL(N, std::vector<int>(0));
+  for (int i=0; i < N; i++) { neighboursCL[i].clear(); }
+  auto f =
+    [&dist, &diff, &positionsPTR, &L, &sigmaij, &diameters, &couples, &cutOff,
+      &neighboursCL]
+    (int const& i, int const& j) {
+      dist = dist2DPeriod(positionsPTR[i], positionsPTR[j], L, &diff[0]);
+      sigmaij = (diameters[i] + diameters[j])/2;
+      if ( dist/sigmaij < cutOff ) {
+        neighboursCL[i].push_back(j);
+        neighboursCL[j].push_back(i);
+        couples++;
+      }
+    };
+  cl.pairs(f);
+  std::cout << "[CELL LIST] couples: " << couples << std::endl;
+
+  // check
+  std::cout << "CHECK: ";
+  for (int i=0; i < N; i++) {
+    if ( !compareVec(neighboursCL[i], neighboursBF[i]) ) {
+      std::cout << std::endl << "[particle " << i << "]" << std::endl;
+      std::cout << "[BRUTE FORCE] neighbours: ";
+      for (int n : neighboursBF[i]) { std::cout << n << " "; }
+      std::cout << std::endl << "[CELL LIST] neighbours: ";
+      for (int n : neighboursCL[i]) { std::cout << n << " "; }
+      std::cout << std::endl;
+      throw std::invalid_argument("Different neighbours.");
+    }
+  }
+  std::cout << "OK" << std::endl << std::endl;
 }
 
 #endif
