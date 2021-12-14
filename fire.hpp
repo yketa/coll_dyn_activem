@@ -155,7 +155,7 @@ template<class SystemClass> void FIRE_WCA(
     }
 
     // UPDATE CELL LIST
-    (system->getCellList())->update();
+    system->updateCellList();
 
     // POTENTIAL ENERGY AT NEXT TIME STEP
     potential = WCA_potential<SystemClass>(system);
