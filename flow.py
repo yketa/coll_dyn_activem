@@ -2143,34 +2143,22 @@ class Propulsions(Dat):
             Array of (t, Cpp(t)) with Cpp(t) the correlation function.
         """
 
-        Cpp = []
+        # LAG TIMES AND INITIAL TIMES
 
-        min = 1 if min == None else int(min)
-        max = ((self.frames - self.skip - 1)//int_max if max == None
-            else int(max))
-        _dt = logspace(min, max, n_max) # array of lag times
+        time0, dt = self._dt(n_max=n_max, int_max=int_max, min=min, max=max)
 
-        for dt in _dt:
+        # COMPUTE CORRELATIONS
 
-            time0 = np.linspace(
-                self.skip, self.frames - 1,
-                int((self.frames - 1 - self.skip)//dt),
-                endpoint=False, dtype=int)
-            if int_max != None:
-                indexes = list(OrderedDict.fromkeys(
-                    np.linspace(0, time0.size, int_max,
-                        endpoint=False, dtype=int)))
-                time0 = np.array(itemgetter(*indexes)(time0), ndmin=1)
+        Cpp = np.array(list(map(
+            lambda t: [t, np.mean(list(map(
+                lambda t0:
+                    (wo_mean(self.getPropulsions(t0, norm=False), axis=-2)
+                    *wo_mean(self.getPropulsions(t0 + t, norm=False), axis=-2)
+                    ).sum(axis=-1),
+                time0)))],
+            dt)))
 
-            Cpp += [[dt,
-                np.mean(list(map(
-                    lambda t: list(map(
-                        lambda x, y: np.dot(x, y), *(
-                            self.getPropulsions(t, norm=False),
-                            self.getPropulsions(int(t + dt), norm=False)))),
-                    time0)))]]
-
-        return np.array(Cpp)
+        return Cpp
 
     def propulsionsRadialCor(self, nBins, int_max=None, min=None, max=None,
         rescale_pair_distribution=False):
@@ -2248,6 +2236,70 @@ class Propulsions(Dat):
         return np.array(list(map(
             lambda t: 2*self.D*self.Dr*np.exp(-self.Dr*t),
             dt)))
+
+    def _dt(self, n_max=100, int_max=100, min=None, max=None):
+        """
+        Returns initial times and lag times for intervals of time between `min'
+        and `max'.
+
+        Parameters
+        ----------
+        n_max : int
+            Maximum number of lag times at which to compute the propulsions.
+            (default: 100)
+        int_max : int
+            Maximum number of different intervals to consider when computing
+            propulsions for a given lag time. (default: 100)
+        min : int or None
+            Minimum lag time at which to compute the propulsions.
+            (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum lag time at which to compute the propulsions.
+            (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+
+        Returns
+        -------
+        time0 : (*,) int numpy array
+            Array of initial times.
+        dt : (**,) int numpy array
+            Array of lag times.
+        """
+
+        min = 1 if min == None else int(min)
+
+        if self._type == 'datN':
+
+            # LAG TIMES
+            max = self.deltat.max() if max == None else int(max)
+            dt = self.deltat[(self.deltat >= min)*(self.deltat <= max)]
+            dt = itemgetter(*linspace(0, len(dt) - 1, n_max, endpoint=True))(dt)
+
+            # INITIAL TIMES
+            time0 = self.time0
+
+        else:
+
+            # LAG TIMES
+            max = ((self.frames - self.skip - 1)//int_max if max == None
+                else int(max))
+            dt = linspace(min, max, n_max)
+
+            # INITIAL TIMES
+            time0 = np.linspace(
+                self.skip, self.frames - 1,
+                int((self.frames - 1 - self.skip)//dt.max()),
+                endpoint=False, dtype=int)
+
+        # INITIAL TIMES
+        if int_max != None:
+            indexes = list(OrderedDict.fromkeys(
+                np.linspace(0, time0.size, int_max, endpoint=False, dtype=int)))
+            time0 =  np.array(itemgetter(*indexes)(time0), ndmin=1)
+
+        return np.array(time0), np.array(dt)
 
     def _time0(self, int_max=None):
         """
