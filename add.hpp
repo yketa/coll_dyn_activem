@@ -302,7 +302,13 @@ class ADD {
       double const C2 = c2;
       double const RCUT = rcut;
       double const potential0 = potential();
-
+      std::vector<double> gradUeff; // gradient of effective potential
+      double gradUeff2; // squared gradient of effective potential
+      #ifndef ADD_MD
+      //////////////////////////////////
+      // MINIMISATION USING CG (+ MD) //
+      //////////////////////////////////
+      // std::cout << "ADD-CG—————" << std::endl;
       // potential
       auto potential_force =
         [&cl, &sigma, &r0, &rPTR, &prop, &N, &L, &A, &C0, &C1, &C2, &RCUT]
@@ -359,18 +365,10 @@ class ADD {
               }
             });
       };
-
       // minimisation
-      std::vector<double> gradUeff; // gradient of effective potential
-      double gradUeff2; // squared gradient of effective potential
-      #ifndef ADD_MD
-      //////////////////////////////////
-      // MINIMISATION USING CG (+ MD) //
-      //////////////////////////////////
-      // std::cout << "ADD-CG—————" << std::endl;
       alglib::mincgreport report;
       CGMinimiser Uminimiser(potential_force, 2*numberParticles,
-        tol, 0, 0, iter > 0 ? iter : iterMax);
+        pow(gradMax, 2)/numberParticles, 0, 0, iter > 0 ? iter : iterMax);
       report = Uminimiser.minimise(&positions[0]);
       int termination = report.terminationtype;
       int iterations = report.iterationscount;
@@ -415,7 +413,7 @@ class ADD {
         iterations += iterMD;
         // re-minimise
         CGMinimiser Uminimiser(potential_force, 2*numberParticles,
-          tol, 0, 0, iter > 0 ? iter : iterMax);
+          pow(gradMax, 2)/numberParticles, 0, 0, iter > 0 ? iter : iterMax);
         report = Uminimiser.minimise(&positions[0]);
         termination = (int) report.terminationtype;
         iterations += (int) report.iterationscount;
@@ -534,7 +532,6 @@ class ADD {
     double const c2 = -(a*(a + 2))/(8*pow(rcut, a + 4)); // quartic part of potential
 
     double const gradMax = 1e-5; // tolerance for scaled gradient of effective potential
-    double const tol = 1e-18; // tolerance for minimisation
 
     double const dr2Max = 0.1; // tolerance for squared displacement per particle [CG minimisation]
     double const gradMaxMD = 1e-4; // threshold on scaled gradient of effective potential for molecular dynamics [(MD during) CG minimisation]

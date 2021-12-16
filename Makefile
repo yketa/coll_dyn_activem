@@ -177,6 +177,9 @@ $(EXEC): $(OBJ)
 
 #### DEPENDENCIES ####
 
+$(OB)/alglib.o: alglib.cpp alglib.hpp
+	$(CC) -o $(OB)/alglib.o -c alglib.cpp $(CFLAGS)
+
 $(OB)/dat.o: dat.cpp dat.hpp readwrite.hpp
 	$(CC) -o $(OB)/dat.o -c dat.cpp $(CFLAGS)
 

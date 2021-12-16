@@ -112,7 +112,8 @@ class CellList {
     CellList() : N(0), L(0), n_cells(0), l_cell(0), linkedList(0), head(0) {}
 
     CellList(int const& N_, double const& L_, double const& r_cut_) :
-      N(N_), L(L_), n_cells(floor(L/r_cut_)), l_cell(L/n_cells),
+      N(N_), L(L_),
+      n_cells(std::floor(L/r_cut_)), l_cell(L/n_cells),
       linkedList(N, 0), head(n_cells*n_cells, 0) {
       // assert(n_cells >= 3); // only works for 9+ boxes grids
     }
@@ -120,7 +121,8 @@ class CellList {
     CellList(
       std::vector<std::vector<double>> const& positions_,
       double const& L_, double const& r_cut_) :
-      N(positions_.size()), L(L_), n_cells(floor(L/r_cut_)), l_cell(L/n_cells),
+      N(positions_.size()), L(L_),
+      n_cells(std::floor(L/r_cut_)), l_cell(L/n_cells),
       linkedList(N, 0), head(n_cells*n_cells, 0) {
       // assert(n_cells >= 3); // only works for 9+ boxes grids
       listConstructor<std::vector<double>>(positions_); // build linked list
@@ -131,11 +133,18 @@ class CellList {
     template<typename T> void listConstructor(std::vector<T> const& positions) {
       //  Construct linked list.
 
+      int x, y; // coordinates in grid
       int c; // cell index
       for (c=0; c < n_cells*n_cells; c++) { head[c] = -1; }
       for (int i=0; i < N; i++) {
-        c =
-          floor(positions[i][0]/l_cell) + n_cells*floor(positions[i][1]/l_cell);
+        x = std::floor(positions[i][0]/l_cell);
+        y = std::floor(positions[i][1]/l_cell);
+        // check values are in {0, ..., numberBoxes - 1}
+        while ( x < 0 ) x += n_cells;
+        while ( x >= n_cells ) x -= n_cells;
+        while ( y < 0 ) y += n_cells;
+        while ( y >= n_cells ) y -= n_cells;
+        c = x + n_cells*y;
         linkedList[i] = head[c]; // link to previous occupant
         head[c] = i; // last one goes to the header
       }
@@ -178,9 +187,9 @@ class CellList {
 
   private:
 
-    double N; // number of particles
+    int N; // number of particles
     double L; // system size
-    double n_cells; // linear number of cells in the cell list
+    int n_cells; // linear number of cells in the cell list
     double l_cell; // linear size of a cell
 
     double increments[5][2] = {{1, -1}, {0, 0}, {1, 0}, {0, 1}, {1, 1}}; // increments to RIGHT neighbouring cells (including cell itself)
