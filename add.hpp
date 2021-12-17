@@ -51,7 +51,8 @@ class ADD {
             numberParticles/pow(systemSize, 2),
           const_cast<std::vector<double>&>(diameters), systemSize, timeStep),
         const_cast<std::vector<double>&>(diameters), seed, filename),
-      iterMax(100*numberParticles) {
+      iterMax(100*numberParticles),
+      dEp(0) {
 
       // propulsions
       for (int i=0; i < numberParticles; i++) {
@@ -463,7 +464,7 @@ class ADD {
       #endif
       // measurements
       double const potential1 = potential();
-      double dEp = potential0 - potential1; // energy drop
+      dEp = potential0 - potential1; // energy drop
       double dms = 0; // mean squared displacement
       double dr;
       double av_prop0[2] = {0, 0};
@@ -504,6 +505,8 @@ class ADD {
       }
     }
 
+    double const getEnergyDrop() { return dEp; } // returns energy drop
+
   private:
 
     int const numberParticles; // number of particles
@@ -540,6 +543,8 @@ class ADD {
     double const dtMD = 5e-4; // time step for molecular dynamics
     int const iterMinMD = 1e3; // number of molecular dynamics steps before checking scaled gradient of effective potential
     int const iterMaxMD = 400/dtMD; // maximum number of molecular dynamics steps
+
+    double dEp; // latest energy drop
 
 };
 
