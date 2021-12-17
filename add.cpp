@@ -16,11 +16,7 @@ int main() {
   for (int i=0; i < dat.getNumberParticles(); i++) {
     for (int dim=0; dim < 2; dim++) {
       positions.push_back(dat.getPosition(
-        frame
-        #ifdef ADD_NEXT_PROPULSION
-        + 1
-        #endif
-        , i, dim, false));
+        frame, i, dim, false));
       propulsions.push_back(dat.getPropulsion(
         frame
         #ifdef ADD_NEXT_PROPULSION
@@ -50,20 +46,22 @@ int main() {
   for (int i=0; i < add.getNumberParticles(); i++) {
     for (int dim=0; dim < 2; dim++) {
       add.getPosition(i)[dim] = positions[2*i + dim];
-      add.getPropulsion(i)[dim] = propulsions[2*i + dim];
+      if ( ! getEnvBool("RANDOMISE_PROPULSIONS", true) ) {
+        add.getPropulsion(i)[dim] = propulsions[2*i + dim];
+      }
     }
   }
-  std::cout << "INITIAL FRAME: U/N = "
-    << add.potential()/add.getNumberParticles() << std::endl;
+  // std::cout << "INITIAL FRAME: U/N = "
+  //   << add.potential()/add.getNumberParticles() << std::endl;
   add.saveInitialState();
 
   // MINIMISATION
   int maxIter = getEnvInt("MAXITER", 0);
   for (int i=0; i < init + Niter; i++) {
     add.minimiseUeff(maxIter);
-    std::cout << "FRAME " << i << ": U/N = " <<
-      add.potential()/add.getNumberParticles() <<  " sqrt(gradUeff2/N) = "
-      << sqrt(add.gradientUeff2()/add.getNumberParticles()) << std::endl;
+    // std::cout << "FRAME " << i << ": U/N = " <<
+    //   add.potential()/add.getNumberParticles() <<  " sqrt(gradUeff2/N) = "
+    //   << sqrt(add.gradientUeff2()/add.getNumberParticles()) << std::endl;
     add.saveNewState();
     add.iteratePropulsion();
   }
