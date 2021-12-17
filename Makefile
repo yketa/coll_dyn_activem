@@ -161,6 +161,9 @@ MAIN=add.cpp main.cpp main0.cpp mainN.cpp mainR.cpp cloning.cpp cloningR.cpp tes
 SRC=$(filter-out $(filter-out $(CPP), $(MAIN) pycpp.cpp), $(filter-out $(wildcard __* old*), $(wildcard *.cpp)))	# compile all files but the ones with wrong main()
 
 OBJ=$(addprefix $(OB)/, $(SRC:.cpp=.o))
+ifneq ($(ADD),yes)
+SRC:=$(filter-out alglib.cpp, $(SRC))
+endif
 
 .PHONY: all memcheck massif clean mrproper
 
