@@ -94,6 +94,10 @@ ifeq ($(ADD_MD),yes)
 	EXEC:=$(EXEC)_md
 else
 	EXEC:=$(EXEC)_cg
+ifeq ($(ADD_MD_PLASTIC),yes)
+	CFLAGS+=-DADD_MD_PLASTIC
+	EXEC:=$(EXEC)1
+endif
 endif
 ifeq ($(ADD_NO_LIMIT),yes)
 	CFLAGS+=-DADD_NO_LIMIT

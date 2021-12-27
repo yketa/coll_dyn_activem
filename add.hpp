@@ -286,6 +286,35 @@ class ADD {
       return gradientUeff2(grad);
     }
 
+    void energyDrop(
+      std::vector<double> const& r0, double const& potential0,
+      double* potential1, double* dms, bool* dEpFlag) {
+      // Compute energy drop.
+
+      potential1[0] = potential(); // potential
+      dEp = potential0 - potential1[0]; // energy drop
+      dms[0] = 0; // mean squared displacement
+      double dr;
+      double av_prop0[2] = {0, 0};
+      for (int dim=0; dim < 2; dim++) {
+        for (int i=0; i < numberParticles; i++) {
+          av_prop0[dim] += propulsions0[2*i + dim]/numberParticles;
+        }
+        for (int i=0; i < numberParticles; i++) {
+          dr = algDistPeriod(
+            r0[2*i + dim],
+            positions[2*i + dim] // wrapped coordinate
+              - (wrapCoordinate<SystemN>(&system, positions[2*i + dim])
+                *systemSize),
+            systemSize);
+          dEp += (propulsions0[2*i + dim] - av_prop0[dim])*dr;
+          dms[0] += pow(dr, 2)/numberParticles;
+        }
+      }
+
+      dEpFlag[0] = false; // need to recompute dEp
+    }
+
     void minimiseUeff(int const& iter = 0) {
       // Minimises effective potential with respect to positions.
 
@@ -303,6 +332,9 @@ class ADD {
       double const C2 = c2;
       double const RCUT = rcut;
       double const potential0 = potential();
+      double potential1;
+      double dms;
+      bool dEpFlag = true;
       std::vector<double> gradUeff; // gradient of effective potential
       double gradUeff2; // squared gradient of effective potential
       #ifndef ADD_MD
@@ -376,14 +408,20 @@ class ADD {
       // MD on failure
       gradUeff = gradientUeff();
       gradUeff2 = gradientUeff2(gradUeff);
+      energyDrop(r0, potential0, &potential1, &dms, &dEpFlag);
       if (
         termination == 5 || termination == 7
+        #ifdef ADD_MD_PLASTIC
+        || dEp > 0
+        #else
         #ifndef ADD_NO_LIMIT
         || difference2(&(r0[0])) > numberParticles*dr2Max
         #endif
+        #endif
         || sqrt(gradUeff2/numberParticles) > gradMax ) {
-        std::cerr << "[minimisation failure] sqrt(gradUeff2/N) = "
+        std::cerr << "[CG minimisation failure] sqrt(gradUeff2/N) = "
           << sqrt(gradUeff2/numberParticles) << std::endl;
+        dEpFlag = true;
         // restart from initial positions
         for (int i=0; i < numberParticles; i++) {
           for (int dim=0; dim < 2; dim++) {
@@ -395,8 +433,13 @@ class ADD {
         // perform MD
         int iterMD = 0;
         while (
-          iterMD < iterMaxMD
-          && sqrt(gradUeff2/numberParticles) > gradMaxMD ) {
+          iterMD < iterMaxMD &&
+          #ifndef ADD_MD_PLASTIC
+          sqrt(gradUeff2/numberParticles) > gradMaxMD
+          #else
+          sqrt(gradUeff2/numberParticles) > gradMax
+          #endif
+          ) {
           std::cerr << "MD: " << iterMD << std::endl
             << "sqrt(gradUeff2/N) = " << sqrt(gradUeff2/numberParticles)
             << std::endl;
@@ -413,12 +456,16 @@ class ADD {
         }
         iterations += iterMD;
         // re-minimise
+        #ifndef ADD_MD_PLASTIC
         CGMinimiser Uminimiser(potential_force, 2*numberParticles,
           pow(gradMax, 2)/numberParticles, 0, 0, iter > 0 ? iter : iterMax);
         report = Uminimiser.minimise(&positions[0]);
         termination = (int) report.terminationtype;
         iterations += (int) report.iterationscount;
         gradUeff2 = gradientUeff2();
+        #else
+        termination = sqrt(gradUeff2/numberParticles) > gradMax ? 5 : 0;
+        #endif
       }
       // failures
       if ( termination == 5 ) {
@@ -463,25 +510,8 @@ class ADD {
       int termination = iterations >= iterMaxMD ? 5 : 0;
       #endif
       // measurements
-      double const potential1 = potential();
-      dEp = potential0 - potential1; // energy drop
-      double dms = 0; // mean squared displacement
-      double dr;
-      double av_prop0[2] = {0, 0};
-      for (int dim=0; dim < 2; dim++) {
-        for (int i=0; i < numberParticles; i++) {
-          av_prop0[dim] += propulsions0[2*i + dim]/numberParticles;
-        }
-        for (int i=0; i < numberParticles; i++) {
-          dr = algDistPeriod(
-            r0[2*i + dim],
-            positions[2*i + dim] // wrapped coordinate
-              - (wrapCoordinate<SystemN>(&system, positions[2*i + dim])
-                *systemSize),
-            systemSize);
-          dEp += (propulsions0[2*i + dim] - av_prop0[dim])*dr;
-          dms += pow(dr, 2)/numberParticles;
-        }
+      if ( dEpFlag ) {
+        energyDrop(r0, potential0, &potential1, &dms, &dEpFlag);
       }
       // output
       output.write<int>(termination);

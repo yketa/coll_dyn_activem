@@ -12,12 +12,13 @@ USE_HEUN=yes
 make clean && make _pycpp.so
 
 # ADD
-for MD in yes no; do  # using MD or CG
-  for LIMIT in yes no; do # limit on displacements (CG) or iterations (MD)
-    for NEXT in yes no; do  # next frame propulsion
+for NEXT in yes no; do  # next frame propulsion
+  for MD in yes no; do  # using MD or CG
+    for LIMIT in yes no; do # limit on displacements (CG) or iterations (MD)
       make clean && ADD=yes ADD_MD=$MD ADD_NO_LIMIT=$LIMIT ADD_NEXT_PROPULSION=$NEXT CELLLIST=yes make;
     done
   done
+  make clean && ADD=yes ADD_MD=no ADD_MD_PLASTIC=yes ADD_NEXT_PROPULSION=$NEXT CELLLIST=yes make;
 done
 
 # ROTORS
