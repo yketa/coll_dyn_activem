@@ -213,7 +213,7 @@ System::System(
   double gridSpacing = getSystemSize()/gridSize;
   for (int i=0; i < getNumberParticles(); i++) { // loop over particles
     // position on the grid
-    particles[i].position()[0] = (i%gridSize)*gridSpacing;
+    particles[i].position()[0] = ((i%gridSize) + 0.5*(i/gridSize))*gridSpacing;
     particles[i].position()[1] = (i/gridSize)*gridSpacing;
     // random orientation
     particles[i].orientation()[0] = 2*M_PI*randomGenerator.random01();
@@ -752,7 +752,7 @@ System0::System0(
   double gridSpacing = getSystemSize()/gridSize;
   for (int i=0; i < getNumberParticles(); i++) { // loop over particles
     // position on the grid
-    particles[i].position()[0] = (i%gridSize)*gridSpacing;
+    particles[i].position()[0] = ((i%gridSize) + 0.5*(i/gridSize))*gridSpacing;
     particles[i].position()[1] = (i/gridSize)*gridSpacing;
     // random orientation
     particles[i].orientation()[0] = 2*M_PI*randomGenerator.random01();
@@ -812,7 +812,7 @@ System0::System0(
   double gridSpacing = getSystemSize()/gridSize;
   for (int i=0; i < getNumberParticles(); i++) { // loop over particles
     // position on the grid
-    particles[i].position()[0] = (i%gridSize)*gridSpacing;
+    particles[i].position()[0] = ((i%gridSize) + 0.5*(i/gridSize))*gridSpacing;
     particles[i].position()[1] = (i/gridSize)*gridSpacing;
     // random orientation
     particles[i].orientation()[0] = 2*M_PI*randomGenerator.random01();
@@ -1357,7 +1357,7 @@ SystemN::SystemN(
   double gridSpacing = getSystemSize()/gridSize;
   for (int i=0; i < getNumberParticles(); i++) { // loop over particles
     // position on the grid
-    particles[i].position()[0] = (i%gridSize)*gridSpacing;
+    particles[i].position()[0] = ((i%gridSize) + 0.5*(i/gridSize))*gridSpacing;
     particles[i].position()[1] = (i/gridSize)*gridSpacing;
     // random orientation
     particles[i].orientation()[0] = 2*M_PI*randomGenerator.random01();
@@ -1428,7 +1428,7 @@ SystemN::SystemN(
   double gridSpacing = getSystemSize()/gridSize;
   for (int i=0; i < getNumberParticles(); i++) { // loop over particles
     // position on the grid
-    particles[i].position()[0] = (i%gridSize)*gridSpacing;
+    particles[i].position()[0] = ((i%gridSize) + 0.5*(i/gridSize))*gridSpacing;
     particles[i].position()[1] = (i/gridSize)*gridSpacing;
     // random orientation
     particles[i].orientation()[0] = 2*M_PI*randomGenerator.random01();
