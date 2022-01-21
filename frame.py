@@ -323,8 +323,8 @@ class _Frame:
 
         self.cmap = cmap
 
-        vNorm = ColorsNormalise(vmin=vmin, vmax=vmax)
-        self.scalarMap = ScalarMappable(norm=vNorm, cmap=self.cmap)
+        self.cmap_norm = ColorsNormalise(vmin=vmin, vmax=vmax)
+        self.scalarMap = ScalarMappable(norm=self.cmap_norm, cmap=self.cmap)
 
         class Colormap(mpl.colorbar.ColorbarBase):
             def set_label(_, label, **kwargs):
@@ -340,7 +340,7 @@ class _Frame:
                 size='5%', pad=0.05)
             self.colormap = Colormap(
                 self.colormap_ax, cmap=self.cmap,
-                norm=vNorm, orientation='vertical')
+                norm=self.cmap_norm, orientation='vertical')
 
         elif self.colorbar_position == 'top':
 
@@ -348,7 +348,7 @@ class _Frame:
                 size='5%', pad=0.05)
             self.colormap = Colormap(
             	self.colormap_ax, cmap=self.cmap,
-                norm=vNorm, orientation='horizontal')
+                norm=self.cmap_norm, orientation='horizontal')
             self.colormap_ax.xaxis.set_label_position('top')
             self.colormap_ax.xaxis.set_ticks_position('top')
 
@@ -372,8 +372,8 @@ class _Frame:
 
         _cmap = mpl.colors.LinearSegmentedColormap.from_list('custom_cmap',
             list(map(cmap, range(cmap.N))), cmap.N)
-        vNorm = mpl.colors.BoundaryNorm(self.colormap_bounds, cmap.N)
-        self.scalarMap = mpl.cm.ScalarMappable(norm=vNorm, cmap=_cmap)
+        self.cmap_norm = mpl.colors.BoundaryNorm(self.colormap_bounds, cmap.N)
+        self.scalarMap = mpl.cm.ScalarMappable(norm=self.cmap_norm, cmap=_cmap)
 
         class Colormap(mpl.colorbar.ColorbarBase):
             def set_label(_, label, **kwargs):
@@ -389,7 +389,7 @@ class _Frame:
                 size='5%', pad=0.05)
             self.colormap = Colormap(
                 self.colormap_ax, cmap=_cmap,
-                norm=vNorm, orientation='vertical')
+                norm=self.cmap_norm, orientation='vertical')
 
         elif self.colorbar_position == 'top':
 
@@ -397,7 +397,7 @@ class _Frame:
                 size='5%', pad=0.05)
             self.colormap = Colormap(
             	self.colormap_ax, cmap=_cmap,
-                norm=vNorm, orientation='horizontal')
+                norm=self.cmap_norm, orientation='horizontal')
             self.colormap_ax.xaxis.set_label_position('top')
             self.colormap_ax.xaxis.set_ticks_position('top')
 
@@ -421,18 +421,19 @@ class _Frame:
             Matplotlib colorbar to be used. (default: matplotlib.pyplot.cm.jet)
         """
 
-        vNorm = BoundaryNorm(np.linspace(vmin, vmax, nColors + 1), nColors)
+        self.cmap_norm = BoundaryNorm(
+            np.linspace(vmin, vmax, nColors + 1), nColors)
         _cmap = ListedColormap(
             [ScalarMappable(
                 norm=ColorsNormalise(vmin=vmin, vmax=vmax), cmap=cmap
                 ).to_rgba(x)
                 for x in np.linspace(vmin, vmax, nColors)])
-        self.scalarMap = ScalarMappable(norm=vNorm, cmap=_cmap)
+        self.scalarMap = ScalarMappable(norm=self.cmap_norm, cmap=_cmap)
 
         self.colormap_ax = make_axes_locatable(self.ax).append_axes('right',
             size='5%', pad=0.05)
         self.colormap = mpl.colorbar.ColorbarBase(self.colormap_ax, cmap=_cmap,
-            norm=vNorm, orientation='vertical')
+            norm=self.cmap_norm, orientation='vertical')
         self.colormap.set_ticks(
             [(0.5 + i)*(vmax - vmin)/nColors for i in range(nColors)])
         self.colormap.set_ticklabels(
@@ -569,6 +570,7 @@ class Displacement(_Frame):
             arrow_head_length=arrow_head_length,
             **kwargs)   # initialise superclass
 
+        self.dt = dt
         self.zetad = cooperativity(
             dat.getDisplacements(frame, frame + dt, jump=jump, remove_cm=False))
         self.displacements = dat.getDisplacements(
@@ -2041,7 +2043,8 @@ if __name__ == '__main__':  # executing as script
 
     # LEGEND SUPTITLE
 
-    display_suptitle = get_env('SUPTITLE', default=True, vartype=bool)  # display suptitle
+    display_suptitle = get_env('SUPTITLE', default=True, vartype=bool)      # display suptitle
+    time_suptitle = get_env('TIME_SUPTITLE', default=False, vartype=bool)   # display elapsed time since initial frame in suptitle
 
     def suptitle(frame, lag_time=None):
         """
@@ -2061,6 +2064,10 @@ if __name__ == '__main__':  # executing as script
         suptitle : string
             Suptitle.
         """
+
+        if time_suptitle:
+            return (r'$t/\tau_p = %.2f$'
+                % ((frame - init_frame)*dat.dt*dat.Dr))
 
         if not(display_suptitle): return ''
 
