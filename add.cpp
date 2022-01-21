@@ -41,6 +41,7 @@ int main() {
     getEnvInt("LAGMAX", 1),
     getEnvInt("NMAX", 0),
     getEnvInt("INTMAX", Niter),
+    getEnvDouble("DTMD", 5e-4),
     getEnvInt("SEED", 0),
     getEnvString("OUT", "out.datN"));
   for (int i=0; i < add.getNumberParticles(); i++) {

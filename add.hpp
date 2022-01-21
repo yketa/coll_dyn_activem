@@ -10,6 +10,11 @@
 #include "particle.hpp"
 #include "readwrite.hpp"
 
+/////////////////////////////////////////////////////////
+// TIME FOR EACH MINIMISATION AND CG FAILED MINIMISATIONS
+// #include <chrono>
+/////////////////////////////////////////////////////////
+
 /////////////
 // CLASSES //
 /////////////
@@ -36,6 +41,7 @@ class ADD {
         double const& dt, int const& init, int const& Niter,
           int const& dtMin, int const& dtMax,
           int const& nMax, int const& intMax,
+        double const& timeStepMD,
         int const& seed = 0, std::string filename = "") :
       numberParticles(N), systemSize(L), diameters(sigma),
       positions(2*numberParticles, 0),
@@ -52,6 +58,18 @@ class ADD {
           const_cast<std::vector<double>&>(diameters), systemSize, timeStep),
         const_cast<std::vector<double>&>(diameters), seed, filename),
       iterMax(100*numberParticles),
+      dtMD(timeStepMD),
+      /////////////////////////////////////////////////////////
+      // TIME FOR EACH MINIMISATION AND CG FAILED MINIMISATIONS
+      // clock(getOuput()->getOutputFile() + ".time"),
+      // time(),
+      // #ifndef ADD_MD
+      // failCG(getOuput()->getOutputFile() + ".failCG"),
+      // #ifndef ADD_NO_LIMIT
+      // failCG_d(getOuput()->getOutputFile() + ".failCG_d"),
+      // #endif
+      // #endif
+      /////////////////////////////////////////////////////////
       dEp(0) {
 
       // propulsions
@@ -318,6 +336,11 @@ class ADD {
     void minimiseUeff(int const& iter = 0) {
       // Minimises effective potential with respect to positions.
 
+      /////////////////////////////
+      // TIME FOR EACH MINIMISATION
+      // time = std::chrono::high_resolution_clock::now();
+      /////////////////////////////
+
       // parameters
       CellList* cl = &cellList;
       std::vector<double> const* sigma = &diameters;
@@ -419,6 +442,23 @@ class ADD {
         #endif
         #endif
         || sqrt(gradUeff2/numberParticles) > gradMax ) {
+        /////////////////////////
+        // CG FAILED MINIMISATION
+        // #ifndef ADD_NO_LIMIT
+        // if ( difference2(&(r0[0])) > numberParticles*dr2Max ) {
+        //   failCG_d.write<int>(system.getDump()[0]);
+        // }
+        // else if ( termination == 5 || termination == 7
+        //   || sqrt(gradUeff2/numberParticles) > gradMax ) {
+        //   failCG.write<int>(system.getDump()[0]);
+        // }
+        // #else
+        // if ( termination == 5 || termination == 7
+        //   || sqrt(gradUeff2/numberParticles) > gradMax ) {
+        //   failCG.write<int>(system.getDump()[0]);
+        // }
+        // #endif
+        /////////////////////////
         std::cerr << "[CG minimisation failure] sqrt(gradUeff2/N) = "
           << sqrt(gradUeff2/numberParticles) << std::endl;
         dEpFlag = true;
@@ -440,9 +480,11 @@ class ADD {
           sqrt(gradUeff2/numberParticles) > gradMax
           #endif
           ) {
+          #ifndef ADD_MD_PLASTIC
           std::cerr << "MD: " << iterMD << std::endl
             << "sqrt(gradUeff2/N) = " << sqrt(gradUeff2/numberParticles)
             << std::endl;
+          #endif
           for (int step=0; step < iterMinMD; step++) {
             for (int i=0; i < numberParticles; i++) {
               for (int dim=0; dim < 2; dim++) {
@@ -520,6 +562,14 @@ class ADD {
       output.write<double>(gradUeff2);
       output.write<double>(dEp);
       output.write<double>(sqrt(dms));
+
+      /////////////////////////////
+      // TIME FOR EACH MINIMISATION
+      // clock.write<double>(
+      //     std::chrono::duration<double, std::milli>
+      //       (std::chrono::high_resolution_clock::now() - time)
+      //       .count());
+      /////////////////////////////
     }
 
     void iteratePropulsion() {
@@ -570,9 +620,21 @@ class ADD {
     double const gradMaxMD = 1e-4; // threshold on scaled gradient of effective potential for molecular dynamics [(MD during) CG minimisation]
     long int const iterMax; // maximum number of minimisation iterations (0 => no limit) [(MD during) MD minimisation]
 
-    double const dtMD = 5e-4; // time step for molecular dynamics
+    double const dtMD; // time step for molecular dynamics
     int const iterMinMD = 1e3; // number of molecular dynamics steps before checking scaled gradient of effective potential
     int const iterMaxMD = 400/dtMD; // maximum number of molecular dynamics steps
+
+    /////////////////////////////////////////////////////////
+    // TIME FOR EACH MINIMISATION AND CG FAILED MINIMISATIONS
+    // Write clock;
+    // std::chrono::time_point<std::chrono::high_resolution_clock> time;
+    // #ifndef ADD_MD
+    // Write failCG;
+    // #ifndef ADD_NO_LIMIT
+    // Write failCG_d;
+    // #endif
+    // #endif
+    /////////////////////////////////////////////////////////
 
     double dEp; // latest energy drop
 
