@@ -74,8 +74,8 @@ def float_to_letters(flo):
 	"""
 
 	try:
-		flo = flo.__round__(4)
 		expo_int = int(floor(log10(abs(flo))))			# integer exponent
+		flo = flo.__round__(4 + max(0, -expo_int))
 		expo_let = list(_exponents.keys())[list(_exponents.values()).index(
 			'%i' % expo_int								# corresponding letter exponent
 			)]
