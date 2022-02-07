@@ -11,28 +11,48 @@ int main() {
   // INPUT
   DatN dat(getEnvString("FILE", "in.datN"));
   const int frame = getEnvInt("FRAME", 0);
+  int numberParticles = getEnvInt("N", dat.getNumberParticles());
+  int ratioNumberParticles = numberParticles/dat.getNumberParticles(); // ratio of number of particles
+  int nCopyCells = round(sqrt(ratioNumberParticles));
+  if ( numberParticles != ratioNumberParticles*dat.getNumberParticles()
+    || ratioNumberParticles != nCopyCells*nCopyCells ) {
+    // ratio of number of particles has to be a perfect square to copy correctly
+    throw std::invalid_argument(
+      "Ratio of number of particles is not a perfect square.");
+  }
+  auto mapParticleIndex = // mapping from particle index to input particle index
+    [&dat](int i){ return i%dat.getNumberParticles(); };
+  auto copyCellIndex = // mapping from particle to index of copy cell
+    [&dat](int i){ return i/dat.getNumberParticles(); };
+  int index;
   std::vector<double> positions;
   std::vector<double> propulsions;
-  for (int i=0; i < dat.getNumberParticles(); i++) {
+  const std::vector<double> datDiameters = dat.getDiameters();
+  std::vector<double> diameters;
+  for (int i=0; i < numberParticles; i++) {
     for (int dim=0; dim < 2; dim++) {
-      positions.push_back(dat.getPosition(
-        frame, i, dim, false));
+      index = mapParticleIndex(i);
+      positions.push_back(
+        dat.getPosition(frame, index, dim, false)
+        + dat.getSystemSize()*(dim == 0 ?
+          copyCellIndex(i) % nCopyCells : copyCellIndex(i) / nCopyCells));
       propulsions.push_back(dat.getPropulsion(
         frame
         #ifdef ADD_NEXT_PROPULSION
         + 1
         #endif
-        , i, dim));
+        , index, dim));
     }
+    diameters.push_back(datDiameters[index]);
   }
 
   // ADD OBJECT
   int init = getEnvInt("INIT", 0);
   int Niter = getEnvInt("NITER", 1);
   ADD add(
-    dat.getNumberParticles(),
-    dat.getSystemSize(),
-    dat.getDiameters(),
+    numberParticles,
+    nCopyCells*dat.getSystemSize(),
+    diameters,
     getEnvDouble("F", dat.getPropulsionVelocity()),
     getEnvDouble("DT", 1e-2),
     init,
