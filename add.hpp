@@ -10,11 +10,6 @@
 #include "particle.hpp"
 #include "readwrite.hpp"
 
-/////////////////////////////////////////////////////////
-// TIME FOR EACH MINIMISATION AND CG FAILED MINIMISATIONS
-// #include <chrono>
-/////////////////////////////////////////////////////////
-
 /////////////
 // CLASSES //
 /////////////
@@ -57,19 +52,9 @@ class ADD {
             numberParticles/pow(systemSize, 2),
           const_cast<std::vector<double>&>(diameters), systemSize, timeStep),
         const_cast<std::vector<double>&>(diameters), seed, filename),
+      initFrames(init),
       iterMax(100*numberParticles),
       dtMD(timeStepMD),
-      /////////////////////////////////////////////////////////
-      // TIME FOR EACH MINIMISATION AND CG FAILED MINIMISATIONS
-      // clock(getOuput()->getOutputFile() + ".time"),
-      // time(),
-      // #ifndef ADD_MD
-      // failCG(getOuput()->getOutputFile() + ".failCG"),
-      // #ifndef ADD_NO_LIMIT
-      // failCG_d(getOuput()->getOutputFile() + ".failCG_d"),
-      // #endif
-      // #endif
-      /////////////////////////////////////////////////////////
       dEp(0) {
 
       // propulsions
@@ -336,15 +321,11 @@ class ADD {
     void minimiseUeff(int const& iter = 0) {
       // Minimises effective potential with respect to positions.
 
-      /////////////////////////////
-      // TIME FOR EACH MINIMISATION
-      // time = std::chrono::high_resolution_clock::now();
-      /////////////////////////////
-
       // parameters
       CellList* cl = &cellList;
       std::vector<double> const* sigma = &diameters;
-      std::vector<double> const r0 = positions;
+      std::vector<double> const r0 = positions; // positions at beginning of step
+      std::vector<double> r00 = positions; // positions to re-initialise minimisation
       std::vector<double*> rPTR = getPositions();
       std::vector<double>* prop = &propulsions;
       int const N = numberParticles;
@@ -428,11 +409,12 @@ class ADD {
       report = Uminimiser.minimise(&positions[0]);
       int termination = report.terminationtype;
       int iterations = report.iterationscount;
+      energyDrop(r0, potential0, &potential1, &dms, &dEpFlag); // compute potential and energy drop
       // MD on failure
       gradUeff = gradientUeff();
       gradUeff2 = gradientUeff2(gradUeff);
-      energyDrop(r0, potential0, &potential1, &dms, &dEpFlag);
-      if (
+      int loops_MD_CG = 0;
+      while ( loops_MD_CG < max_loops_MD_CG && (
         termination == 5 || termination == 7
         #ifdef ADD_MD_PLASTIC
         || dEp > 0
@@ -441,31 +423,14 @@ class ADD {
         || difference2(&(r0[0])) > numberParticles*dr2Max
         #endif
         #endif
-        || sqrt(gradUeff2/numberParticles) > gradMax ) {
-        /////////////////////////
-        // CG FAILED MINIMISATION
-        // #ifndef ADD_NO_LIMIT
-        // if ( difference2(&(r0[0])) > numberParticles*dr2Max ) {
-        //   failCG_d.write<int>(system.getDump()[0]);
-        // }
-        // else if ( termination == 5 || termination == 7
-        //   || sqrt(gradUeff2/numberParticles) > gradMax ) {
-        //   failCG.write<int>(system.getDump()[0]);
-        // }
-        // #else
-        // if ( termination == 5 || termination == 7
-        //   || sqrt(gradUeff2/numberParticles) > gradMax ) {
-        //   failCG.write<int>(system.getDump()[0]);
-        // }
-        // #endif
-        /////////////////////////
+        || sqrt(gradUeff2/numberParticles) > gradMax ) ) {
         std::cerr << "[CG minimisation failure] sqrt(gradUeff2/N) = "
           << sqrt(gradUeff2/numberParticles) << std::endl;
-        dEpFlag = true;
+        dEpFlag = true; // energy drop should be recomputed
         // restart from initial positions
         for (int i=0; i < numberParticles; i++) {
           for (int dim=0; dim < 2; dim++) {
-            positions[2*i + dim] = r0[2*i + dim];
+            positions[2*i + dim] = r00[2*i + dim];
           }
         }
         gradUeff = gradientUeff();
@@ -495,9 +460,10 @@ class ADD {
             iterMD++;
           }
           gradUeff2 = gradientUeff2(gradUeff);
+          iterations += iterMD;
         }
-        iterations += iterMD;
-        // re-minimise
+        r00 = positions; // positions to re-initialise minimisation
+        // re-minimise (CG)
         #ifndef ADD_MD_PLASTIC
         CGMinimiser Uminimiser(potential_force, 2*numberParticles,
           pow(gradMax, 2)/numberParticles, 0, 0, iter > 0 ? iter : iterMax);
@@ -506,8 +472,10 @@ class ADD {
         iterations += (int) report.iterationscount;
         gradUeff2 = gradientUeff2();
         #else
-        termination = sqrt(gradUeff2/numberParticles) > gradMax ? 5 : 0;
+        // termination = iterations > iterMax ? 5 : 0;
         #endif
+        energyDrop(r0, potential0, &potential1, &dms, &dEpFlag); // re-compute potential and energy drop
+        loops_MD_CG++;
       }
       // failures
       if ( termination == 5 ) {
@@ -550,9 +518,10 @@ class ADD {
         gradUeff2 = gradientUeff2(gradUeff);
       }
       int termination = iterations >= iterMaxMD ? 5 : 0;
+      energyDrop(r0, potential0, &potential1, &dms, &dEpFlag); // compute potential and energy drop
       #endif
       // measurements
-      if ( dEpFlag ) {
+      if ( dEpFlag ) { // re-compute potential and energy drop in case it should be
         energyDrop(r0, potential0, &potential1, &dms, &dEpFlag);
       }
       // output
@@ -562,14 +531,6 @@ class ADD {
       output.write<double>(gradUeff2);
       output.write<double>(dEp);
       output.write<double>(sqrt(dms));
-
-      /////////////////////////////
-      // TIME FOR EACH MINIMISATION
-      // clock.write<double>(
-      //     std::chrono::duration<double, std::milli>
-      //       (std::chrono::high_resolution_clock::now() - time)
-      //       .count());
-      /////////////////////////////
     }
 
     void iteratePropulsion() {
@@ -607,6 +568,7 @@ class ADD {
 
     Write output; // output object
     SystemN system; // system object saving purposes
+    int const initFrames; // number of initialisation frames
 
     int const a = 12; // potential parameter
     double const rcut = 1.25; // potential cut-off radius
@@ -623,18 +585,7 @@ class ADD {
     double const dtMD; // time step for molecular dynamics
     int const iterMinMD = 1e3; // number of molecular dynamics steps before checking scaled gradient of effective potential
     int const iterMaxMD = 400/dtMD; // maximum number of molecular dynamics steps
-
-    /////////////////////////////////////////////////////////
-    // TIME FOR EACH MINIMISATION AND CG FAILED MINIMISATIONS
-    // Write clock;
-    // std::chrono::time_point<std::chrono::high_resolution_clock> time;
-    // #ifndef ADD_MD
-    // Write failCG;
-    // #ifndef ADD_NO_LIMIT
-    // Write failCG_d;
-    // #endif
-    // #endif
-    /////////////////////////////////////////////////////////
+    int const max_loops_MD_CG = 2; // maximum number of MD minimisation runs when CG fails
 
     double dEp; // latest energy drop
 
