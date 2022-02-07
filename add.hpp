@@ -55,6 +55,7 @@ class ADD {
       initFrames(init),
       iterMax(100*numberParticles),
       dtMD(timeStepMD),
+      iterMaxMD(100*numberParticles/dtMD),
       dEp(0) {
 
       // propulsions
@@ -325,7 +326,6 @@ class ADD {
       CellList* cl = &cellList;
       std::vector<double> const* sigma = &diameters;
       std::vector<double> const r0 = positions; // positions at beginning of step
-      std::vector<double> r00 = positions; // positions to re-initialise minimisation
       std::vector<double*> rPTR = getPositions();
       std::vector<double>* prop = &propulsions;
       int const N = numberParticles;
@@ -409,12 +409,11 @@ class ADD {
       report = Uminimiser.minimise(&positions[0]);
       int termination = report.terminationtype;
       int iterations = report.iterationscount;
-      energyDrop(r0, potential0, &potential1, &dms, &dEpFlag); // compute potential and energy drop
       // MD on failure
       gradUeff = gradientUeff();
       gradUeff2 = gradientUeff2(gradUeff);
-      int loops_MD_CG = 0;
-      while ( loops_MD_CG < max_loops_MD_CG && (
+      energyDrop(r0, potential0, &potential1, &dms, &dEpFlag); // compute potential and energy drop
+      if (
         termination == 5 || termination == 7
         #ifdef ADD_MD_PLASTIC
         || dEp > 0
@@ -423,14 +422,14 @@ class ADD {
         || difference2(&(r0[0])) > numberParticles*dr2Max
         #endif
         #endif
-        || sqrt(gradUeff2/numberParticles) > gradMax ) ) {
+        || sqrt(gradUeff2/numberParticles) > gradMax ) {
         std::cerr << "[CG minimisation failure] sqrt(gradUeff2/N) = "
           << sqrt(gradUeff2/numberParticles) << std::endl;
         dEpFlag = true; // energy drop should be recomputed
         // restart from initial positions
         for (int i=0; i < numberParticles; i++) {
           for (int dim=0; dim < 2; dim++) {
-            positions[2*i + dim] = r00[2*i + dim];
+            positions[2*i + dim] = r0[2*i + dim];
           }
         }
         gradUeff = gradientUeff();
@@ -438,7 +437,7 @@ class ADD {
         // perform MD
         int iterMD = 0;
         while (
-          iterMD < iterMaxMD &&
+          // iterMD < iterMaxMD &&
           #ifndef ADD_MD_PLASTIC
           sqrt(gradUeff2/numberParticles) > gradMaxMD
           #else
@@ -460,9 +459,8 @@ class ADD {
             iterMD++;
           }
           gradUeff2 = gradientUeff2(gradUeff);
-          iterations += iterMD;
         }
-        r00 = positions; // positions to re-initialise minimisation
+        iterations += iterMD;
         // re-minimise (CG)
         #ifndef ADD_MD_PLASTIC
         CGMinimiser Uminimiser(potential_force, 2*numberParticles,
@@ -474,8 +472,6 @@ class ADD {
         #else
         // termination = iterations > iterMax ? 5 : 0;
         #endif
-        energyDrop(r0, potential0, &potential1, &dms, &dEpFlag); // re-compute potential and energy drop
-        loops_MD_CG++;
       }
       // failures
       if ( termination == 5 ) {
@@ -518,7 +514,6 @@ class ADD {
         gradUeff2 = gradientUeff2(gradUeff);
       }
       int termination = iterations >= iterMaxMD ? 5 : 0;
-      energyDrop(r0, potential0, &potential1, &dms, &dEpFlag); // compute potential and energy drop
       #endif
       // measurements
       if ( dEpFlag ) { // re-compute potential and energy drop in case it should be
@@ -584,8 +579,7 @@ class ADD {
 
     double const dtMD; // time step for molecular dynamics
     int const iterMinMD = 1e3; // number of molecular dynamics steps before checking scaled gradient of effective potential
-    int const iterMaxMD = 400/dtMD; // maximum number of molecular dynamics steps
-    int const max_loops_MD_CG = 2; // maximum number of MD minimisation runs when CG fails
+    int const iterMaxMD; // maximum number of molecular dynamics steps
 
     double dEp; // latest energy drop
 
