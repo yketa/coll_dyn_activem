@@ -74,11 +74,11 @@ class Positions(Dat):
 
         if nBoxes == None: nBoxes = np.sqrt(self.N)
         nBoxes = int(nBoxes)
-        dV = (self.L/nBoxes)**2
+        # dV = (self.L/nBoxes)**2
 
         return self.toGrid(time,
             np.full((self.N,), fill_value=1),
-            nBoxes=nBoxes, box_size=self.L, centre=(0, 0), average=False)/dV
+            nBoxes=nBoxes, box_size=self.L, centre=(0, 0), average=False)#/dV
 
     def getLocalDensity(self, time, nBoxes=None):
         """
@@ -449,8 +449,9 @@ class Positions(Dat):
                     self.diameters if scale_diameter else None)),
             self._time0(int_max=int_max))))
 
-        bins = np.array([min + b*(max - min)/Nbins for b in range(1, Nbins)])
-        histErr = np.array([mean_sterr(h) for h in np.transpose(hist)])[1:]
+        bins = np.array([min + (b + 0.5)*(max - min)/Nbins
+            for b in range(Nbins)])
+        histErr = np.array([mean_sterr(h) for h in np.transpose(hist)])
 
         histErr *= (self.L**2)/((max - min)/Nbins)
 
