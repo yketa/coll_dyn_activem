@@ -173,9 +173,9 @@ class ADD {
       //   for (int i=0; i < numberParticles; i++) {
       //     for (int dim=0; dim < 2; dim++) {
       //       out_disp_e.write<double>(disp_e[2*i + dim]);
-      //       disp_e[2*i + dim] = 0;
+      //       // disp_e[2*i + dim] = 0;
       //       out_disp_p.write<double>(disp_p[2*i + dim]);
-      //       disp_p[2*i + dim] = 0;
+      //       // disp_p[2*i + dim] = 0;
       //     }
       //   }
       // }
