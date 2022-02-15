@@ -59,8 +59,11 @@ class ADD {
       dEp(0)
       /////////////////////
       // DUMP DISPLACEMENTS
-      // , disp_e(getOuput()->getOutputFile() + ".disp_e"),
-      // disp_p(getOuput()->getOutputFile() + ".disp_p")
+      // ,
+      // disp_e(2*numberParticles, 0),
+      // out_disp_e(getOuput()->getOutputFile() + ".disp_e"),
+      // disp_p(2*numberParticles, 0),
+      // out_disp_p(getOuput()->getOutputFile() + ".disp_p")
       /////////////////////
       {
 
@@ -129,6 +132,15 @@ class ADD {
           getAngleVector(propulsions[2*i], propulsions[2*i + 1]);
       }
       system.saveInitialState();
+      /////////////////////
+      // DUMP DISPLACEMENTS
+      // for (int i=0; i < numberParticles; i++) {
+      //   for (int dim=0; dim < 2; dim++) {
+      //     disp_e[2*i + dim] = 0;
+      //     disp_p[2*i + dim] = 0;
+      //   }
+      // }
+      /////////////////////
     }
     void saveNewState() {
       // Saves new frame.
@@ -155,6 +167,19 @@ class ADD {
           positions[2*i + dim] = (system.getParticle(i))->position()[dim];
         }
       }
+      /////////////////////
+      // DUMP DISPLACEMENTS
+      // if ( isInSortedVec<int>(system.getFrames(), system.getDump()[0]) ) { // this check is to be done after calling system.saveNewState() so that the dump index is updated
+      //   for (int i=0; i < numberParticles; i++) {
+      //     for (int dim=0; dim < 2; dim++) {
+      //       out_disp_e.write<double>(disp_e[2*i + dim]);
+      //       disp_e[2*i + dim] = 0;
+      //       out_disp_p.write<double>(disp_p[2*i + dim]);
+      //       disp_p[2*i + dim] = 0;
+      //     }
+      //   }
+      // }
+      /////////////////////
     }
 
     std::vector<double> difference(const double* r0) {
@@ -535,9 +560,13 @@ class ADD {
       /////////////////////
       // DUMP DISPLACEMENTS
       // std::vector<double> disp = difference(&(r0[0]));
-      // for (double d : disp) {
-      //   if ( dEp <= 0 ) { disp_e.write<double>(d); }
-      //   else { disp_p.write<double>(d); }
+      // std::vector<double>* cum_disp;
+      // if ( dEp <= 0 ) { cum_disp = &disp_e; }
+      // else { cum_disp = &disp_p; }
+      // for (int i=0; i < numberParticles; i++) {
+      //   for (int dim=0; dim < 2; dim++) {
+      //     cum_disp->at(2*i + dim) += disp[2*i + dim];
+      //   }
       // }
       /////////////////////
     }
@@ -599,8 +628,10 @@ class ADD {
 
     /////////////////////
     // DUMP DISPLACEMENTS
-    // Write disp_e;
-    // Write disp_p;
+    // std::vector<double> disp_e;
+    // Write out_disp_e;
+    // std::vector<double> disp_p;
+    // Write out_disp_p;
     /////////////////////
 
 };
