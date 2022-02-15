@@ -56,7 +56,13 @@ class ADD {
       iterMax(100*numberParticles),
       dtMD(timeStepMD),
       iterMaxMD(100*numberParticles/dtMD),
-      dEp(0) {
+      dEp(0)
+      /////////////////////
+      // DUMP DISPLACEMENTS
+      // , disp_e(getOuput()->getOutputFile() + ".disp_e"),
+      // disp_p(getOuput()->getOutputFile() + ".disp_p")
+      /////////////////////
+      {
 
       // propulsions
       for (int i=0; i < numberParticles; i++) {
@@ -482,7 +488,7 @@ class ADD {
       else if ( sqrt(gradUeff2/numberParticles) > gradMax ) {
         throw std::invalid_argument(
           "Maximum scaled gradient of effective potential"
-            + std::string("((|\\nabla U_eff|^2)^{1/2} = ")
+            + std::string("((|\\nabla U_eff|^2/N)^{1/2} = ")
             + std::to_string(gradMax) + ") exceeded.");
       }
       else if ( termination == 7 ) {
@@ -526,6 +532,14 @@ class ADD {
       output.write<double>(gradUeff2);
       output.write<double>(dEp);
       output.write<double>(sqrt(dms));
+      /////////////////////
+      // DUMP DISPLACEMENTS
+      // std::vector<double> disp = difference(&(r0[0]));
+      // for (double d : disp) {
+      //   if ( dEp <= 0 ) { disp_e.write<double>(d); }
+      //   else { disp_p.write<double>(d); }
+      // }
+      /////////////////////
     }
 
     void iteratePropulsion() {
@@ -582,6 +596,12 @@ class ADD {
     int const iterMaxMD; // maximum number of molecular dynamics steps
 
     double dEp; // latest energy drop
+
+    /////////////////////
+    // DUMP DISPLACEMENTS
+    // Write disp_e;
+    // Write disp_p;
+    /////////////////////
 
 };
 
