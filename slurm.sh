@@ -154,7 +154,7 @@ MEMORY=${MEMORY-$_MEMORY}                 # real memory required per node
 sbatch ${WAIT:+-W} ${CHAIN:+-d afterok:$CHAIN} <<EOF
 #! /bin/bash
 #SBATCH --job-name='$JOB_NAME'
-#SBATCH --chdir='$SIM_DIR'
+#SBATCH -D '$SIM_DIR'
 #SBATCH --error='${ERROR_DIR}/%j.out'
 #SBATCH --output='$OUT_FILE'
 #SBATCH --partition=$PARTITION
