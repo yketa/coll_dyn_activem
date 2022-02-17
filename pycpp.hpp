@@ -160,6 +160,14 @@ extern "C" void isNotInBubble(
   // positions given by `x' and y-axis positions given by `y', are not within
   // distance `dlim' of particles with `densities' below `philim'.
 
+std::vector<pybind11::array_t<double>> getVelocityVorticity(
+  pybind11::array_t<double> const& positions,
+  pybind11::array_t<double> const& velocities,
+  double const& L, int const& nBoxes, double const& sigma);
+  // Compute Gaussian-smoothed velocitiy field and vorticity field, using
+  // standard deviation `sigma', on a (`nBoxes', `nBoxes')-grid, from
+  // `positions' and `velocities', in a system of size `L'.
+
 // GRIDS
 
 extern "C" void toGrid(

@@ -1,5 +1,8 @@
 #include <math.h>
 #include <vector>
+#include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
+#include <pybind11/stl.h>
 
 #include "dat.hpp"
 #include "maths.hpp"
@@ -41,8 +44,8 @@ extern "C" void getHistogramLinear(
   int bin;
   double dbin = (vmax - vmin)/nBins;
   for (int i=0; i < nValues; i++) {
+    if ( values[i] < vmin || values[i] >= vmax ) { continue; }
     bin = (values[i] - vmin)/dbin;
-    if ( bin < 0 || bin >= nBins ) { continue; }
     histogram[bin] += 1;
   }
 }
@@ -406,7 +409,7 @@ extern "C" void pairDistribution(
       dist = getDistance(x[i], y[i], x[j], y[j], L);
       if ( scale_diameter ) { dist /= (diameters[i] + diameters[j])/2; }
       bin = (dist - vmin)/dbin;
-      if ( bin < 0 || bin >= nBins ) { continue; }
+      if ( dist < vmin || dist >= vmax ) { continue; }
       histogram[bin] += 1;
     }
   }
@@ -535,6 +538,78 @@ extern "C" void isNotInBubble(
   }
 }
 
+std::vector<pybind11::array_t<double>> getVelocityVorticity(
+  pybind11::array_t<double> const& positions,
+  pybind11::array_t<double> const& velocities,
+  double const& L, int const& nBoxes, double const& sigma) {
+  // Compute Gaussian-smoothed velocitiy field and vorticity field, using
+  // standard deviation `sigma', on a (`nBoxes', `nBoxes')-grid, from
+  // `positions' and `velocities', in a system of size `L'.
+
+  pybind11::buffer_info pos_buf = positions.request();
+  pybind11::buffer_info vel_buf = velocities.request();
+
+  if (pos_buf.size != vel_buf.size) {
+    throw std::runtime_error("Input shapes must match");
+  }
+  const int N = pos_buf.shape[0];
+
+  double* const input_pos = (double*) pos_buf.ptr;
+  double* const input_vel = (double*) vel_buf.ptr;
+
+  pybind11::array_t<double> pos_grid = // grid of positions
+    pybind11::array_t<double>({nBoxes, nBoxes, 2});
+  double* pos = (double*) pos_grid.request().ptr;
+  pybind11::array_t<double> vel_grid = // grid of Gaussian-smoothed velocities
+    pybind11::array_t<double>({nBoxes, nBoxes, 2});
+  double* vel = (double*) vel_grid.request().ptr;
+  pybind11::array_t<double> vor_grid = // grid of voriticities from Gaussian-smoothed velocities
+    pybind11::array_t<double>({nBoxes, nBoxes});
+  double* vor = (double*) vor_grid.request().ptr;
+  // set positions and set grids to 0
+  for (int cx=0; cx < nBoxes; cx++) {
+    for (int cy=0; cy < nBoxes; cy++) {
+      pos[cx*nBoxes*2 + cy*2 + 0] = L/nBoxes*(cx + 0.5);
+      pos[cx*nBoxes*2 + cy*2 + 1] = L/nBoxes*(cy + 0.5);
+      for (int dim=0; dim < 2; dim++) {
+        vel[cx*nBoxes*2 + cy*2 + dim] = 0;
+      }
+      vor[cx*nBoxes + cy] = 0;
+    }
+  }
+
+  // compute
+  const double sigma2 = sigma*sigma;
+  double dx, dy, gaussian, term;
+  for (int i=0; i < N; i++) {
+    for (int cx=0; cx < nBoxes; cx++) {
+      for (int cy=0; cy < nBoxes; cy++) {
+        dx = algDistPeriod( // x - x_i
+          input_pos[2*i + 0], // x-coordinate of particle i
+          pos[cx*nBoxes*2 + cy*2 + 0], // x-coordinate of grid point (cx, cy)
+          L);
+        dy = algDistPeriod( // y - y_i
+          input_pos[2*i + 1], // y-coordinate of particle i
+          pos[cx*nBoxes*2 + cy*2 + 1], // y-coordinate of grid point (cx, cy)
+          L);
+        gaussian = exp(-(dx*dx + dy*dy)/(2*sigma2))/(2*M_PI*sigma2); // Gaussian factor
+        for (int dim=0; dim < 2; dim++) {
+          term = gaussian*input_vel[2*i + dim];
+          vel[cx*nBoxes*2 + cy*2 + dim] += term;
+          vor[cx*nBoxes + cy] += term*(dim == 0 ? -dx : dy)/sigma2;
+        }
+      }
+    }
+  }
+
+  // return
+  std::vector<pybind11::array_t<double>> result;
+  result.push_back(pos_grid);
+  result.push_back(vel_grid);
+  result.push_back(vor_grid);
+  return result;
+}
+
 // GRIDS
 
 extern "C" void toGrid(
@@ -654,11 +729,13 @@ extern "C" void getRadialCorrelations(
 
   int bin;
   double dbin = (rmax - rmin)/nBins;
+  double dist;
   for (int i=0; i < N; i++) {
     for (int j=i; j < N; j++) {
       if ( i != j ) { nPairs++; }
-      bin = (getDistance(x[i], y[i], x[j], y[j], L) - rmin)/dbin;
-      if ( bin < 0 || bin >= nBins ) { continue; }
+      dist = getDistance(x[i], y[i], x[j], y[j], L);
+      if ( dist < rmin || dist >= rmax ) { continue; }
+      bin = (dist - rmin)/dbin;
       for (int d=0; d < dim; d++) {
         correlations[bin] +=
           (values1[i][d]*values2[j][d] + values1[j][d]*values2[i][d])/2;
@@ -734,4 +811,37 @@ extern "C" void readDouble(
     read.read<double>(&(out[i]), targets[i]);
   }
   read.close();
+}
+
+/////////////////////
+// PYBIND11 EXPORT //
+/////////////////////
+
+PYBIND11_MODULE(_pycpp, m) {
+  m.doc() = "Module pycpp provides interfaces between python and C++.";
+
+  m.def("getVelocityVorticity", &getVelocityVorticity,
+    "Compute Gaussian-smoothed velocitiy field and vorticity field.\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "positions : (*, 2) float array-like\n"
+    "    Positions.\n"
+    "velocities : (*, 2) float array-like\n"
+    "    Velocities.\n"
+    "L : float\n"
+    "    System size.\n"
+    "nBoxes : int\n"
+    "    Number of boxes in each direction of the computed grid.\n"
+    "sigma : float\n"
+    "    Standard deviation of the Gaussian with which to convolute.\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "pos : (nBoxes, nBoxes, 2) float numpy array\n"
+    "    Grid positions.\n"
+    "vel : (nBoxes, nBoxes, 2) float numpy array\n"
+    "    Gaussian-smoothed velocities.\n"
+    "vor : (nBoxes, nBoxes) float numpy array\n"
+    "    Vorticities from Gaussian-smoothed velocities.");
 }

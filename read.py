@@ -13,6 +13,7 @@ from operator import itemgetter
 from coll_dyn_activem.init import get_env
 from coll_dyn_activem.maths import wo_mean, pycpp, relative_positions, angle,\
     cooperativity
+from coll_dyn_activem._pycpp import getVelocityVorticity
 
 class _Read:
     """
@@ -931,6 +932,43 @@ class Dat(_Read):
                 rescale_pair_distribution=rescale_pair_distribution,
                 values2=array2),
             cooperativity(array))
+
+    def getVelocityVorticity(self, time, nBoxes=None, sigma=None):
+        """
+        Compute Gaussian-smoothed velocitiy field and vorticity field.
+
+        Parameters
+        ----------
+        time : int
+            Frame index.
+        nBoxes : int or None
+            Number of boxes in each direction of the computed grid.
+            (default: None)
+            NOTE: if nBoxes==None, then nBoxes = int(sqrt(self.N)).
+        sigma : float or None
+            Standard deviation of the Gaussian with which to convolute.
+            (default: None)
+            NOTE: if sigma==None, then sigma = mean(self.diameters).
+
+        Returns
+        -------
+        pos : (nBoxes, nBoxes, 2) float numpy array
+            Grid positions.
+        vel : (nBoxes, nBoxes, 2) float numpy array
+            Gaussian-smoothed velocities.
+        vor : (nBoxes, nBoxes) float numpy array
+            Vorticities from Gaussian-smoothed velocities.
+        """
+
+        if type(nBoxes) == type(None): nBoxes = int(np.sqrt(self.N))
+        if type(sigma) == type(None): sigma = self.diameters.mean()
+
+        return getVelocityVorticity(
+            self.getPositions(time),
+            self.getVelocities(time, remove_cm=True),
+            self.L,
+            nBoxes,
+            sigma)
 
     def _loadWork(self, load=True):
         """
