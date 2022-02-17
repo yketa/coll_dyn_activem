@@ -289,7 +289,7 @@ class Displacements(Positions):
 
         # array of initial times
         if self._type == 'datN':
-            time0 = np.array(itemgetter(
+            time0 = self.time0 if self.time0.size == 1 else np.array(itemgetter(
                 *linspace(self.skip, len(self.time0) - 1, int_max,
                     endpoint=True))(
                     self.time0),
@@ -702,7 +702,7 @@ class Displacements(Positions):
         _msc = np.array(list(map(
             lambda kx, ky: self._mean_stderr_chi(dt, np.cos(kx*dx + ky*dy)),
             *np.transpose(wave_vectors))))
-        assert _msc[:, :, 0].var(axis=0).sum() == 0     # check Fs are computed at the same lag times
+        assert _msc[:, :, 0].var(axis=0).sum() < 1e-12  # check Fs are computed at the same lag times
         msc = np.transpose([
             _msc[0, :, 0],                              # lag times
             _msc[:, :, 1].mean(axis=0),                 # self-intermediate scattering function
@@ -1017,7 +1017,7 @@ class Displacements(Positions):
         brokenBonds = self.brokenBonds(time0, *dt, A1=A1, A2=A2)
         return (brokenBonds == k).sum(axis=-1)/self.N
 
-    def d2min(self, time0, time1, A1=1.15):
+    def d2min(self, time0, time1, A1=2**(1./6.)):
         """
         Compute nonaffine squared displacements between `time0' and `time1'.
 
@@ -1119,7 +1119,7 @@ class Displacements(Positions):
             Array of lag times.
         displacements : (**, *, N, 2) float numpy array
             Array of displacements. (see self.dtDisplacements)
-        time0 : [initial_times] (*,) int numpy array
+        time0 : [initial_times] (**,) int numpy array
             Initial times at which displacements are computed.
         """
 
