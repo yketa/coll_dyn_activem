@@ -57,11 +57,6 @@ class ADD {
       dtMD(timeStepMD),
       iterMaxMD(100*numberParticles/dtMD),
       dEp(0)
-      //////////////////////
-      // DUMP PLASTIC EVENTS
-      // ,
-      // out_plastic(getOuput()->getOutputFile() + ".p_events")
-      //////////////////////
       {
 
       // propulsions
@@ -444,11 +439,7 @@ class ADD {
         int iterMD = 0;
         while (
           // iterMD < iterMaxMD &&
-          #ifndef ADD_MD_PLASTIC
-          sqrt(gradUeff2/numberParticles) > gradMaxMD
-          #else
           sqrt(gradUeff2/numberParticles) > gradMax
-          #endif
           ) {
           #ifndef ADD_MD_PLASTIC
           std::cerr << "MD: " << iterMD << std::endl
@@ -467,17 +458,8 @@ class ADD {
           gradUeff2 = gradientUeff2(gradUeff);
         }
         iterations += iterMD;
-        // re-minimise (CG)
-        #ifndef ADD_MD_PLASTIC
-        CGMinimiser Uminimiser(potential_force, 2*numberParticles,
-          pow(gradMax, 2)/numberParticles, 0, 0, iter > 0 ? iter : iterMax);
-        report = Uminimiser.minimise(&positions[0]);
-        termination = (int) report.terminationtype;
-        iterations += (int) report.iterationscount;
-        gradUeff2 = gradientUeff2();
-        #else
         // termination = iterations > iterMax ? 5 : 0;
-        #endif
+        termination = 0;
       }
       // failures
       if ( termination == 5 ) {
@@ -532,15 +514,6 @@ class ADD {
       output.write<double>(gradUeff2);
       output.write<double>(dEp);
       output.write<double>(sqrt(dms));
-      //////////////////////
-      // DUMP PLASTIC EVENTS
-      // if ( dEp > 0 ) { // only for plastic events
-      //   out_plastic.write<int>(system.getDump()[0]);
-      //   for (double r : r0) { out_plastic.write<double>(r); }
-      //   std::vector<double> disp = difference(&(r0[0]));
-      //   for (double dr : disp) { out_plastic.write<double>(dr); }
-      // }
-      //////////////////////
     }
 
     void iteratePropulsion() {
@@ -597,11 +570,6 @@ class ADD {
     int const iterMaxMD; // maximum number of molecular dynamics steps
 
     double dEp; // latest energy drop
-
-    //////////////////////
-    // DUMP PLASTIC EVENTS
-    // Write out_plastic;
-    //////////////////////
 
 };
 
