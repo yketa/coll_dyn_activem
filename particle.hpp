@@ -587,6 +587,7 @@ class System0 {
     void initialiseCellList(double const& cutOff = pow(2.0, 1./6.)); // initialise cell list
     void updateCellList(); // update cell list with current positions
 
+    void flushOutputFile(); // flush output file
     std::string getOutputFile() const; // returns output file name
 
     int* getDump(); // returns number of frames dumped since last reset
@@ -754,6 +755,7 @@ class SystemN {
     void initialiseCellList(double const& cutOff = pow(2.0, 1./6.)); // initialise cell list
     void updateCellList(); // update cell list with current positions
 
+    void flushOutputFile(); // flush output file
     std::string getOutputFile() const; // returns output file name
 
     int* getDump(); // returns number of frames dumped since last reset

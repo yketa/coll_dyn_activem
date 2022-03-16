@@ -1047,6 +1047,7 @@ void System0::updateCellList() {
   cellList.listConstructor<double*>(positions);
 }
 
+void System0::flushOutputFile() { output.flush(); }
 std::string System0::getOutputFile() const { return output.getOutputFile(); }
 
 int* System0::getDump() { return &dumpFrame; }
@@ -1911,6 +1912,7 @@ void SystemN::updateCellList() {
   cellList.listConstructor<double*>(positions);
 }
 
+void SystemN::flushOutputFile() { output.flush(); }
 std::string SystemN::getOutputFile() const { return output.getOutputFile(); }
 
 int* SystemN::getDump() { return &dumpFrame; }
