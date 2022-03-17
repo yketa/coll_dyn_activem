@@ -169,16 +169,23 @@ class ADD {
       return dr;
     }
 
-    double difference2(const double* r0) {
+    double difference2(const double* r0, double* maxDisp) {
       // Returns squared displacements from `positions' to `r0'.
+      // Writes maximum displacement in `maxDisp'.
 
       const std::vector<double> dr = difference(r0);
       double dr2 = 0;
+      double disp2;
+      double maxDisp2 = 0;
       for (int i=0; i < numberParticles; i++) {
+        disp2 = 0;
         for (int dim=0; dim < 2; dim++) {
-          dr2 += pow(dr[2*i + dim], 2);
+          disp2 += pow(dr[2*i + dim], 2);
         }
+        if ( disp2 > maxDisp2 ) { maxDisp2 = disp2; }
+        dr2 += disp2;
       }
+      maxDisp[0] = sqrt(maxDisp2);
       return dr2;
     }
 
@@ -414,13 +421,15 @@ class ADD {
       gradUeff = gradientUeff();
       gradUeff2 = gradientUeff2(gradUeff);
       energyDrop(r0, potential0, &potential1, &dms, &dEpFlag); // compute potential and energy drop
+      double disp2, maxDisp;
+      disp2 = difference2(&(r0[0]), &maxDisp);
       if (
         termination == 5 || termination == 7
         #ifdef ADD_MD_PLASTIC
         || dEp > 0
         #else
         #ifndef ADD_NO_LIMIT
-        || difference2(&(r0[0])) > numberParticles*dr2Max
+        || disp2 > numberParticles*dr2Max
         #endif
         #endif
         || sqrt(gradUeff2/numberParticles) > gradMax ) {
@@ -437,6 +446,22 @@ class ADD {
         gradUeff2 = gradientUeff2(gradUeff);
         // perform MD
         int iterMD = 0;
+        ////////////////
+        // MD TRAJECTORY
+        // std::vector<double> _diameters = diameters;
+        // SystemN mdtraj(0, 2000, 0, new int(1), 0, 2000, new std::vector<int>, new std::vector<int>,
+        //   &system, _diameters, 0, system.getOutputFile() + ".mdtraj");
+        // mdtraj.saveInitialState();
+        // int dumpmdtraj = 0;
+        // std::vector<Particle> newParticles;
+        // for (int i=0; i < numberParticles; i++) {
+        //   newParticles.push_back(system.getParticle(i));
+        //   for (int dim=0; dim < 2; dim++) {
+        //     newParticles[i].position()[dim] = r0[2*i + dim];
+        //     newParticles[i].propulsion()[dim] = prop->at(2*i + dim);
+        //   }
+        // }
+        ////////////////
         while (
           // iterMD < iterMaxMD &&
           sqrt(gradUeff2/numberParticles) > gradMax
@@ -455,6 +480,26 @@ class ADD {
             gradUeff = gradientUeff();
             iterMD++;
           }
+          ////////////////
+          // MD TRAJECTORY
+          // if (dumpmdtraj < 2000) {
+          //   for (int i=0; i < numberParticles; i++) {
+          //     for (int dim=0; dim < 2; dim++) {
+          //       newParticles[i].position()[dim] = positions[2*i + dim];
+          //       newParticles[i].position()[dim] += // WARNING: we assume that particles do not move more further than a half box length
+          //         algDistPeriod( // equivalent position at distance lower than half box
+          //           newParticles[i].position()[dim],
+          //           positions[2*i + dim] // wrapped coordinate
+          //             - (wrapCoordinate<SystemN>(&system, positions[2*i + dim])
+          //               *systemSize),
+          //           systemSize);
+          //     }
+          //   }
+          //   dumpmdtraj++;
+          //   mdtraj.saveNewState(newParticles);
+          //   mdtraj.flushOutputFile();
+          // }
+          ////////////////
           gradUeff2 = gradientUeff2(gradUeff);
         }
         iterations += iterMD;

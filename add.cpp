@@ -30,8 +30,8 @@ int main() {
   const std::vector<double> datDiameters = dat.getDiameters();
   std::vector<double> diameters;
   for (int i=0; i < numberParticles; i++) {
+    index = mapParticleIndex(i);
     for (int dim=0; dim < 2; dim++) {
-      index = mapParticleIndex(i);
       positions.push_back(
         dat.getPosition(frame, index, dim, false)
         + dat.getSystemSize()*(dim == 0 ?
