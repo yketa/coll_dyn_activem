@@ -918,6 +918,9 @@ class Displacements(Positions):
 
         Returns
         -------
+        bb : (*,) float Numpy array
+            Array of proportion of particles with at least brokenBondsMin broken
+            bonds.
         Cbb : (*, 3) float Numpy array
             Array of (r, Cbb(r), errCbb(r)) with Cbb(r) the cylindrically
             averaged spatial correlations of broken bonds and errCbb(r) the
@@ -944,6 +947,7 @@ class Displacements(Positions):
         chi = self.N*bonds.mean(axis=-1).var()
 
         return (
+            bonds.mean(axis=-1),
             np.array([
                 [correlations[0, bin, 0],
                     *mean_sterr(correlations[:, bin, 1])]
