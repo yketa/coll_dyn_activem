@@ -6,6 +6,7 @@
 
 #include "dat.hpp"
 #include "maths.hpp"
+#include "particle.hpp"
 #include "pycpp.hpp"
 #include "readwrite.hpp"
 
@@ -538,6 +539,107 @@ extern "C" void isNotInBubble(
   }
 }
 
+// POTENTIAL AND FORCES
+
+double getWCA(
+  pybind11::array_t<double> const& positions,
+  pybind11::array_t<double> const& diameters,
+  double const& L) {
+  // Compute WCA potential between particles at `positions', with `diameters',
+  // in a periodic square box of linear size `L'.
+
+  pybind11::buffer_info pos_buf = positions.request();
+  pybind11::buffer_info dia_buf = diameters.request();
+  const int N = pos_buf.shape[0];
+  if (dia_buf.shape[0] != N) {
+    throw std::runtime_error("Input shapes must match.");
+  }
+  std::vector<double*> r(N, 0);
+  for (int i=0; i < N; i++) r[i] = &(((double*) pos_buf.ptr)[2*i]);
+  std::vector<double> sigma((double*) dia_buf.ptr, (double*) dia_buf.ptr + N);
+  double dist, sigmaij;
+
+  double U = 0;
+
+  CellList cellList(N, L,
+    pow(2.0, 1./6.)*(*std::max_element(sigma.begin(), sigma.end())));
+  cellList.listConstructor<double*>(r);
+  cellList.pairs(
+    [&L, &r, &sigma, &sigmaij, &dist, &U](int const& i, int const& j) {
+      dist = getDistance(r[i][0], r[i][1], r[j][0], r[j][1], L);
+      sigmaij = (sigma[i] + sigma[j])/2;
+      if (dist/sigmaij < pow(2., 1./6.)) { // distance lower than cut-off
+        U += 4*(pow(sigmaij/dist, 12) - pow(sigmaij/dist, 6) + 1./4.);
+      }
+    });
+
+  return U;
+}
+
+pybind11::array_t<double> getRAForces(
+  pybind11::array_t<double> const& positions,
+  pybind11::array_t<double> const& diameters,
+  double const& L, double const& a=12, double const& rcut=1.25) {
+  // Compute regularised 1/r^`a' potential, with cut-off radius `rcut', between
+  // particles at `positions', with `diameters', in a periodic square box of
+  // linear size `L'.
+
+  // double const c0 = -(8 + a*(a + 6))/(8*pow(rcut, a)); // constant part of potential
+  double const c1 = (a*(a + 4))/(4*pow(rcut, a + 2)); // quadratic part of potential
+  double const c2 = -(a*(a + 2))/(8*pow(rcut, a + 4)); // quartic part of potential
+
+  pybind11::buffer_info pos_buf = positions.request();
+  pybind11::buffer_info dia_buf = diameters.request();
+  const int N = pos_buf.shape[0];
+  if (dia_buf.shape[0] != N) {
+    throw std::runtime_error("Input shapes must match.");
+  }
+  std::vector<double*> r(N, 0);
+  for (int i=0; i < N; i++) r[i] = &(((double*) pos_buf.ptr)[2*i]); // positions
+  std::vector<double> sigma((double*) dia_buf.ptr, (double*) dia_buf.ptr + N); // diameters
+  double dist, sigmaij;
+  double diff[2];
+
+  pybind11::array_t<double> forces = pybind11::array_t<double>({N, 2}); // array of forces
+  double* f = (double*) forces.request().ptr;
+  for (int i=0; i < N; i++) {
+    for (int dim=0; dim < 2; dim++) {
+      f[2*i + dim] = 0; // initialise to 0
+    }
+  }
+
+  CellList cellList(N, L,
+    rcut*(*std::max_element(sigma.begin(), sigma.end())));
+  cellList.listConstructor<double*>(r);
+  cellList.pairs(
+    [&f, &sigma, &r, &L, &a, &c1, &c2, &rcut, &dist, &sigmaij, &diff]
+    (int const& index1, int const& index2) { // do for each individual pair
+      // rescaled diameter
+      sigmaij = (sigma[index1] + sigma[index2])/2
+        *(1 - 0.2*fabs(sigma[index1] - sigma[index2]));
+      // distance
+      dist = dist2DPeriod(r[index1], r[index2], L, &diff[0]);
+      // potential
+      if ( dist/sigmaij < rcut ) {
+        // rescaled distances
+        double rAinv = 1./pow((dist/sigmaij), a);
+        double r2 = pow((dist/sigmaij), 2);
+        double r4 = r2*r2;
+        // gradient of potential
+        for (int dim=0; dim < 2; dim++) {
+          f[2*index1 + dim] -=
+            (diff[dim]/(dist*dist))*(a*rAinv - 2*c1*r2 - 4*c2*r4);
+          f[2*index2 + dim] -=
+            -(diff[dim]/(dist*dist))*(a*rAinv - 2*c1*r2 - 4*c2*r4);
+        }
+      }
+    });
+
+  return forces;
+}
+
+// VELOCITIES
+
 std::vector<pybind11::array_t<double>> getVelocityVorticity(
   pybind11::array_t<double> const& positions,
   pybind11::array_t<double> const& velocities,
@@ -550,7 +652,7 @@ std::vector<pybind11::array_t<double>> getVelocityVorticity(
   pybind11::buffer_info vel_buf = velocities.request();
 
   if (pos_buf.size != vel_buf.size) {
-    throw std::runtime_error("Input shapes must match");
+    throw std::runtime_error("Input shapes must match.");
   }
   const int N = pos_buf.shape[0];
 
@@ -843,5 +945,56 @@ PYBIND11_MODULE(_pycpp, m) {
     "vel : (nBoxes, nBoxes, 2) float numpy array\n"
     "    Gaussian-smoothed velocities.\n"
     "vor : (nBoxes, nBoxes) float numpy array\n"
-    "    Vorticities from Gaussian-smoothed velocities.");
+    "    Vorticities from Gaussian-smoothed velocities.",
+    pybind11::arg("positions"),
+    pybind11::arg("velocities"),
+    pybind11::arg("L"),
+    pybind11::arg("nBoxes"),
+    pybind11::arg("sigma"));
+
+  m.def("getWCA", &getWCA,
+    "Compute WCA potential.\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "positions : (*, 2) float array-like\n"
+    "    Positions.\n"
+    "diameters : (*,) float array-like\n"
+    "    Diameters.\n"
+    "L : float\n"
+    "    System size.\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "U : float\n"
+    "    WCA potential.\n",
+    pybind11::arg("positions"),
+    pybind11::arg("diameters"),
+    pybind11::arg("L"));
+
+  m.def("getRAForces", &getRAForces,
+    "Compute regularised 1/r^a forces.\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "positions : (*, 2) float array-like\n"
+    "    Positions.\n"
+    "diameters : (*,) float array-like\n"
+    "    Diameters.\n"
+    "L : float\n"
+    "    System size.\n"
+    "a : float\n"
+    "    Potential exponent. (default: 12)\n"
+    "rcut : float\n"
+    "    Potential cut-off radius. (default: 1.25)\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "forces : (*, 2) numpy array\n"
+    "    Regularised 1/r^a forces.\n",
+    pybind11::arg("positions"),
+    pybind11::arg("diameters"),
+    pybind11::arg("L"),
+    pybind11::arg("a")=12,
+    pybind11::arg("rcut")=1.25);
 }

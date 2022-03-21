@@ -11,6 +11,7 @@ from operator import itemgetter
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.maths import linspace, logspace, mean_sterr, wo_mean,\
     normalise1D
+from coll_dyn_activem._pycpp import getWCA, getRAForces
 
 class Force(Dat):
     """
@@ -48,7 +49,7 @@ class Force(Dat):
 
     def getForce(self, time, *particle, norm=False, Heun=False):
         """
-        Returns forces exerted on every particles at time `time'.
+        Returns forces exerted on particles at time `time'.
 
         Parameters
         ----------
@@ -67,7 +68,7 @@ class Force(Dat):
         -------
         forces : [not(norm)] (self.N, 2) float numpy array
                  [norm and not(Heun)] (self.N,) float numpy array
-            Forces exerted on every particles.
+            Forces exerted on particles.
         corrForces [Heun] : (self.N, 2) float numpy array
             Correction to forces from Heun integration.
         """
@@ -108,6 +109,56 @@ class Force(Dat):
             newForces = np.array(itemgetter(*particle)(newForces))
 
             return forces, (newForces - forces)/2
+
+    def getRAForce(self, time, *particle, norm=False, a=12, rcut=1.25):
+        """
+        Return regularised 1/r^a forces exerted on particles at time `time'.
+
+        Parameters
+        ----------
+        time : int
+            Index of the frame.
+        particle : int
+            Indexes of particles.
+            NOTE: if none is given, then all particles are returned.
+        norm : bool
+            Return norm of forces rather than 2D force. (default: False)
+        a : float
+            Potential exponent. (default: 12)
+        rcut : float
+            Potential cut-off radius. (default: 1.25)
+
+        Returns
+        -------
+        forces : [not(norm)] (self.N, 2) float numpy array
+                 [norm] (self.N,) float numpy array
+            Forces exerted on particles.
+        """
+
+        if particle == (): particle = range(self.N)
+        f = self.epsilon*np.array(itemgetter(*particle)(
+            getRAForces(
+                self.getPositions(time), self.diameters, self.L, a, rcut)))
+
+        if norm: return np.sqrt((f**2).sum(axis=-1))
+        return f
+
+    def getPotential(self, time):
+        """
+        Compute WCA potential.
+
+        Parameters
+        ----------
+        time : int
+            Index of the frame.
+
+        Returns
+        -------
+        U : float
+            WCA potential energy.
+        """
+
+        return getWCA(self.getPositions(time), self.diameters, self.L)
 
     def corForce(self,
         n_max=100, int_max=None, min=None, max=None, log=False):
@@ -463,7 +514,7 @@ class Force(Dat):
                 self._diffPeriodic(pos1[1], pos0[1])]))
         return self.epsilon*force
 
-    def _1ra(self, time, particle0, particle1, positions=None, a=12):
+    def _1ra(self, time, particle0, particle1, positions=None, a=12, rcut=1.25):
         """
         Returns force derived from regularised 1/r^a potential applied on
         `particle0' by `particle1' at time `time'.
@@ -482,6 +533,8 @@ class Force(Dat):
                   are considered.
         a : float
             Inverse power of the potential. (default: 12)
+        rcut : float
+            Potential cut-off radius. (default: 1.25)
 
         Returns
         -------
@@ -499,7 +552,6 @@ class Force(Dat):
             *(1 - 0.2*
                 np.abs(self.diameters[particle0] - self.diameters[particle1])))
 
-        rcut = 1.25
         # c0 = -(8 + a*(a + 6))/(8*(rcut**a))
         c1 = (a*(a + 4))/(4*(rcut**(a + 2)))
         c2 = -(a*(a + 2))/(8*(rcut**(a + 4)))

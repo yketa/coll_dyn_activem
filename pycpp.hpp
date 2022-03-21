@@ -160,6 +160,25 @@ extern "C" void isNotInBubble(
   // positions given by `x' and y-axis positions given by `y', are not within
   // distance `dlim' of particles with `densities' below `philim'.
 
+// POTENTIAL AND FORCES
+
+double getWCA(
+  pybind11::array_t<double> const& positions,
+  pybind11::array_t<double> const& diameters,
+  double const& L);
+  // Compute WCA potential between particles at `positions', with `diameters',
+  // in a periodic square box of linear size `L'.
+
+pybind11::array_t<double> getRAForces(
+  pybind11::array_t<double> const& positions,
+  pybind11::array_t<double> const& diameters,
+  double const& L, double const& a, double const& rcut);
+  // Compute regularised 1/r^`a' potential, with cut-off radius `rcut', between
+  // particles at `positions', with `diameters', in a periodic square box of
+  // linear size `L'.
+
+// VELOCITIES
+
 std::vector<pybind11::array_t<double>> getVelocityVorticity(
   pybind11::array_t<double> const& positions,
   pybind11::array_t<double> const& velocities,
