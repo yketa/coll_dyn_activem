@@ -54,9 +54,17 @@ class ADD {
         const_cast<std::vector<double>&>(diameters), seed, filename),
       initFrames(init),
       iterMax(100*numberParticles),
-      dtMD(timeStepMD),// dtMDmin(dtMD/4),
+      dtMD(timeStepMD), dtMDmin(dtMD/4),
       iterMaxMD(100*numberParticles/dtMD),
       dEp(0)
+      /////////////////////
+      // DUMP DISPLACEMENTS
+      // ,
+      // disp_e(2*numberParticles, 0),
+      // out_disp_e(getOuput()->getOutputFile() + ".disp_e"),
+      // disp_p(2*numberParticles, 0),
+      // out_disp_p(getOuput()->getOutputFile() + ".disp_p")
+      // ///////////////////
       {
 
       // propulsions
@@ -124,6 +132,15 @@ class ADD {
           getAngleVector(propulsions[2*i], propulsions[2*i + 1]);
       }
       system.saveInitialState();
+      /////////////////////
+      // DUMP DISPLACEMENTS
+      // for (int i=0; i < numberParticles; i++) {
+      //   for (int dim=0; dim < 2; dim++) {
+      //     disp_e[2*i + dim] = 0;
+      //     disp_p[2*i + dim] = 0;
+      //   }
+      // }
+      /////////////////////
     }
     void saveNewState() {
       // Saves new frame.
@@ -150,6 +167,19 @@ class ADD {
           positions[2*i + dim] = (system.getParticle(i))->position()[dim];
         }
       }
+      /////////////////////
+      // DUMP DISPLACEMENTS
+      // if ( isInSortedVec<int>(system.getFrames(), system.getDump()[0]) ) { // this check is to be done after calling system.saveNewState() so that the dump index is updated
+      //   for (int i=0; i < numberParticles; i++) {
+      //     for (int dim=0; dim < 2; dim++) {
+      //       out_disp_e.write<double>(disp_e[2*i + dim]);
+      //       // disp_e[2*i + dim] = 0;
+      //       out_disp_p.write<double>(disp_p[2*i + dim]);
+      //       // disp_p[2*i + dim] = 0;
+      //     }
+      //   }
+      // }
+      /////////////////////
     }
 
     std::vector<double> difference(const double* r0) {
@@ -228,7 +258,7 @@ class ADD {
       return U;
     }
 
-    std::vector<double> gradientUeff() {
+    std::vector<double> gradientUeff(const bool& raise = false) {
       // Returns effective potential energy gradient.
 
       // parameters
@@ -257,7 +287,7 @@ class ADD {
       // interaction part
       updateCellList();
       cellList.pairs(
-        [&grad, &sigma, &rPTR, &L, &A, &C0, &C1, &C2, &RCUT]
+        [&grad, &sigma, &rPTR, &L, &A, &C0, &C1, &C2, &RCUT, &raise]
         (int const& index1, int const& index2) { // do for each individual pair
           // rescaled diameter
           double sigmaij = (sigma->at(index1) + sigma->at(index2))/2
@@ -268,6 +298,13 @@ class ADD {
             dist2DPeriod(rPTR[index1], rPTR[index2], L, &diff[0]);
           // potential
           if ( dist/sigmaij < RCUT ) {
+            // check overlap
+            if ( dist/sigmaij < 0.5 ) {
+              if ( raise ) {
+                throw std::runtime_error(
+                  "Overlap between particles is too large.");
+              }
+            }
             // rescaled distances
             double rAinv = 1./pow((dist/sigmaij), A);
             double r2 = pow((dist/sigmaij), 2);
@@ -449,24 +486,30 @@ class ADD {
         ////////////////
         // MD TRAJECTORY
         // std::vector<double> _diameters = diameters;
-        // SystemN mdtraj(0, 2000, 0, new int(1), 0, 2000, new std::vector<int>, new std::vector<int>,
+        // SystemN mdtraj(0, 2000, 0, new int(1), 0, 2000,
+        //   new std::vector<int>, new std::vector<int>,
         //   &system, _diameters, 0, system.getOutputFile() + ".mdtraj");
+        // for (int i=0; i < numberParticles; i++) {
+        //   for (int dim=0; dim < 2; dim++) {
+        //     (mdtraj.getParticle(i))->velocity()[dim] = -gradUeff[2*i + dim];
+        //   }
+        // }
         // mdtraj.saveInitialState();
         // int dumpmdtraj = 0;
         // std::vector<Particle> newParticles;
         // for (int i=0; i < numberParticles; i++) {
         //   newParticles.push_back(system.getParticle(i));
         //   for (int dim=0; dim < 2; dim++) {
-        //     newParticles[i].position()[dim] = r0[2*i + dim];
         //     newParticles[i].propulsion()[dim] = prop->at(2*i + dim);
         //   }
         // }
         ////////////////
-        // double dtmd = dtMD;
+        double dtmd = dtMD;
+        bool dtflag = false;
         while (
           // iterMD < iterMaxMD &&
           sqrt(gradUeff2/numberParticles) > gradMax
-          // && dtmd > dtMDmin
+          && dtmd >= dtMDmin
           ) {
           #ifndef ADD_MD_PLASTIC
           std::cerr << "MD: " << iterMD << std::endl
@@ -476,11 +519,18 @@ class ADD {
           for (int step=0; step < iterMinMD; step++) {
             for (int i=0; i < numberParticles; i++) {
               for (int dim=0; dim < 2; dim++) {
-                positions[2*i + dim] -= dtMD*gradUeff[2*i + dim];
-                // positions[2*i + dim] -= dtmd*gradUeff[2*i + dim];
+                // positions[2*i + dim] -= dtMD*gradUeff[2*i + dim];
+                positions[2*i + dim] -= dtmd*gradUeff[2*i + dim];
               }
             }
-            gradUeff = gradientUeff();
+            try {
+              gradUeff = gradientUeff(true);
+            }
+            catch (const std::runtime_error& e) {
+              std::cerr << e.what() << std::endl;
+              dtflag = true;
+              break;
+            }
             iterMD++;
           }
           // wrap positions
@@ -491,6 +541,27 @@ class ADD {
           //         *systemSize;
           //   }
           // }
+          // check positions can be wrapped in box
+          double wrapP;
+          for (int i=0; i < numberParticles; i++) {
+            for (int dim=0; dim < 2; dim++) {
+              wrapP = positions[2*i + dim]
+                - wrapCoordinate<SystemN>(&system, positions[2*i + dim])
+                  *systemSize;
+              if (wrapP < 0 || wrapP > systemSize) {
+                try {
+                  throw std::runtime_error(
+                    "Particles cannot be wrapped back in the box.");
+                }
+                catch (const std::runtime_error& e) {
+                  std::cerr << e.what() << std::endl;
+                  dtflag = true;
+                  break;
+                }
+              }
+            }
+            if (dtflag) break;
+          }
           ////////////////
           // MD TRAJECTORY
           // if (dumpmdtraj < 2000) {
@@ -505,39 +576,37 @@ class ADD {
           //             - (wrapCoordinate<SystemN>(&system, positions[2*i + dim])
           //               *systemSize),
           //           systemSize);
+          //       (mdtraj.getParticle(i))->velocity()[dim] = -gradUeff[2*i + dim];
           //     }
           //   }
           //   dumpmdtraj++;
-          //   mdtraj.saveNewState(newParticles);
+          //   try {
+          //     mdtraj.saveNewState(newParticles);
+          //   }
+          //   catch (const std::invalid_argument& e){
+          //     std::cerr << e.what() << std::endl;
+          //   }
           //   mdtraj.flushOutputFile();
           // }
           ////////////////
           gradUeff2 = gradientUeff2(gradUeff);
-          // check kinetic energy
-          // double grad2max = 0;
-          // double g2;
-          // for (int i=0; i < numberParticles; i++) {
-          //   g2 =
-          //     gradUeff[2*i + 0]*gradUeff[2*i + 0]
-          //     + gradUeff[2*i + 1]*gradUeff[2*i + 1];
-          //   if ( g2 > grad2max ) grad2max = g2;
-          // }
-          // if ( grad2max > 1000*velocity*velocity ) {
-          //   std::cerr
-          //     << "[EXCESSIVE KINETIC ENERGY IN MD] dtMD = " << dtmd
-          //     << " max(<v_i^2>) = " << grad2max
-          //     << " [RESTARTING...]" << std::endl;
-          //   // restart from initial positions
-          //   for (int i=0; i < numberParticles; i++) {
-          //     for (int dim=0; dim < 2; dim++) {
-          //       positions[2*i + dim] = r0[2*i + dim];
-          //     }
-          //   }
-          //   gradUeff = gradientUeff();
-          //   gradUeff2 = gradientUeff2(gradUeff);
-          //   iterMD = 0;
-          //   dtmd /= 2.0;
-          // }
+          // relaunch with smaller time step
+          if ( dtflag ) {
+            std::cerr
+              << "[SUSPICION OF LARGE PARTICLE OVERLAP] dtMD = " << dtmd
+              << " [RESTARTING...]" << std::endl;
+            // restart from initial positions
+            for (int i=0; i < numberParticles; i++) {
+              for (int dim=0; dim < 2; dim++) {
+                positions[2*i + dim] = r0[2*i + dim];
+              }
+            }
+            gradUeff = gradientUeff();
+            gradUeff2 = gradientUeff2(gradUeff);
+            iterMD = 0;
+            dtmd /= 2.0;
+            dtflag = false;
+          }
         }
         iterations += iterMD;
         // termination = iterations > iterMax ? 5 : 0;
@@ -596,6 +665,18 @@ class ADD {
       output.write<double>(gradUeff2);
       output.write<double>(dEp);
       output.write<double>(sqrt(dms));
+      /////////////////////
+      // DUMP DISPLACEMENTS
+      // std::vector<double> disp = difference(&(r0[0]));
+      // std::vector<double>* cum_disp;
+      // if ( dEp <= 0 ) { cum_disp = &disp_e; }
+      // else { cum_disp = &disp_p; }
+      // for (int i=0; i < numberParticles; i++) {
+      //   for (int dim=0; dim < 2; dim++) {
+      //     cum_disp->at(2*i + dim) += disp[2*i + dim];
+      //   }
+      // }
+      /////////////////////
     }
 
     void iteratePropulsion() {
@@ -791,11 +872,19 @@ class ADD {
     long int const iterMax; // maximum number of minimisation iterations (0 => no limit) [(MD during) MD minimisation]
 
     double const dtMD; // time step for molecular dynamics
-    // double const dtMDmin; // minimum time step for molecular dynamics
-    int const iterMinMD = 1e3; // number of molecular dynamics steps before checking scaled gradient of effective potential
+    double const dtMDmin; // minimum time step for molecular dynamics
+    int const iterMinMD = 1e4; // number of molecular dynamics steps before checking scaled gradient of effective potential
     int const iterMaxMD; // maximum number of molecular dynamics steps
 
     double dEp; // latest energy drop
+
+    /////////////////////
+    // DUMP DISPLACEMENTS
+    // std::vector<double> disp_e;
+    // Write out_disp_e;
+    // std::vector<double> disp_p;
+    // Write out_disp_p;
+    /////////////////////
 
 };
 
