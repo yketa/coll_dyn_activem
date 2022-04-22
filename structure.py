@@ -221,7 +221,7 @@ class Positions(Dat):
 
         Returns
         -------
-        psi : (self.N,) float numpy array
+        psi : (self.N,) complex numpy array
             Bond orientational order parameter.
         """
 
