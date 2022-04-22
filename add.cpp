@@ -1,12 +1,62 @@
 #include <iostream>
 #include <string>
+#include <csignal>
 
 #include "add.hpp"
 #include "dat.hpp"
 #include "env.hpp"
 #include "particle.hpp"
 
+ADD* addPTR;
+
+void signalHandler(int signum) {
+  // Signal handler which saves last computed configuration and flushes all the
+  // output files.
+
+  std::cerr
+    << "Received signal " << signum
+    << " (frame " << (addPTR->getSystem())->getDump()[0] << ")."
+    << std::endl;
+
+  // create system object with latest computed coordinates
+  SystemN signal_system(0, 1, 0, new int(1), 0, 1,
+    new std::vector<int>, new std::vector<int>, addPTR->getSystem(), -1,
+    (addPTR->getSystem())->getOutputFile() + ".signal");
+  signal_system.saveInitialState(); // save
+  // current particules state
+  std::vector<Particle> newParticles;
+  for (int i=0; i < addPTR->getNumberParticles(); i++) {
+    newParticles.push_back((addPTR->getSystem())->getParticle(i));
+    for (int dim=0; dim < 2; dim++) {
+      newParticles[i].position()[dim] += // WARNING: we assume that particles do not move more further than a half box length
+        algDistPeriod( // equivalent position at distance lower than half box
+          newParticles[i].position()[dim],
+          addPTR->getPosition(i)[dim] // wrapped coordinate
+            - (wrapCoordinate<SystemN>
+                (addPTR->getSystem(), addPTR->getPosition(i)[dim])
+              *addPTR->getSystemSize()),
+          addPTR->getSystemSize());
+      newParticles[i].propulsion()[dim] = addPTR->getPropulsion(i)[dim];
+    }
+    newParticles[i].orientation()[0] =
+      getAngleVector(addPTR->getPropulsion(i)[0], addPTR->getPropulsion(i)[1]);
+  }
+  signal_system.saveNewState(newParticles); // save
+
+  // flush everything
+  signal_system.flushOutputFile();
+  (addPTR->getSystem())->flushOutputFile();
+  (addPTR->getOuput())->flush();
+
+  // exit
+  std::exit(signum);
+}
+
 int main() {
+
+  // register signal SIGINT/SIGTERM and signal handler
+  std::signal(SIGINT, signalHandler);
+  std::signal(SIGTERM, signalHandler);
 
   // INPUT
   DatN dat(getEnvString("FILE", "in.datN"));
@@ -64,6 +114,7 @@ int main() {
     getEnvDouble("DTMD", 5e-4),
     getEnvInt("SEED", 0),
     getEnvString("OUT", "out.datN"));
+  addPTR = &add;
   for (int i=0; i < add.getNumberParticles(); i++) {
     for (int dim=0; dim < 2; dim++) {
       add.getPosition(i)[dim] = positions[2*i + dim];

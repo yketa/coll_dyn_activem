@@ -188,7 +188,11 @@ export OMP_NUM_THREADS=$NTASKS
 (>&2 printf '%-21s: %s\n' 'SCRIPT' '$SCRIPT')
 (>&2 echo)
 
-$SCRIPT # launching script
+trap 'kill -15 "\${PID}"; wait "\${PID}";' SIGINT SIGTERM # terminate script when cancelled
+
+$SCRIPT & # launching script
+PID="\$!"
+wait "\${PID}"
 EOF
 
 ${WAIT:+wait} # wait until completion of the job
