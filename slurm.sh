@@ -158,9 +158,9 @@ sbatch ${WAIT:+-W} ${CHAIN:+-d afterok:$CHAIN} <<EOF
 #SBATCH --error='${ERROR_DIR}/%j.out'
 #SBATCH --output='$OUT_FILE'
 #SBATCH --partition=$PARTITION
-#SBATCH --gres=$GRES
+${GRES:+#SBATCH --gres=$GRES}
 #SBATCH --nodes=$NODES
-#SBATCH --ntasks-per-node=$NTASKS
+#SBATCH --ntasks=$NTASKS
 ${ARRAY_SIZE:+#SBATCH --array=0-$(($ARRAY_SIZE-1))${ARRAY_TASKS+%$ARRAY_TASKS}}
 ${TIME:+#SBATCH --time=$TIME}
 ${MEMORY:+#SBATCH --mem=$MEMORY}
@@ -189,6 +189,8 @@ export OMP_NUM_THREADS=$NTASKS
 (>&2 echo)
 
 trap 'kill -15 "\${PID}"; wait "\${PID}";' SIGINT SIGTERM # terminate script when cancelled
+
+module load singularity/3.6.3
 
 $SCRIPT & # launching script
 PID="\$!"
