@@ -2,13 +2,13 @@
 Module flow provides classes to compute and analyse positions to characterise
 the structure of systems of ABPs.
 
-(see https://yketa.github.io/PhD_Wiki/#Structure%20characteristics)
 (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#ABP%20structure%20characteristics)
 """
 
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.maths import pycpp, g2Dto1D, wave_vectors_2D, DictList,\
-    angle, linspace, Histogram, mean_sterr, relative_positions
+    angle, linspace, Histogram, mean_sterr, relative_positions, normalise1D,\
+    wave_vectors_dq
 
 import numpy as np
 
@@ -157,7 +157,6 @@ class Positions(Dat):
         NOTE: particle volumes are computed with a factor 2^(1/6) on diameters.
 
         (see self._voronoi)
-        (see https://yketa.github.io/PhD_Wiki/#Structure%20characteristics)
 
         Parameters
         ----------
@@ -205,11 +204,9 @@ class Positions(Dat):
 
         return neighbours
 
-    def getBondOrderParameter(self, time, *particle):
+    def getBondOrderParameter(self, time, *particle, arg=False):
         """
-        Get bond orientational order parameter at `time'.
-
-        (see https://yketa.github.io/PhD_Wiki/#Structure%20characteristics)
+        Get hexatic bond orientational order parameter at `time'.
 
         Parameters
         ----------
@@ -218,6 +215,9 @@ class Positions(Dat):
         particle : int
             Indexes of particles.
             NOTE: if none is given, then all particles are returned.
+        arg : bool
+            Compute argument of the bond order parameter rather than bond order
+            parameter itself. (default: False)
 
         Returns
         -------
@@ -234,6 +234,8 @@ class Positions(Dat):
                     self._diffPeriodic(positions[i][0], positions[j][0]),
                     self._diffPeriodic(positions[i][1], positions[j][1])))
             psi[i] /= len(neighbours[i])
+
+        if arg: psi = np.angle(psi)
 
         if particle == (): return psi
         return np.array(itemgetter(*particle)(psi))
@@ -363,13 +365,103 @@ class Positions(Dat):
         S[:, 2] /= np.sqrt(len(particleDensity))    # change standard deviation to standard error
         return S
 
+    # def structureFactor(self, *q, dq=0.1, int_max=None):
+    #     """
+    #     Returns static structure factor averaged along directions of space
+    #     (assuming isotropy).
+    #
+    #     Parameters
+    #     ----------
+    #     q : float
+    #         Wave vector norms at which to compute structure factor.
+    #     dq : float
+    #         Width of wave vector norm interval. (default: 0.1)
+    #     int_max : int or None
+    #         Maximum number of frames to consider. (default: None)
+    #         NOTE: If int_max == None, then take the maximum number of frames.
+    #               WARNING: This can be very big.
+    #
+    #     Returns
+    #     -------
+    #     S : (*, 3) float Numpy array
+    #         Array of (k, S(k), stdErr S(k)) with S(k) the cylindrically averaged
+    #         structure factor.
+    #     """
+    #
+    #     wv_len = np.array(list(map(
+    #         lambda qn: len(wave_vectors_dq(self.L, qn, dq)),
+    #         q)))
+    #     q = np.array(q)[wv_len > 0]
+    #
+    #     FTsq = []   # list of squared density fourier transform
+    #     for time in self._time0(int_max=int_max):
+    #
+    #         pos = self.getPositions(time)
+    #
+    #         FTsq += [
+    #             list(map(
+    #                 lambda qn: np.mean(
+    #                     list(map(
+    #                         lambda qv: (np.abs(np.sum(
+    #                             np.exp(-1j*(qv*pos).sum(axis=-1))))**2),
+    #                         wave_vectors_dq(self.L, qn, dq))),
+    #                     axis=0),
+    #                 q))]
+    #
+    #     return np.array([[qn, *mean_sterr(dFTsq/self.N)]
+    #         for qn, dFTsq in zip(q, np.transpose(FTsq))])
+
+    def sk(self, *k, dk=0.1, int_max=None):
+        """
+        Returns static structure factor averaged along directions of space
+        (assuming isotropy) as a histogram.
+
+        Parameters
+        ----------
+        k : float
+            Wave vector at which to evaluate the structure factor.
+        dk : float
+            Width of wave vector norm interval. (default: 0.1)
+        int_max : int or None
+            Maximum number of frames to consider. (default: None)
+            NOTE: If int_max == None, then take the maximum number of frames.
+                  WARNING: This can be very big.
+
+        Returns
+        -------
+        S : (*, 3) float Numpy array
+            Array of (k, S(k), Sstd(k)) with S(k) the cylindrically averaged
+            structure factor at minimum wavevector k of corresponding bin, and
+            Sstd(k) the standard deviation on this measure.
+        """
+
+        K = np.array(k)
+
+        positions = np.array(list(map(
+            lambda t0: self.getPositions(t0),
+            self._time0(int_max=int_max))))
+
+        S = []
+        for pos in positions:
+            S += [list(map(
+                lambda kn: np.mean(
+                    list(map(
+                        lambda kv: np.abs(np.sum(
+                            np.exp(-1j*(kv*pos).sum(axis=-1, keepdims=True))
+                            ))**2,
+                        wave_vectors_dq(self.L, kn, dk))),
+                    axis=0)/self.N,
+                K))]
+
+        S = np.array([[k, *mean_sterr(s)] for k, s in zip(K, np.transpose(S))])
+        return S
+
     def densityCorrelation(self, int_max=None, nBoxes=None):
         """
         Returns particle spacial density averaged along directions of space
         (assuming isotropy).
 
         NOTE: Correlations are computed with FFT.
-              (see https://yketa.github.io/PhD_Wiki/#Field%20correlation)
 
         Parameters
         ----------

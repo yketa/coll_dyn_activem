@@ -31,3 +31,7 @@ class ADD(Dat):
                 r._read('d'), r._read('d')]
             for i in range(int(r.fileSize/(2*r._bpe('i') + 4*r._bpe('d'))))]))(
             _Read('%s.add' % self.filename))
+
+        self.ep = np.zeros((len(self.report) + 1,))
+        for i, dep in enumerate(self.report[:, -2]):
+            self.ep[i + 1] = self.ep[i] + dep

@@ -3,7 +3,6 @@ Module flow provides classes to compute and analyse displacements, velocities,
 and orientations in order to characterise the flow of systems of active
 particles.
 
-(see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#ABP%20flow%20characteristics)
 """
 
@@ -12,13 +11,15 @@ from scipy.stats import norm as norm_gen
 from scipy.special import lambertw
 from collections import OrderedDict
 from operator import itemgetter
+import struct
 
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.structure import Positions
 from coll_dyn_activem.maths import pycpp, Distribution, JointDistribution,\
-    wave_vectors_2D, g2Dto1D, g2Dto1Dgrid, mean_sterr, linspace, logspace,\
-    angle, divide_arrays, wo_mean, wave_vectors_dq
+    mean_sterr, linspace, logspace, angle, divide_arrays, wo_mean,\
+    wave_vectors_dq, normalise1D
 from coll_dyn_activem.rotors import nu_pdf_th as nu_pdf_th_ABP
+from coll_dyn_activem._pycpp import getBondsBrokenBonds
 
 # CLASSES
 
@@ -27,30 +28,7 @@ class Displacements(Positions):
     Compute and analyse displacements from simulation data.
 
     (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
-    (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
     """
-
-    def __init__(self, filename, skip=1, corruption=None):
-        """
-        Loads file.
-
-        Parameters
-        ----------
-        filename : string
-            Name of input data file.
-        skip : int
-            Skip the `skip' first computed frames in the following calculations.
-            (default: 1)
-            NOTE: This can be changed at any time by setting self.skip.
-            NOTE: This does not apply to .datN files.
-        corruption : str or None
-            Pass corruption test for given file type (see
-            coll_dyn_activem.read.Dat). (default: None)
-            NOTE: if corruption == None, then the file has to pass corruption
-                  tests.
-        """
-
-        super().__init__(filename, skip=skip, corruption=corruption)    # initialise with super class
 
     def getDisplacements(self, time0, time1, *particle, jump=1, norm=False,
         remove_cm=False, cage_relative=False, neighbours=None):
@@ -437,8 +415,6 @@ class Displacements(Positions):
         Returns value of theoretical mean squared displacement at lag time `dt'
         for a single AOUP.
 
-        (see https://yketa.github.io/PhD_Wiki/#One%20AOUP)
-
         Parameters
         ----------
         dt : float
@@ -531,8 +507,6 @@ class Displacements(Positions):
         """
         Compute dynamical overlap function.
 
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
-
         Parameters
         ----------
         a : float
@@ -605,8 +579,6 @@ class Displacements(Positions):
         the time for the dynamical overlap function to decrease below threshold
         `q'.
 
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
-
         Parameters
         ----------
         q : float
@@ -627,8 +599,6 @@ class Displacements(Positions):
         jump=1, cage_relative=False, dtDisplacements=None):
         """
         Compute self-intermediate scattering function.
-
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
         Parameters
         ----------
@@ -716,8 +686,6 @@ class Displacements(Positions):
         particle, given as the time for the self-intermediate scattering
         function to decrease below \\exp(-1).
 
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
-
         Parameters
         ----------
         k : float
@@ -732,11 +700,9 @@ class Displacements(Positions):
         return selfIntScattFunc_relaxation_free_AOUP(k, self.D, self.Dr)
 
     def vanHove(self, dt, nBins, int_max=None, jump=1, remove_cm=False,
-        vmin=None, vmax=None):
+        cage_relative=False, vmin=None, vmax=None):
         """
         Compute van Hove function.
-
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
         Parameters
         ----------
@@ -753,6 +719,10 @@ class Displacements(Positions):
         remove_cm : bool
             Remove centre of mass displacement. (default: False)
             NOTE: does not affect result if self.N == 1.
+        cage_relative : bool
+            Remove displacement of the centre of mass given by nearest
+            neighbours at initial time. (default: False)
+            (see self.getDisplacements)
         vmin : float
             Minimum value of the bins. (default: None)
             NOTE: if vmin == None, then vmin = 0.
@@ -784,7 +754,8 @@ class Displacements(Positions):
 
             positions = self.getPositions(t0)
             displacements = self.getDisplacements(t0, t0 + dt,
-                jump=jump, norm=False, remove_cm=remove_cm, cage_relative=False)
+                jump=jump, norm=False,
+                remove_cm=remove_cm, cage_relative=cage_relative)
             distances = pycpp.getVanHoveDistances(
                 positions, displacements, self.L)
 
@@ -813,8 +784,6 @@ class Displacements(Positions):
         """
         Returns arrays of number of neighbouring particles which have the same
         displacement orientation between `time0' and `time0' + `dt'.
-
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
         Parameters
         ----------
@@ -850,13 +819,11 @@ class Displacements(Positions):
                 time0, time0 + t, jump=jump, remove_cm=remove_cm)
                 for t in dt])
 
-    def brokenBonds(self, time0, *dt, A1=1.15, A2=1.5):
+    def brokenBonds(self, time0, *dt, A1=1.15, A2=1.5, diameters=True):
         """
         Returns arrays of number of broken bonds for each particle, defined by
         the number of particles at distance lesser than `A1' at `time0' and
         greater than `A2' at `time0' + `dt'.
-
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
         Parameters
         ----------
@@ -865,11 +832,13 @@ class Displacements(Positions):
         dt : int
             Lag time.
         A1 : float
-            Distance relative to their diameters below which particles are
-            considered bonded. (default: 1.15)
+            Distance below which particles are considered bonded.
+            (default: 1.15)
         A2 : float
-            Distance relative to their diameters above which particles are
-            considered unbonded. (default: 1.5)
+            Distance above which particles are considered unbonded.
+            (default: 1.5)
+        diameters : bool
+            Rescale distances by respective average diameters. (default: True)
 
         Returns
         -------
@@ -878,7 +847,10 @@ class Displacements(Positions):
             the number of `dt' provided.
         """
 
-        return pycpp.getBrokenBonds(A1, A2, self.L, self.diameters,
+        if diameters: sigma = self.diameters
+        else: sigma = np.full(self.diameters.shape, fill_value=1)
+
+        return pycpp.getBrokenBonds(A1, A2, self.L, sigma,
             self.getPositions(time0),
             *[self.getPositions(time0 + t) for t in dt])
 
@@ -955,6 +927,67 @@ class Displacements(Positions):
             mean_sterr(zeta),
             chi)
 
+    def bondBreakingCor(self, A1=1.15, A2=1.5,
+        n_max=100, int_max=100, min=None, max=None):
+        """
+        Compute bond breaking correlation function.
+
+        Parameters
+        ----------
+        A1 : float
+            Distance relative to their diameters below which particles are
+            considered bonded. (default: 1.15)
+        A2 : float
+            Distance relative to their diameters above which particles are
+            considered unbonded. (default: 1.5)
+        n_max : int
+            Maximum number of lag times at which to compute the broken bonds.
+            (default: 100)
+        int_max : int
+            Maximum number of different intervals to consider when computing
+            broken bonds for a given lag time. (default: 100)
+        min : int or None
+            Minimum lag time at which to compute the broken bonds.
+            (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum lag time at which to compute the broken bonds.
+            (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+
+        Returns
+        -------
+        Fb : (*, 3) float Numpy array
+            Array of:
+                (0) lag time,
+                (1) velocity correlation at this lag time,
+                (2) standard error on this measure.
+        """
+
+        # LAG TIMES AND INITIAL TIMES
+
+        time0, dt = self._dt(n_max=n_max, int_max=int_max, min=min, max=max)
+
+        # COMPUTE CORRELATIONS
+
+        bb = np.array(list(map(
+            lambda t0: (
+                lambda pos0: list(map(
+                    lambda dt: (
+                        lambda ini, fin: 1 - fin.sum()/ini.sum())(
+                        *getBondsBrokenBonds(
+                            pos0,
+                            self.getDisplacements(t0, t0 + dt, remove_cm=True),
+                            self.diameters, self.L, A1=A1, A2=A2)),
+                    dt)))(
+                self.getPositions(t0)),
+            time0)))
+
+        return np.array(list(map(
+            lambda i, b: [dt[i], *mean_sterr(b)],
+            *(range(bb.shape[1]), np.transpose(bb)))))
+
     def brokenPairs(self, time0, time1, A1=1.15, A2=1.5):
         """
         Returns array of broken bond truth values for each pair, where particles
@@ -962,8 +995,6 @@ class Displacements(Positions):
         `A2' at `time1'.
 
         (see pycpp.pairIndex)
-
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
         Parameters
         ----------
@@ -994,7 +1025,6 @@ class Displacements(Positions):
         `time0' + `dt'.
 
         (see self.brokenBonds)
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
         Parameters
         ----------
@@ -1025,8 +1055,6 @@ class Displacements(Positions):
         """
         Compute nonaffine squared displacements between `time0' and `time1'.
 
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
-
         Parameters
         ----------
         time0 : int
@@ -1046,6 +1074,70 @@ class Displacements(Positions):
         return pycpp.nonaffineSquaredDisplacement(
             self.getPositions(time0), self.getPositions(time1), self.L,
             A1, self.diameters)
+
+    def _dt(self, n_max=100, int_max=100, min=None, max=None):
+        """
+        Returns initial times and lag times for intervals of time between `min'
+        and `max'.
+
+        Parameters
+        ----------
+        n_max : int
+            Maximum number of lag times at which to compute the displacements.
+            (default: 100)
+        int_max : int
+            Maximum number of different intervals to consider when computing
+            displacements for a given lag time. (default: 100)
+        min : int or None
+            Minimum lag time at which to compute the displacements.
+            (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum lag time at which to compute the displacements.
+            (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+
+        Returns
+        -------
+        time0 : (*,) int numpy array
+            Array of initial times.
+        dt : (**,) int numpy array
+            Array of lag times.
+        """
+
+        min = 1 if min == None else int(min)
+
+        if self._type == 'datN':
+
+            # LAG TIMES
+            max = self.deltat.max() if max == None else int(max)
+            dt = self.deltat[(self.deltat >= min)*(self.deltat <= max)]
+            dt = itemgetter(*linspace(0, len(dt) - 1, n_max, endpoint=True))(dt)
+
+            # INITIAL TIMES
+            time0 = self.time0
+
+        else:
+
+            # LAG TIMES
+            max = ((self.frames - self.skip - 1)//int_max if max == None
+                else int(max))
+            dt = linspace(min, max, n_max)
+
+            # INITIAL TIMES
+            time0 = np.linspace(
+                self.skip, self.frames - 1,
+                int((self.frames - 1 - self.skip)//dt.max()),
+                endpoint=False, dtype=int)
+
+        # INITIAL TIMES
+        if int_max != None:
+            indexes = list(OrderedDict.fromkeys(
+                np.linspace(0, time0.size, int_max, endpoint=False, dtype=int)))
+            time0 =  np.array(itemgetter(*indexes)(time0), ndmin=1)
+
+        return np.array(time0), np.array(dt)
 
     def _time0(self, dt, int_max=None):
         """
@@ -1158,8 +1250,6 @@ class Displacements(Positions):
         """
         Returns mean, standard error and susceptibility for dynamic quantities.
 
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
-
         Parameters
         ----------
         dt : (*,) float array-like
@@ -1199,7 +1289,6 @@ class Velocities(Dat):
     Compute and analyse velocities from simulation data.
 
     (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
-    (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
     """
 
     def __init__(self, filename, skip=1, corruption=None):
@@ -1222,7 +1311,7 @@ class Velocities(Dat):
                   tests.
         """
 
-        super().__init__(filename, loadWork=False, corruption=corruption)   # initialise with super class
+        Dat.__init__(self, filename, loadWork=False, corruption=corruption) # initialise with super class (Dat)
 
         self.skip = skip    # skip the `skip' first frames in the analysis
 
@@ -1321,7 +1410,7 @@ class Velocities(Dat):
                 nBins, vmin=vmin, vmax=vmax, log=log,
                 rescaled_to_max=rescaled_to_max)
 
-    def energySpectrum(self, remove_cm=False, int_max=None, nBoxes=None):
+    def energySpectrum(self, *q, dq=0.1, remove_cm=False, int_max=None):
         """
         Returns kinetic energy spectrum.
 
@@ -1329,6 +1418,10 @@ class Velocities(Dat):
 
         Parameters
         ----------
+        q : float
+            Wave vector norms at which to compute energy spectrum.
+        dq : float
+            Width of wave vector norm interval. (default: 0.1)
         remove_cm : bool
             Remove centre of mass velocity. (default: False)
             NOTE: does not affect result if self.N == 1.
@@ -1336,36 +1429,82 @@ class Velocities(Dat):
             Maximum number of frames to consider. (default: None)
             NOTE: If int_max == None, then take the maximum number of frames.
                   WARNING: This can be very big.
-        nBoxes : int
-            Number of boxes in each direction to compute the grid of velocities
-            which FFT will be computed. (default: None)
-            NOTE: If nBoxes == None, then nBoxes = int(sqrt(self.N)).
 
         Returns
         -------
-        E : (*, 2) float Numpy array
-            Array of (k, E(k)).
+        El : (*, 3) float Numpy array
+            Array of (k, El(k), stdErr El(k)), with El(k) the longitudinal
+            energy spectrum.
+        Et : (*, 3) float Numpy array
+            Array of (k, Et(k), stdErr Et(k)), with Et(k) the transversal energy
+            spectrum.
+        NOTE: E(k) = El(k) + Et(t), stdErr E(k) = stdErr El(k) + stdErr Et(k).
         """
 
-        if nBoxes == None: nBoxes = int(np.sqrt(self.N))
-        nBoxes = int(nBoxes)
+        wv_len = np.array(list(map(
+            lambda qn: len(wave_vectors_dq(self.L, qn, dq)),
+            q)))
+        q = np.array(q)[wv_len > 0]
 
-        wave_vectors = np.sqrt(np.sum(
-            wave_vectors_2D(nBoxes, nBoxes, self.L/nBoxes)**2, axis=-1))    # grid of wave vector norms
-
-        FFTsq = []    # list of squared velocity FFT
+        FTsq = []   # list of squared velocity fourier transform
+        FTLsq, FTTsq = [], []
         for time, velocity in zip(
             self._time0(int_max=int_max),
-            self.nVelocities(int_max=int_max, norm=True, remove_cm=remove_cm)):
+            self.nVelocities(int_max=int_max, norm=False, remove_cm=remove_cm)):
 
-            velocitiesFFT = np.fft.fft2(    # FFT of displacement grid
-                self.toGrid(time, velocity, nBoxes=nBoxes),
-                axes=(0, 1))
-            FFTsq += [np.real(np.conj(velocitiesFFT)*velocitiesFFT)]
+            pos = self.getPositions(time)
 
-        return g2Dto1Dgrid(
-            wave_vectors*np.mean(FFTsq, axis=0), wave_vectors,
-            average_grid=False)
+            FTLsq += [
+                list(map(
+                    lambda qn: (2*np.pi*qn/(self.L**2))*np.mean(
+                        list(map(
+                            lambda qv: (np.abs(np.sum(
+                                np.exp(-1j*(qv*pos).sum(axis=-1, keepdims=True))
+                                    *(velocity
+                                        *np.array([[qv[0], qv[1]]])
+                                        /np.linalg.norm(qv))))**2),
+                            wave_vectors_dq(self.L, qn, dq))),
+                        axis=0),
+                    q))]
+            FTTsq += [
+                list(map(
+                    lambda qn: (2*np.pi*qn/(self.L**2))*np.mean(
+                        list(map(
+                            lambda qv: (np.abs(np.sum(
+                                np.exp(-1j*(qv*pos).sum(axis=-1, keepdims=True))
+                                    *(velocity
+                                        *np.array([[-qv[1], qv[0]]])
+                                        /np.linalg.norm(qv))))**2),
+                            wave_vectors_dq(self.L, qn, dq))),
+                        axis=0),
+                    q))]
+
+        return (
+            np.array([[qn, *mean_sterr(vFTsq)]
+                for qn, vFTsq in zip(q, np.transpose(FTLsq))]),
+            np.array([[qn, *mean_sterr(vFTsq)]
+                for qn, vFTsq in zip(q, np.transpose(FTTsq))]))
+
+    def velocitiesw(self, dt, remove_cm=False):
+        """
+        Compute velocity Fourier transform in time.
+
+        Parameters
+        ----------
+        dt : float
+            Time step over which to discretise the trajectory. Missing frames
+            will be interpolated.
+        remove_cm : bool
+            Remove centre of mass velocity. (default: False)
+            NOTE: does not affect result if self.N == 1.
+
+        Returns
+        -------
+        vw : (*, 2) complex numpy array
+            Array of (w, v(w)) with v(w) the Fourier transform in time.
+        """
+
+        return None
 
     def velocitiesCor(self, nBins, remove_cm=False, int_max=None,
         min=None, max=None, rescale_pair_distribution=False):
@@ -1425,8 +1564,7 @@ class Velocities(Dat):
 
     def velocitiesOriCor(self, remove_cm=False, int_max=None):
         """
-        Compute radial correlations of particles' velocity orientation (see
-        https://yketa.github.io/PhD_Wiki/#Flow%20characteristics).
+        Compute radial correlations of particles' velocity orientation.
 
         Parameters
         ----------
@@ -1462,8 +1600,6 @@ class Velocities(Dat):
         """
         Compute time correlations of particles' velocities, and time-dependent
         fourth moment of kurtosis.
-
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
         Parameters
         ----------
@@ -1544,8 +1680,6 @@ class Velocities(Dat):
         """
         Returns arrays of number of neighbouring particles which have the same
         velocity orientation at `time0'.
-
-        (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
         Parameters
         ----------
@@ -1651,7 +1785,14 @@ class Velocities(Dat):
         """
 
         if self._type == 'datN':
-            time0 = self.time0[self.time0 != self.frameIndices[-1]]
+            time0 = []
+            for t0 in self.time0[self.time0 != self.frameIndices[-1]]:
+                try:
+                    self._unfolded_position(t0, self.N - 1)
+                    time0 += [t0]
+                except struct.error:
+                    break
+            time0 = np.array(time0)
         else:
             time0 = np.array(range(self.skip, self.frames - 1))
         # NOTE: It is important to remove the last frame since the velocities are 0.
@@ -1665,7 +1806,6 @@ class Orientations(Dat):
     Compute and analyse orientations from simulation data.
 
     (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
-    (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
     """
 
     def __init__(self, filename, skip=1, corruption=None):
@@ -1921,7 +2061,6 @@ class Propulsions(Dat):
     Compute and analyse self-propulsion vectors from simulation data.
 
     (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
-    (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
     """
 
     def __init__(self, filename, skip=1, corruption=None):
@@ -2098,8 +2237,6 @@ class Propulsions(Dat):
         Returns value of theoretical self-propulsion vector distribution for
         AOUPs.
 
-        (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
-
         Parameters
         ----------
         p : float 2-uple
@@ -2224,8 +2361,6 @@ class Propulsions(Dat):
         Returns value of theoretical self-propulsion vector time correlation for
         AOUPs.
 
-        (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
-
         Parameters
         ----------
         dt : float
@@ -2331,6 +2466,176 @@ class Propulsions(Dat):
         indexes = linspace(0, time0.size, int_max, endpoint=False)
         return np.array(itemgetter(*indexes)(time0), ndmin=1)
 
+class BondOrder(Velocities, Positions):
+    """
+    Compute and analyse hexatic bond order parameter from simulation data.
+    """
+
+    def __init__(self, filename, skip=1, corruption=None):
+        """
+        Loads file.
+
+        Parameters
+        ----------
+        filename : string
+            Name of input data file.
+        skip : int
+            Skip the `skip' first computed frames in the following calculations.
+            (default: 1)
+            NOTE: This can be changed at any time by setting self.skip.
+            NOTE: This does not apply to .datN files.
+        corruption : str or None
+            Pass corruption test for given file type (see
+            coll_dyn_activem.read.Dat). (default: None)
+            NOTE: if corruption == None, then the file has to pass corruption
+                  tests.
+        """
+
+        Velocities.__init__(self, filename, skip=skip, corruption=corruption)   # initialise with super class (Velocities)
+
+    def bondOrderCor(self, nBins, int_max=None, min=None, max=None, arg=False,
+        rescale_pair_distribution=True):
+        """
+        Compute radial correlations of particles' hexatic bond order parameter.
+
+        Parameters
+        ----------
+        nBins : int
+            Number of intervals of distances on which to compute the
+            correlations.
+        int_max : int or None
+            Maximum number of frames to consider. (default: None)
+            NOTE: If int_max == None, then take the maximum number of frames.
+                  WARNING: This can be very big.
+        min : float or None
+            Minimum distance (included) at which to compute the correlations.
+            (default: None)
+            NOTE: if min == None then min = 0.
+        max : float or None
+            Maximum distance (excluded) at which to compute the correlations.
+            (default: None)
+            NOTE: if max == None then max = self.L/2.
+        arg : bool
+            Compute correlations of direction of the bond order parameter rather
+            than bond order parameter itself. (default: False)
+        rescale_pair_distribution : bool
+            Rescale correlations by pair distribution function. (default: True)
+
+        Returns
+        -------
+        Cpp : (*, 3) float Numpy array
+            Array of (r, Cpp(r), errCpp(r)) with Cpp(r) the cylindrically
+            averaged spatial correlations of bond order parameter and errCpp(r)
+            the standard error on this measure.
+        zeta : (2,) float Numpy array
+            Cooperativity and standard error on this measure.
+        """
+
+        corZeta = [
+            (lambda p:
+                self.getRadialCorrelations(
+                    t, p,
+                    nBins, min=min, max=max,
+                    rescale_pair_distribution=rescale_pair_distribution))(
+                (lambda _p:
+                    _p/np.sqrt((_p*_p.conj()).mean().real) if not(arg)
+                    else np.array(list(map(
+                        lambda a: (np.cos(a), np.sin(a)),
+                        np.angle(_p)))))(
+                self.getBondOrderParameter(t)))
+            for t in self._time0(int_max=int_max)]
+        correlations = np.array([corZeta[t][0] for t in range(len(corZeta))])
+        zeta = np.array([corZeta[t][1] for t in range(len(corZeta))])
+
+        return (
+            np.array([
+                [correlations[0, bin, 0],
+                    *mean_sterr(correlations[:, bin, 1])]
+                for bin in range(nBins)]),
+            mean_sterr(zeta))
+
+    def bondOrderTimeCor(self, n_max=100, int_max=100, min=None, max=None,
+        arg=False):
+        """
+        Compute time correlations of particles' bond order parameter.
+
+        Parameters
+        ----------
+        n_max : int
+            Maximum number of lag times at which to compute the bond order
+            parameters. (default: 100)
+        int_max : int
+            Maximum number of different intervals to consider when computing
+            bond order parameters for a given lag time. (default: 100)
+        min : int or None
+            Minimum lag time at which to compute the bond order parameters.
+            (default: None)
+            NOTE: if min == None, then min = 1.
+        max : int or None
+            Maximum lag time at which to compute the bond order parameters.
+            (default: None)
+            NOTE: if max == None, then max is taken to be the maximum according
+                  to the choice of int_max.
+        arg : bool
+            Compute correlations of direction of the bond order parameter rather
+            than bond order parameter itself. (default: False)
+
+        Returns
+        -------
+        Cpp : (*, 3) float Numpy array
+            Array of:
+                (0) lag time,
+                (1) bond order parameter correlation at this lag time,
+                (2) standard error on this measure.
+        psi6sq : (**,) float Numpy array
+            Array of mean squared bond order parameter at initial times.
+        """
+
+        # LAG TIMES AND INITIAL TIMES
+
+        time0, dt = self._dt(n_max=n_max, int_max=int_max, min=min, max=max)
+
+        # COMPUTE CORRELATIONS
+
+        initPsi6 = np.array(list(map(
+            lambda t0:
+                self.getBondOrderParameter(t0),
+            time0)))
+        psi6sq = (initPsi6*initPsi6.conj()).mean(axis=-1).real
+        assert initPsi6.shape == (time0.size, self.N)
+        if arg:
+            initPsi6 = np.angle(initPsi6)
+            initPsi6 = initPsi6.reshape(time0.size, 1, self.N, 1)
+            initPsi6 = np.concatenate(
+                (np.cos(initPsi6), np.sin(initPsi6)), axis=-1)
+        else:
+            initPsi6 = initPsi6.reshape(time0.size, 1, self.N)
+
+        finPsi6 = np.array(list(map(
+            lambda t0: np.array(list(map(
+                lambda t: self.getBondOrderParameter(t0 + t),
+                dt))),
+            time0)))
+        assert finPsi6.shape == (time0.size, dt.size, self.N)
+        if arg:
+            finPsi6 = np.angle(finPsi6)
+            finPsi6 = finPsi6.reshape(time0.size, dt.size, self.N, 1)
+            finPsi6 = np.concatenate(
+                (np.cos(finPsi6), np.sin(finPsi6)), axis=-1)
+        else:
+            finPsi6 = finPsi6.conj()
+
+        prodPsi6 = initPsi6*finPsi6
+        if prodPsi6.ndim == 4: prodPsi6 = prodPsi6.sum(axis=-1)
+        prodPsi6 = prodPsi6.mean(axis=-1)
+        assert prodPsi6.shape == (time0.size, dt.size)
+
+        cpp = np.array(list(map(
+            lambda i, t: [t, *mean_sterr(prodPsi6[:, i])],
+            *(range(len(dt)), dt))))
+
+        return cpp.real, psi6sq
+
 # FUNCTIONS
 
 def msd_th_ABP(v0, D, Dr, dt):
@@ -2365,8 +2670,6 @@ def msd_th_AOUP(D, Dr, dt):
     Returns value of theoretical mean squared displacement at lag time `dt'
     for a single AOUP.
 
-    (see https://yketa.github.io/PhD_Wiki/#One%20AOUP)
-
     Parameters
     ----------
     D : float
@@ -2389,8 +2692,6 @@ def overlap_free_AOUP(D, Dr, dt, a=1):
     """
     Returns value of the dynamical overlap funtion at lag time `dt' for a free
     Ornstein-Uhlenbeck particle.
-
-    (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
     Parameters
     ----------
@@ -2415,8 +2716,6 @@ def overlap_relaxation_free_AOUP(D, Dr, q=0.5, a=1):
     """
     Returns relaxation time for a free Ornstein-Uhlenbeck particle, given as the
     time for the dynamical overlap function to decrease below threshold `q'.
-
-    (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
 
     Parameters
     ----------
@@ -2445,8 +2744,6 @@ def selfIntScattFunc_free_AOUP(k, D, Dr, dt):
     Returns value of the self-intermediate scattering function at lag time `dt'
     for a free Ornstein-Uhlenbeck particle.
 
-    (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
-
     Parameters
     ----------
     k : float
@@ -2472,8 +2769,6 @@ def selfIntScattFunc_relaxation_free_AOUP(k, D, Dr):
     given as the time for the self-intermediate scattering function to decrease
     below \\exp(-1).
 
-    (see https://yketa.github.io/PhD_Wiki/#Flow%20characteristics)
-
     Parameters
     ----------
     k : float
@@ -2493,3 +2788,39 @@ def selfIntScattFunc_relaxation_free_AOUP(k, D, Dr):
         (Dr
             + 2*D*(k**2)*(1 + lambertw(-np.exp(-1 - Dr/(2*D*(k**2))))))
         /(2*D*Dr*(k**2)))
+
+def overlap(disp, dt, *a):
+    """
+    Returns overlap for different time and length scales.
+
+    Parameters
+    ----------
+    disp : (*, **, ***, 2) float array-like
+        Displacements.
+    dt : (**,) float array-like
+        Lag times corresponding to displacements.
+    a : float
+        Length scale.
+
+    Returns
+    -------
+    chi : (****, **, 4) float numpy array
+        (0) Lag time.
+        (1) Overlap
+        (2) Standard error on the overlap.
+        (3) Dynamic susceptibility.
+    """
+
+    chi = np.array(list(map(
+        lambda x:
+            list(map(
+                lambda i:
+                    (lambda quantities:
+                        (lambda q:
+                            [dt[i], *mean_sterr(q), disp.shape[-2]*q.var()])(
+                        quantities.mean(axis=-1)))(
+                    ((disp[:, i]**2).sum(axis=-1) < x**2)*1.0),
+                range(len(dt)))),
+        a)))
+
+    return chi

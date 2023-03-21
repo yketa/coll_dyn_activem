@@ -11,7 +11,8 @@ from operator import itemgetter
 from coll_dyn_activem.read import Dat
 from coll_dyn_activem.maths import linspace, logspace, mean_sterr, wo_mean,\
     normalise1D
-from coll_dyn_activem._pycpp import getWCA, getRAForces
+from coll_dyn_activem._pycpp import getWCA, getWCAForces, getRAForces,\
+    getRAHessian
 
 class Force(Dat):
     """
@@ -49,7 +50,7 @@ class Force(Dat):
 
     def getForce(self, time, *particle, norm=False, Heun=False):
         """
-        Returns forces exerted on particles at time `time'.
+        Returns WCA forces exerted on particles at time `time'.
 
         Parameters
         ----------
@@ -61,54 +62,37 @@ class Force(Dat):
         norm : bool
             Return norm of forces rather than 2D force. (default: False)
         Heun : bool
-            Compute correction to forces from Hein integration. (default: False)
+            Compute correction to forces from Heun integration. (default: False)
             NOTE: Translational noise is neglected.
 
         Returns
         -------
         forces : [not(norm)] (self.N, 2) float numpy array
-                 [norm and not(Heun)] (self.N,) float numpy array
+                 [norm] (self.N,) float numpy array
             Forces exerted on particles.
-        corrForces [Heun] : (self.N, 2) float numpy array
-            Correction to forces from Heun integration.
         """
-
-        _force = self._WCA
 
         if particle == (): particle = range(self.N)
 
         if self.from_velocity:
             forces = self.getVelocities(time) - self.getPropulsions(time)
         else:
-            forces = np.full((self.N, 2), fill_value=0, dtype='float64')
-            for i in range(self.N):
-                for j in range(1 + i, self.N):
-                    force = _force(time, i, j, positions=None)
-                    forces[i] += force
-                    forces[j] -= force
+            forces = self.epsilon*getWCAForces(
+                self.getPositions(time), self.diameters, self.L)
 
-        if not(Heun):
-
-            forces = np.array(itemgetter(*particle)(forces))
-
-            if norm: return np.sqrt((forces**2).sum(axis=-1))
-            return forces
-
-        else:   # Heun correction
+        if Heun:    # Heun correction
 
             newPositions = self.getPositions(time) + self.dt*(
                 self.getPropulsions(time, norm=False) + forces)
-            newForces = np.full((self.N, 2), fill_value=0, dtype='float64')
-            for i in range(self.N):
-                for j in range(1 + i, self.N):
-                    force = _force(time, i, j, positions=newPositions)
-                    newForces[i] += force
-                    newForces[j] -= force
+            newForces = self.epsilon*getWCAForces(
+                newPositions, self.diameters, self.L)
 
-            forces = np.array(itemgetter(*particle)(forces))
-            newForces = np.array(itemgetter(*particle)(newForces))
+            forces = (forces + newForces)/2
 
-            return forces, (newForces - forces)/2
+        forces = np.array(itemgetter(*particle)(forces))
+
+        if norm: return np.sqrt((forces**2).sum(axis=-1))
+        return forces
 
     def getRAForce(self, time, *particle, norm=False, a=12, rcut=1.25):
         """
@@ -143,6 +127,60 @@ class Force(Dat):
         if norm: return np.sqrt((f**2).sum(axis=-1))
         return f
 
+    def getRAHessian(self, time, a=12, rcut=1.25):
+        """
+        Return regularised 1/r^a-potential Hessian matrix at time `time'.
+
+        Parameters
+        ----------
+        time : int
+            Index of the frame.
+        a : float
+            Potential exponent. (default: 12)
+        rcut : float
+            Potential cut-off radius. (default: 1.25)
+
+        Returns
+        -------
+        forces : (2*self.N, 2*self.N)
+            Hessian matrix.
+        """
+
+        return self.epsilon*getRAHessian(
+            self.getPositions(time), self.diameters, self.L,
+            a=a, rcut=rcut)
+
+    def getRAResidualForce(self, time0, time1, a=12, rcut=1.25):
+        """
+        Return residual force between ADD inherent states using regularised
+        1/r^a-potential Hessian matrix at time `time'.
+
+        Parameters
+        ----------
+        time0 : int
+            Initial frame.
+        time1 : int
+            Final frame.
+        a : float
+            Potential exponent. (default: 12)
+        rcut : float
+            Potential cut-off radius. (default: 1.25)
+
+        Returns
+        -------
+        r_forces : (self.N, 2)
+            Residual forces.
+        """
+
+        disp = self.getDisplacements(time0, time1, remove_cm=True)
+        d_prop = wo_mean(
+            self.getPropulsions(time1) - self.getPropulsions(time0))
+        hessian = self.getRAHessian(time0, a=12, rcut=1.25)
+
+        return (
+            np.reshape(np.matmul(hessian, disp.flatten()), (self.N, 2))
+            - d_prop)
+
     def getPotential(self, time):
         """
         Compute WCA potential.
@@ -161,7 +199,7 @@ class Force(Dat):
         return getWCA(self.getPositions(time), self.diameters, self.L)
 
     def corForce(self,
-        n_max=100, int_max=None, min=None, max=None, log=False):
+        n_max=100, int_max=None, min=None, max=None, log=False, Heun=False):
         """
         Returns correlations of the force fluctuations.
 
@@ -183,6 +221,9 @@ class Force(Dat):
         log : bool
             Logarithmically spaced lag times. (default: False)
             NOTE: This does not apply to .datN files.
+        Heun : bool
+            Compute correction to forces from Heun integration. (default: False)
+            NOTE: Translational noise is neglected.
 
         Returns
         -------
@@ -200,12 +241,12 @@ class Force(Dat):
 
         cor = []
         forcesIni = np.array(list(map(                                  # fluctuations at initial times
-            lambda t: wo_mean(self.getForce(t), axis=-2),
+            lambda t: wo_mean(self.getForce(t, Heun=Heun), axis=-2),
             time0)))
         F0sq = (forcesIni**2).sum(axis=-1).mean(axis=-1)                # average over particles
         for tau in dt:
             forcesFin = np.array(list(map(                              # fluctuations at initial times + lag time
-                lambda t: wo_mean(self.getForce(t + tau), axis=-2),
+                lambda t: wo_mean(self.getForce(t + tau, Heun=Heun), axis=-2),
                 time0)))
             qProd = (forcesIni*forcesFin).sum(axis=-1).mean(axis=-1)    # average over particles
             cor += [[tau, *mean_sterr(qProd/F0sq)]]                     # average over times
@@ -213,7 +254,7 @@ class Force(Dat):
         return np.array(cor), F0sq
 
     def corForceDotVelocity(self,
-        n_max=100, int_max=None, min=None, max=None, log=False):
+        n_max=100, int_max=None, min=None, max=None, log=False, Heun=False):
         """
         Returns correlations of the scalar product of force and velocity
         fluctuations.
@@ -236,6 +277,9 @@ class Force(Dat):
         log : bool
             Logarithmically spaced lag times. (default: False)
             NOTE: This does not apply to .datN files.
+        Heun : bool
+            Compute correction to forces from Heun integration. (default: False)
+            NOTE: Translational noise is neglected.
 
         Returns
         -------
@@ -255,7 +299,7 @@ class Force(Dat):
         cor = []
         forcesVelocitesIni = np.array(list(map(                             # fluctuations at initial times
             lambda t: wo_mean(
-                (self.getForce(t)
+                (self.getForce(t, Heun=Heun)
                     *self.getVelocities(t, norm=False)).sum(axis=-1),
                 axis=-1),
             time0)))
@@ -263,7 +307,7 @@ class Force(Dat):
         for tau in dt:
             forcesVelocitesFin = np.array(list(map(                         # fluctuations at initial times + lag time
                 lambda t: wo_mean(
-                    (self.getForce(t + tau)
+                    (self.getForce(t + tau, Heun=Heun)
                         *self.getVelocities(t + tau, norm=False)).sum(axis=-1),
                     axis=-1),
                 time0)))
@@ -327,7 +371,7 @@ class Force(Dat):
         return np.array(cor), Fu0sq
 
     def corPropulsionForce(self,
-        n_max=100, int_max=None, min=None, max=None, log=False):
+        n_max=100, int_max=None, min=None, max=None, log=False, Heun=False):
         """
         Returns correlations between (i) the fluctuations of the propulsion at
         initial times and the fluctuations of the force at later times, and (ii)
@@ -352,6 +396,9 @@ class Force(Dat):
         log : bool
             Logarithmically spaced lag times. (default: False)
             NOTE: This does not apply to .datN files.
+        Heun : bool
+            Compute correction to forces from Heun integration. (default: False)
+            NOTE: Translational noise is neglected.
 
         Returns
         -------
@@ -378,7 +425,7 @@ class Force(Dat):
             lambda t: wo_mean(self.getPropulsions(t, norm=False), axis=-2),
             time0)))
         forcesIni = np.array(list(map(                              # fluctuations of the force at initial times
-            lambda t: wo_mean(self.getForce(t), axis=-2),
+            lambda t: wo_mean(self.getForce(t, Heun=Heun), axis=-2),
             time0)))
         pF0sq = np.sqrt(
             (propIni**2).sum(axis=-1).mean(axis=-1)                 # average over particles
@@ -390,7 +437,7 @@ class Force(Dat):
                     axis=-2),
                 time0)))
             forcesFin = np.array(list(map(                          # fluctuations of the force at initial times + lag time
-                lambda t: wo_mean(self.getForce(t + tau), axis=-2),
+                lambda t: wo_mean(self.getForce(t + tau, Heun=Heun), axis=-2),
                 time0)))
             qProd = (propIni*forcesFin).sum(axis=-1).mean(axis=-1)  # average over particles
             corPF += [[tau, *mean_sterr(qProd/pF0sq)]]              # average over times
@@ -446,7 +493,7 @@ class Force(Dat):
 
         return self._ForcePropulsion(time)[1]
 
-    def _ForcePropulsion(self, time):
+    def _ForcePropulsion(self, time, Heun=False):
         """
         Returns scalar products of force and (i) particle propulsions and (ii)
         particle directions, at a given time.
@@ -455,6 +502,9 @@ class Force(Dat):
         ----------
         time : int
             Frame index.
+        Heun : bool
+            Compute correction to forces from Heun integration. (default: False)
+            NOTE: Translational noise is neglected.
 
         Returns
         -------
@@ -464,8 +514,8 @@ class Force(Dat):
             Array of (ii).
         """
 
-        force = self.getForce(time)
-        propulsion = self.getPropulsions(time)
+        force = wo_mean(self.getForce(time, Heun=Heun))
+        propulsion = wo_mean(self.getPropulsions(time))
 
         forcePropulsion = (force*propulsion
             ).sum(axis=-1)

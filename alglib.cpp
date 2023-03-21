@@ -1,14 +1,3 @@
-#include <alglib/alglibinternal.cpp>
-#include <alglib/alglibmisc.cpp>
-#include <alglib/ap.cpp>
-#include <alglib/dataanalysis.cpp>
-#include <alglib/integration.cpp>
-#include <alglib/linalg.cpp>
-#include <alglib/optimization.cpp>
-#include <alglib/solvers.cpp>
-#include <alglib/specialfunctions.cpp>
-#include <alglib/statistics.cpp>
-
 #include "alglib.hpp"
 
 std::vector<int> clusters2D(

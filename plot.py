@@ -359,7 +359,7 @@ class FittingLine:
                 valinit=slope)                          # slider
             self.slider.on_changed(self.update_slope)   # call self.update_slope when slider value is changed
 
-        self.law = 'exponential'    # fitting line law
+        self.law = 'powerlaw'       # fitting line law
         self.update_law()           # initialises fitting line function, updates figure and sets legend
 
         self.cid_click = self.line.figure.canvas.mpl_connect(

@@ -7,6 +7,7 @@
 
 #include "cloningserial.hpp"
 #include "env.hpp"
+#include "maths.hpp"
 #include "particle.hpp"
 #include "readwrite.hpp"
 
@@ -19,7 +20,7 @@ template<> void CloningSerial<System>::
 	long int headerRunLength = sizeof(int) + sizeof(double)
 		+ (1 + 4)*sizeof(double);
 	long int parametersRunCloneLength = sizeof(int) + 4*sizeof(double)
-		+ sizeof(std::default_random_engine);
+		+ sizeof(RNDG);
 	long int particleRunCloneLength = 3*sizeof(double);
 	long int dumpRunCloneLength = sizeof(int) + 8*sizeof(double);
 	long int runLength =
@@ -100,7 +101,7 @@ template<> void CloningSerial<System>::
 		}
 
 		// RANDOM GENERATOR
-		systems[i]->setGenerator(loadInput.read<std::default_random_engine>());
+		systems[i]->setGenerator(loadInput.read<RNDG>());
 
 		// COPY POSITIONS AND ORIENTATION
 		for (int j=0; j < systems[i]->getNumberParticles(); j++) {
@@ -159,7 +160,7 @@ template<> void CloningSerial<System>::
 		saveOutput.write<double>(systems[i]->getTorqueParameter());
 		saveOutput.write<double>(systems[i]->getTimeStep());
 		// RANDOM GENERATOR
-		saveOutput.write<std::default_random_engine>
+		saveOutput.write<RNDG>
 			((systems[i]->getRandomGenerator())->getGenerator());
 		// POSITIONS AND ORIENTATIONS
 		for (int j=0; j < systems[i]->getNumberParticles(); j++) {

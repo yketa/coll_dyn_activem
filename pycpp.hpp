@@ -1,6 +1,14 @@
 #ifndef PYCPP_HPP
 #define PYCPP_HPP
 
+#include "maths.hpp"
+#include "dat.hpp"
+#include "add.hpp"
+
+#include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
+#include <pybind11/stl.h>
+
 ////////////////
 // PROTOTYPES //
 ////////////////
@@ -36,6 +44,74 @@ std::vector<std::vector<std::vector<std::vector<double>>>> getDisplacements(
   // Compute displacements from the `nTime0' initial times `time0' with the
   // `nDt' lag times `dt' from the .datN file `filename'.
   // Remove centre of mass displacement if `remove_cm'.
+
+std::vector<std::vector<std::vector<std::vector<double>>>> getDisplacements(
+  std::string filename,
+  int const& nTime0, int* const& time0, int const& nDt, int* const& dt,
+  bool remove_cm);
+  // Compute displacements from the `nTime0' initial times `time0' with the
+  // `nDt' lag times `dt' from the .datN file `filename'.
+  // Remove centre of mass displacement if `remove_cm'.
+
+pybind11::array_t<double> getDisplacementsPYB(
+  std::string const& filename,
+  pybind11::array_t<int> time0, pybind11::array_t<int> deltat,
+  bool const& remove_cm);
+  // Compute displacements from the initial times `time0' with the lag times
+  // `dt' from the .datN file `filename'.
+  // Remove centre of mass displacement if `remove_cm'.
+
+std::vector<std::vector<pybind11::array_t<double>>> getDisplacementsPair(
+  std::string const& filename,
+  pybind11::array_t<int> time0, pybind11::array_t<int> deltat,
+  double const& a1);
+  // Compute differences of displacements of initially paired particles (i.e. at
+  // distance lesser than `a1' mean diameter) from the initial times `time0'
+  // with the lag times `dt' from the .datN file `filename'.
+
+std::vector<std::vector<pybind11::array_t<double>>> getSeparationsPair(
+  std::string const& filename,
+  pybind11::array_t<int> time0, pybind11::array_t<int> deltat,
+  double const& a1, bool const& scale);
+  // Compute differences of positions of initially paired particles (i.e. at
+  // distance lesser than `a1' mean diameter) from the initial times `time0'
+  // with the lag times `dt' from the .datN file `filename'.
+  // Scale separation by average diameter if `scale'.
+
+std::vector<pybind11::array_t<double>> getVelocityCorrelationPair(
+  std::string const& filename,
+  pybind11::array_t<int> time0, pybind11::array_t<int> deltat,
+  double const& a1);
+  // Compute difference between velocity autocorrelation in time and correlation
+  // of velocities of initially neighbouring particles.
+  // Computes paired particles (i.e. at distance lesser than `a1' mean diameter)
+  // from the initial times `time0' with the lag times `dt' from the .datN file
+  // `filename'.
+
+std::vector<pybind11::array_t<double>> getVelocityForcePropulsionCorrelation(
+  std::string const& filename,
+  pybind11::array_t<int> time0, pybind11::array_t<int> deltat,
+  bool Heun);
+  // Compute correlations between force and initial velocity, and between
+  // propulsion and initial velocity, from the initial times `time0' with the
+  // lag times `dt' from the .datN file `filename'.
+
+std::tuple<pybind11::array_t<double>, std::vector<pybind11::array_t<double>>>
+  getVelocityDifference(
+    std::string const& filename, double const& frame,
+    int const& nBins, double const& rmin, double rmax,
+    bool const& remove_cm);
+  // Compute velocity difference for particles whose distance is in a certain
+  // range.
+
+std::tuple<std::vector<pybind11::array_t<double>>, pybind11::array_t<double>>
+  selfIntScattFunc(
+    std::string const& filename,
+    pybind11::array_t<int> time0, pybind11::array_t<int> deltat,
+    pybind11::array_t<double> qn, double const& dq, bool remove_cm);
+  // Compute self-intermediate scaterring functions for lag times `deltat' from
+  // initial times `time0', and with wave vectors `qn' and width of the
+  // wave-vector norm interval `dq'.
 
 // DISTANCES
 
@@ -101,6 +177,16 @@ extern "C" void getBrokenBonds(
   //       returned by getDistances).
   // NOTE: `brokenBonds' must have at least `N' entries.
   // NOTE: `brokenPairs' must have at least `N(N - 1)/2' entries.
+
+std::vector<pybind11::array_t<double>> getBondsBrokenBonds(
+  pybind11::array_t<double> const& positions,
+  pybind11::array_t<double> const& displacements,
+  pybind11::array_t<double> const& diameters,
+  double const& L, double const& A1, double const& A2);
+  // Compute array of initial number of particles with `positions' in a box of
+  // size `L' at a distance lesser than `A1' in pair average `diameters' unit
+  // for each particle, and array of number of initially bonded particles which
+  // are at a distance greater than `A2' after `displacements'.
 
 extern "C" void getVanHoveDistances(
   int N, double L, double* x, double* y, double* dx, double* dy,
@@ -169,6 +255,13 @@ double getWCA(
   // Compute WCA potential between particles at `positions', with `diameters',
   // in a periodic square box of linear size `L'.
 
+pybind11::array_t<double> getWCAForces(
+  pybind11::array_t<double> const& positions,
+  pybind11::array_t<double> const& diameters,
+  double const& L);
+  // Compute forces from Weeks-Chandler-Andersen potential, between particles at
+  // `positions', with `diameters', in a periodic square box of linear size `L'.
+
 pybind11::array_t<double> getRAForces(
   pybind11::array_t<double> const& positions,
   pybind11::array_t<double> const& diameters,
@@ -177,15 +270,25 @@ pybind11::array_t<double> getRAForces(
   // particles at `positions', with `diameters', in a periodic square box of
   // linear size `L'.
 
+pybind11::array_t<double> getRAHessian(
+  pybind11::array_t<double> const& positions,
+  pybind11::array_t<double> const& diameters,
+  double const& L, double const& a, double const& rcut);
+  // Compute regularised 1/r^`a'-potential Hessian matrix, with cut-off radius
+  // `rcut', between particles at `positions', with `diameters', in a periodic
+  // square box of linear size `L'.
+
 // VELOCITIES
 
 std::vector<pybind11::array_t<double>> getVelocityVorticity(
   pybind11::array_t<double> const& positions,
   pybind11::array_t<double> const& velocities,
-  double const& L, int const& nBoxes, double const& sigma);
+  double const& L, int const& nBoxes, double const& sigma,
+  pybind11::array_t<double> const& centre = pybind11::array_t<double>(0));
   // Compute Gaussian-smoothed velocitiy field and vorticity field, using
   // standard deviation `sigma', on a (`nBoxes', `nBoxes')-grid, from
   // `positions' and `velocities', in a system of size `L'.
+  // Return positions with respect to `centre'.
 
 // GRIDS
 
@@ -212,20 +315,29 @@ extern "C" void g2Dto1Dgridhist(
   // size, as histogram `g1D' with `nBins' between `vmin' and `vmax' and
   // standard variation on this measure `g1Dstd'.
 
+pybind11::array_t<int> getPolarCharge(pybind11::array_t<double> grid);
+  // Return grid of polar charge.
+
 // CORRELATIONS
 
-extern "C" void getRadialCorrelations(
-  int N, double L, double* x, double* y, int dim,
-  double** values1, double** values2,
-  int nBins, double rmin, double rmax, double* correlations,
+pybind11::array_t<std::complex<double>> getRadialCorrelations(
+  pybind11::array_t<double> positions, double L,
+  pybind11::array_t<std::complex<double>> values1,
+  pybind11::array_t<std::complex<double>> values2,
+  int nBins, double rmin, double rmax,
   bool rescale_pair_distribution);
-  // Compute radial correlations between the (`dim',) float arrays `values1'
-  // and `values2' associated to each of the `N' particles of a system of size
-  // `L', with x-axis positions given by `x' and y-axis positions given by `y'.
-  // Correlations are computed on the interval between `rmin' (included) and
-  // `rmax' (excluded) with `nBins' bins.
-  // Correlations are rescaled by pair distribution function (for bins > 0) if
-  // `rescale_pair_distribution'.
+
+std::vector<pybind11::array_t<std::complex<double>>>
+  getRadialDirectonCorrelations(
+  pybind11::array_t<double> positions, double L,
+  pybind11::array_t<std::complex<double>> values1,
+  pybind11::array_t<std::complex<double>> values2,
+  int nBins, double rmin, double rmax,
+  bool rescale_pair_distribution);
+
+pybind11::array_t<std::complex<double>> getRadialDirectionAmplitudes(
+  pybind11::array_t<double> positions, double L,
+  pybind11::array_t<std::complex<double>> values);
 
 extern "C" void getVelocitiesOriCor(
   int N, double L, double* x, double* y, double* vx, double* vy,
@@ -241,5 +353,17 @@ extern "C" void getVelocitiesOriCor(
 extern "C" void readDouble(
   const char* filename, int nTargets, long int* targets, double* out);
   // Read `nTargets' doubles in `filename' at `targets' and output in `out'.
+
+class IntegratePropulsions;
+
+// LINEAR ALGEBRA
+
+pybind11::array_t<double>
+  invertMatrix(pybind11::array_t<double> const& matrix);
+  // Invert matrix.
+
+pybind11::array_t<double>
+  invertSparseMatrix(pybind11::array_t<double> const& matrix);
+  // Invert matrix.
 
 #endif

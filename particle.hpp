@@ -6,6 +6,9 @@
 #include <random>
 #include <assert.h>
 #include <iostream>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "dat.hpp"
 #include "maths.hpp"
@@ -109,23 +112,53 @@ class CellList {
 
     // CONSTRUCTOR
 
-    CellList() : N(0), L(0), n_cells(0), l_cell(0), linkedList(0), head(0) {}
+    CellList() :
+      N(0), L{0, 0}, n_cells{0, 0}, l_cell{0, 0}, linkedList(0), head(0) {
+      #ifdef _OPENMP
+      #pragma omp parallel
+      {
+        tid = omp_get_thread_num();
+        #pragma omp master
+        numth = omp_get_num_threads();
+      }
+      #endif
+    }
 
-    CellList(int const& N_, double const& L_, double const& r_cut_) :
-      N(N_), L(L_),
-      n_cells(std::floor(L/r_cut_)), l_cell(L/n_cells),
-      linkedList(N, 0), head(n_cells*n_cells, 0) {
-      // assert(n_cells >= 3); // only works for 9+ boxes grids
+    CellList(int const& N_, double const& L_, double const& r_cut_,
+      double const& Ly_ = 0) :
+      N(N_), L{L_, Ly_ > 0 ? Ly_ : L_},
+      n_cells{(int) std::floor(L[0]/r_cut_), (int) std::floor(L[1]/r_cut_)},
+      l_cell{L[0]/n_cells[0], L[1]/n_cells[1]},
+      linkedList(N, 0), head(n_cells[0]*n_cells[1], 0) {
+      // assert(n_cells[0] >= 3 && n_cells[1] >= 3); // only works for 3+ boxes grids in each direction
+      #ifdef _OPENMP
+      #pragma omp parallel
+      {
+        tid = omp_get_thread_num();
+        #pragma omp master
+        numth = omp_get_num_threads();
+      }
+      #endif
     }
 
     CellList(
       std::vector<std::vector<double>> const& positions_,
-      double const& L_, double const& r_cut_) :
-      N(positions_.size()), L(L_),
-      n_cells(std::floor(L/r_cut_)), l_cell(L/n_cells),
-      linkedList(N, 0), head(n_cells*n_cells, 0) {
-      // assert(n_cells >= 3); // only works for 9+ boxes grids
+      double const& L_, double const& r_cut_,
+      double const& Ly_ = 0) :
+      N(positions_.size()), L{L_, Ly_ > 0 ? Ly_ : L_},
+      n_cells{(int) std::floor(L[0]/r_cut_), (int) std::floor(L[1]/r_cut_)},
+      l_cell{L[0]/n_cells[0], L[1]/n_cells[1]},
+      linkedList(N, 0), head(n_cells[0]*n_cells[1], 0) {
+      // assert(n_cells[0] >= 3 && n_cells[1] >= 3); // only works for 3+ boxes grids in each direction
       listConstructor<std::vector<double>>(positions_); // build linked list
+      #ifdef _OPENMP
+      #pragma omp parallel
+      {
+        tid = omp_get_thread_num();
+        #pragma omp master
+        numth = omp_get_num_threads();
+      }
+      #endif
     }
 
     // METHODS
@@ -135,67 +168,143 @@ class CellList {
 
       int x, y; // coordinates in grid
       int c; // cell index
-      for (c=0; c < n_cells*n_cells; c++) { head[c] = -1; }
+      for (c=0; c < n_cells[0]*n_cells[1]; c++) { head[c] = -1; }
       for (int i=0; i < N; i++) {
-        x = std::floor(positions[i][0]/l_cell);
-        y = std::floor(positions[i][1]/l_cell);
+        x = std::floor(positions[i][0]/l_cell[0]);
+        y = std::floor(positions[i][1]/l_cell[1]);
         // check values are in {0, ..., numberBoxes - 1}
-        while ( x < 0 ) x += n_cells;
-        while ( x >= n_cells ) x -= n_cells;
-        while ( y < 0 ) y += n_cells;
-        while ( y >= n_cells ) y -= n_cells;
-        c = x + n_cells*y;
+        while ( x < 0 ) x += n_cells[0];
+        while ( x >= n_cells[0] ) x -= n_cells[0];
+        while ( y < 0 ) y += n_cells[1];
+        while ( y >= n_cells[1] ) y -= n_cells[1];
+        c = x + n_cells[0]*y;
         linkedList[i] = head[c]; // link to previous occupant
         head[c] = i; // last one goes to the header
       }
     }
 
-    template<typename F> void pairs(F function) {
+    template<typename F> void pairs(F func) {
       // Compute function for all neighbouring particles.
+
+      if ( n_cells[0] < 3 || n_cells[1] < 3 ) {
+        // cell list must be at least 3 boxes long in each direction
+        throw std::runtime_error(
+          "Cell list must be 3+ boxes long in x and y to be iterated over.");
+      }
 
       int  i, j; // particle indices
       int cx1, cy1, c1; // index of cell
       int cx2, cy2, c2; // index of neighbouring cell
-      for (cx1=0; cx1 < n_cells; cx1++) {
-        for (cy1=0; cy1 < n_cells; cy1++) {
-          c1 = cx1 + n_cells*cy1;
-          for (int inc=0; inc < 5; inc++) {
-            cx2 = cx1 + increments[inc][0];
-            if ( cx2 == -1 ) { cx2 = n_cells - 1; }
-            if ( cx2 == n_cells ) { cx2 = 0; }
-            cy2 = cy1 + increments[inc][1];
-            if ( cy2 == -1 ) { cy2 = n_cells - 1; }
-            if ( cy2 == n_cells ) { cy2 = 0; }
-            c2 = cx2 + n_cells*cy2;
+      for (c1=0; c1 < n_cells[0]*n_cells[1]; c1++) {
+        cx1 = c1%n_cells[0];
+        cy1 = c1/n_cells[0];
+        for (int inc=0; inc < 5; inc++) {
+          cx2 = cx1 + increments[inc][0];
+          if ( cx2 == -1 ) { cx2 = n_cells[0] - 1; }
+          if ( cx2 == n_cells[0] ) { cx2 = 0; }
+          cy2 = cy1 + increments[inc][1];
+          if ( cy2 == -1 ) { cy2 = n_cells[1] - 1; }
+          if ( cy2 == n_cells[1] ) { cy2 = 0; }
+          c2 = cx2 + n_cells[0]*cy2;
 
-            // COMPUTE PAIRS
-            i = head[c1];
-            while ( i != -1 ) { // loop over particles of cell
-              j = head[c2];
-              while ( j != -1 ) { // loop over particles of neighbouring cell
-                if ( c1 != c2 || i < j ) { // avoid double counting of pair (i, j) in same box
-                  function(i, j);
-                }
-                j = linkedList[j];
+          // COMPUTE PAIRS
+          i = head[c1];
+          while ( i != -1 ) { // loop over particles of cell
+            j = head[c2];
+            while ( j != -1 ) { // loop over particles of neighbouring cell
+              if ( c1 != c2 || i < j ) { // avoid double counting of pair (i, j) in same box
+                func(i, j);
               }
-              i = linkedList[i];
+              j = linkedList[j];
             }
+            i = linkedList[i];
           }
         }
       }
     }
 
+    #ifdef _OPENMP
+    template<typename F> std::vector<std::vector<int>> getNeighbours(F func) {
+      // Return vector of neighbours defined by function.
+
+      if ( n_cells[0] < 3 || n_cells[1] < 3 ) {
+        // cell list must be at least 3 boxes long in each direction
+        throw std::runtime_error(
+          "Cell list must be 3+ boxes long in x and y to be iterated over.");
+      }
+
+      std::vector<std::vector<std::vector<int>>> neighbours_int
+        (numth, std::vector<std::vector<int>>(N, std::vector<int>(0)));
+      std::vector<std::vector<int>> neighbours
+        (N, std::vector<int>(0));
+
+      #pragma omp parallel
+      {
+
+      int  i, j; // particle indices
+      int cx1, cy1, c1; // index of cell
+      int cx2, cy2, c2; // index of neighbouring cell
+
+      #pragma omp for schedule(auto) nowait
+      for (c1=0; c1 < n_cells[0]*n_cells[1]; c1++) {
+        cx1 = c1%n_cells[0];
+        cy1 = c1/n_cells[0];
+        for (int inc=0; inc < 5; inc++) {
+          cx2 = cx1 + increments[inc][0];
+          if ( cx2 == -1 ) { cx2 = n_cells[0] - 1; }
+          if ( cx2 == n_cells[0] ) { cx2 = 0; }
+          cy2 = cy1 + increments[inc][1];
+          if ( cy2 == -1 ) { cy2 = n_cells[1] - 1; }
+          if ( cy2 == n_cells[1] ) { cy2 = 0; }
+          c2 = cx2 + n_cells[0]*cy2;
+
+          // COMPUTE PAIRS
+          i = head[c1];
+          while ( i != -1 ) { // loop over particles of cell
+            j = head[c2];
+            while ( j != -1 ) { // loop over particles of neighbouring cell
+              if ( c1 != c2 || i < j ) { // avoid double counting of pair (i, j) in same box
+                if ( func(i, j) ) {
+                  neighbours_int[tid][i].push_back(j);
+                  neighbours_int[tid][j].push_back(i);
+                }
+              }
+              j = linkedList[j];
+            }
+            i = linkedList[i];
+          }
+        }
+      }
+
+      #pragma omp critical
+      for (int i=0; i < N; i++) {
+        for (int j : neighbours_int[tid][i]) {
+          neighbours[i].push_back(j);
+        }
+      }
+
+      }
+      return neighbours;
+    }
+    #endif
+
   private:
 
     int N; // number of particles
-    double L; // system size
-    int n_cells; // linear number of cells in the cell list
-    double l_cell; // linear size of a cell
+    double L[2]; // system size in each direction
+    int n_cells[2]; // number of cells in the cell list in each direction
+    double l_cell[2]; // size of a cell in each direction
 
     double increments[5][2] = {{1, -1}, {0, 0}, {1, 0}, {0, 1}, {1, 1}}; // increments to RIGHT neighbouring cells (including cell itself)
 
     std::vector<int> linkedList; // linkedList[i] = particle indices to which the i-th particle points
     std::vector<int> head; // head[c] = index of the first particle in the c-th cell or -1 if there is no particle in the cell
+
+    #ifdef _OPENMP
+    static int tid;
+    static int numth;
+    #pragma omp threadprivate( tid )
+    #endif
 
 };
 
@@ -218,15 +327,11 @@ class Parameters {
     Parameters( // defining all parameters independently (L and lp from others)
       int N, double epsilon, double v0, double D, double Dr,
         double phi, std::vector<double> const& diameters,
-      double dt);
+      double dt, bool conf = false);
     Parameters( // defining all parameters independently (all)
       int N, double epsilon, double v0, double D, double Dr, double lp,
         double phi, std::vector<double> const& diameters, double L,
       double dt, double Lc = 0);
-    Parameters( // defining all parameters independently and confining length
-      int N, double epsilon, double v0, double D, double Dr,
-        double phi, double Lc, std::vector<double> const& diameters,
-      double dt);
     Parameters( // copy other class
       Parameters const& parameters);
     Parameters( // copy other class
@@ -252,7 +357,7 @@ class Parameters {
         inputDat.getDiameters(),
         dt > 0 ? dt : inputDat.getTimeStep()) {}
     Parameters( // copy .datN files
-      DatN const& inputDat, double dt = 0) :
+      DatN const& inputDat, double dt = 0, bool conf = false) :
       Parameters(
         inputDat.getNumberParticles(),
         inputDat.getPotentialParameter(),
@@ -261,19 +366,8 @@ class Parameters {
         inputDat.getRotDiffusivity(),
         inputDat.getPackingFraction(),
         inputDat.getDiameters(),
-        dt > 0 ? dt : inputDat.getTimeStep()) {}
-    // Parameters( // copy .datC files
-    //   DatC const& inputDat, double dt = 0) :
-    //   Parameters(
-    //     inputDat.getNumberParticles(),
-    //     inputDat.getPotentialParameter(),
-    //     inputDat.getPropulsionVelocity(),
-    //     inputDat.getTransDiffusivity(),
-    //     inputDat.getRotDiffusivity(),
-    //     inputDat.getPackingFraction(),
-    //     inputDat.getConfiningLength(),
-    //     inputDat.getDiameters(),
-    //     dt > 0 ? dt : inputDat.getTimeStep()) {}
+        dt > 0 ? dt : inputDat.getTimeStep(),
+        conf) {}
 
     // METHODS
 
@@ -300,8 +394,8 @@ class Parameters {
     double const rotDiffusivity; // rotational diffusivity
     double const persistenceLength; // persistence length
     double const packingFraction; // packing fraction
-    double const systemSize; // system size
     double const confiningLength; // confining length
+    double const systemSize; // system size
     double const torqueParameter; // torque parameter
     double const timeStep; // time step
 
@@ -395,7 +489,7 @@ class System {
 
     int getRandomSeed() const; // returns random seed
     Random* getRandomGenerator(); // returns pointer to random generator
-    void setGenerator(std::default_random_engine rndeng); // return random generator
+    void setGenerator(RNDG rndeng); // return random generator
 
     Particle* getParticle(int const& index); // returns pointer to given particle
     std::vector<Particle> getParticles(); // returns vector of particles
@@ -455,6 +549,8 @@ class System {
     void saveNewState(std::vector<Particle>& newParticles);
       // Saves new state of particles to output file then copy it.
 
+    bool isConfined() const { return false; }
+
   private:
 
     // ATTRIBUTES
@@ -507,11 +603,10 @@ class System {
 class System0 {
   /*  Contains all the details to simulate a system of active particles.
    *  (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
-   *  (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
    *
    *  Parameters are stored in a binary file with the following structure:
    *
-   *  [HEADER (see System::System)]
+   *  [HEADER (see System0::System0)]
    *  | (int) N | (double) epsilon | (double) v0 | (double) D | (double) Dr | (double) lp | (double) phi | (double) L | (int) seed | (double) dt | (int) framesWork | (bool) dump | (int) period |
    *  ||    PARTICLE 1     | ... |     PARTICLE N    ||
    *  || (double) diameter | ... | (double) diameter ||
@@ -621,6 +716,8 @@ class System0 {
     void saveNewState(std::vector<Particle>& newParticles);
       // Saves new state of particles to output file then copy it.
 
+    bool isConfined() const { return false; }
+
   private:
 
     // ATTRIBUTES
@@ -664,12 +761,12 @@ class System0 {
 
 class SystemN {
   /*  Contains all the details to simulate a system of active particles.
+   *  Possible circular confinement.
    *  (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#Active%20Brownian%20particles)
-   *  (see https://yketa.github.io/PhD_Wiki/#Active%20Ornstein-Uhlenbeck%20particles)
    *
    *  Parameters are stored in a binary file with the following structure:
    *
-   *  [HEADER (see System::System)]
+   *  [HEADER (see SystemN::SystemN)]
    *  | (int) N | (double) epsilon | (double) v0 | (double) D | (double) Dr | (double) lp | (double) phi | (double) L | (int) seed | (double) dt |
    *  || (int) NinitialTimes | (int) initialTimes[0] | ... | initialTimes[NinitialTimes - 1] ||
    *  || (int) NlagTimes | (int) lagTimes[0]  | ... | (int) lagTimes[NlagTimes - 1] ||
@@ -692,37 +789,44 @@ class SystemN {
     SystemN(
       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
         std::vector<int>* time0, std::vector<int>* deltat,
-      Parameters* parameters, int seed = 0, std::string filename = "");
+      Parameters* parameters, int seed = 0, std::string filename = "",
+      bool conf = false);
     SystemN(
       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
         std::vector<int>* time0, std::vector<int>* deltat,
       Parameters* parameters, std::vector<double>& diameters, int seed = 0,
-      std::string filename = "");
+      std::string filename = "",
+      bool conf = false);
     SystemN(
       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
         std::vector<int>* time0, std::vector<int>* deltat,
-      SystemN* system, int seed = 0, std::string filename = "");
+      SystemN* system, int seed = 0, std::string filename = "",
+      bool conf = false);
     SystemN(
       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
         std::vector<int>* time0, std::vector<int>* deltat,
       SystemN* system, std::vector<double>& diameters, int seed = 0,
-      std::string filename = "");
+      std::string filename = "",
+      bool conf = false);
     SystemN(
       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
         std::vector<int>* time0, std::vector<int>* deltat,
       std::string inputFilename, int inputFrame = 0, double dt = 0,
-      int seed = 0, std::string filename = "");
+      int seed = 0, std::string filename = "",
+      bool conf = false);
     SystemN(
       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
         std::vector<int>* time0, std::vector<int>* deltat,
       std::string inputFilename, int inputFrame = 0, Parameters* parameters = 0,
-      int seed = 0, std::string filename = "");
+      int seed = 0, std::string filename = "",
+      bool conf = false);
     SystemN(
       int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
         std::vector<int>* time0, std::vector<int>* deltat,
       std::string inputFilename, int inputFrame = 0, Parameters* parameters = 0,
         std::vector<double> const diameters = {0},
-      int seed = 0, std::string filename = "");
+      int seed = 0, std::string filename = "",
+      bool conf = false);
 
     // DESTRUCTORS
 
@@ -750,6 +854,7 @@ class SystemN {
 
     Particle* getParticle(int const& index); // returns pointer to given particle
     std::vector<Particle> getParticles(); // returns vector of particles
+    std::vector<double*> getPositions(); // returns vector of pointers to positions
 
     CellList* getCellList(); // returns pointer to CellList object
     void initialiseCellList(double const& cutOff = pow(2.0, 1./6.)); // initialise cell list
@@ -757,6 +862,9 @@ class SystemN {
 
     void flushOutputFile(); // flush output file
     std::string getOutputFile() const; // returns output file name
+
+    Write* getOutput(); // returns pointer to output class
+    std::vector<long int>* getVelocitiesDumps(); // returns pointer to locations in output file to dump velocities
 
     int* getDump(); // returns number of frames dumped since last reset
     void resetDump();
@@ -776,7 +884,7 @@ class SystemN {
     void saveNewState(std::vector<Particle>& newParticles);
       // Saves new state of particles to output file then copy it.
 
-    bool isConfined() const { return false; }
+    bool isConfined() const { return confined; }
 
   private:
 
@@ -787,6 +895,7 @@ class SystemN {
     // NOTE: Frame 0 is ALWAYS saved first.
 
     Parameters param; // class of simulation parameters
+    bool const confined; // confinement state of the system
 
     int const randomSeed; // random seed
     Random randomGenerator; // random number generator
@@ -801,7 +910,7 @@ class SystemN {
     int dumpFrame; // number of frames dumped since last reset
 
     double kineticEnergy = 0; // sum of squared velocities
-    double kineticEnergyFactor = 1e3; // threshold in units of squared self-propulsion velocity not to exceed for mean squared velocities
+    double kineticEnergyFactor = 1e4; // threshold in units of squared self-propulsion velocity not to exceed for mean squared velocities
 
 };
 
@@ -968,6 +1077,11 @@ double getL_WCA(double phi, int N, double diameter = 1);
   // containing  `N' particles with same `diameter', considering the actual
   // diameter as the WCA diameter of interaction.
 
+double getLc_WCA(double phi, std::vector<double> const& diameters);
+  // Returns the diameter of a circular system with packing fraction `phi'
+  // containing particles with `diameters', considering the actual diameter
+  // as the WCA diameter of interaction.
+
 std::vector<double> getDiametersI(int N, double I, int seed = 0);
   // Returns vector of `N' uniformly distributed diameters with polydispersity
   // index `I'.
@@ -1055,6 +1169,36 @@ template<class SystemClass> double getDistance(
     diff);
 }
 
+template<class SystemClass> double conf_WCA_potential(SystemClass* system) {
+  // Returns confining WCA potential of a given system.
+
+  double potential = 0.0;
+
+  if ( system->isConfined() ) {
+
+    double coeff =
+      (system->getParameters())->getPotentialParameter();
+    double r[2];
+    double rn, dr;
+    for (int i=0; i < system->getNumberParticles(); i++) {
+      for (int dim=0; dim < 2; dim++) {
+        r[dim] = algDistPeriod(
+          system->getSystemSize()/2, (system->getParticle(i))->position()[dim],
+          system->getSystemSize());
+      }
+      rn = sqrt(r[0]*r[0] + r[1]*r[1]);
+      dr = 2*((system->getParameters())->getConfiningLength()/2 - rn)
+        /(system->getParticle(i))->diameter();
+      if ( dr < pow(2., 1./6.) ) {
+        potential += coeff*(4*(pow(1/dr, 12) - pow(1/dr, 6)) + 1);
+      }
+    }
+
+  }
+
+  return potential;
+}
+
 template<class SystemClass> double WCA_potential(SystemClass* system) {
   // Returns WCA potential of a given system.
 
@@ -1076,7 +1220,7 @@ template<class SystemClass> double WCA_potential(SystemClass* system) {
 
   pairs_system<SystemClass>(system, addPotential);
 
-  return potential;
+  return potential + conf_WCA_potential<SystemClass>(system);
 }
 
 template<class SystemClass> void WCA_force(
@@ -1129,7 +1273,9 @@ template<class SystemClass> void initPropulsionAOUP(SystemClass* system) {
   // Draw self-propulsion vectors of each particle from their steady state
   // distribution.
 
-  double std = sqrt(system->getTransDiffusivity()*system->getRotDiffusivity()); // standard deviation
+  double std =
+    system->getRotDiffusivity() == 0 ? system->getPropulsionVelocity() :
+    sqrt(system->getTransDiffusivity()*system->getRotDiffusivity()); // standard deviation
 
   for (int i=0; i < system->getNumberParticles(); i++) {
     for (int dim=0; dim < 2; dim++) {
@@ -1198,8 +1344,8 @@ template<class DatClass> void checkCellList(
   std::vector<std::vector<int>> neighboursCL(N, std::vector<int>(0));
   for (int i=0; i < N; i++) { neighboursCL[i].clear(); }
   auto f =
-    [&dist, &diff, &positionsPTR, &L, &sigmaij, &diameters, &couples, &cutOff,
-      &neighboursCL]
+    [&cl, &dist, &diff, &positionsPTR, &L, &sigmaij, &diameters,
+      &cutOff, &neighboursCL, &couples]
     (int const& i, int const& j) {
       dist = dist2DPeriod(positionsPTR[i], positionsPTR[j], L, &diff[0]);
       sigmaij = (diameters[i] + diameters[j])/2;
@@ -1212,15 +1358,40 @@ template<class DatClass> void checkCellList(
   cl.pairs(f);
   std::cout << "[CELL LIST] couples: " << couples << std::endl;
 
+  #ifdef _OPENMP
+  // parallel neighbour list
+  auto g =
+    [&dist, &positionsPTR, &L, &diff, &sigmaij, &diameters, &cutOff]
+    (int const& i, int const& j) {
+      dist = dist2DPeriod(positionsPTR[i], positionsPTR[j], L, &diff[0]);
+      sigmaij = (diameters[i] + diameters[j])/2;
+      return ( dist/sigmaij < cutOff );
+  };
+  std::vector<std::vector<int>> neighboursPC = cl.getNeighbours(g);
+  couples = 0;
+  for (std::vector<int> n : neighboursPC) couples += n.size();
+  couples /= 2;
+  std::cout << "[PARALLEL NEIGHBOUR LIST] couples: " << couples << std::endl;
+  #endif
+
   // check
   std::cout << "CHECK: ";
   for (int i=0; i < N; i++) {
-    if ( !compareVec(neighboursCL[i], neighboursBF[i]) ) {
+    if (
+      !compareVec(neighboursCL[i], neighboursBF[i])
+      #ifdef _OPENMP
+      || !compareVec(neighboursCL[i], neighboursPC[i])
+      #endif
+      ) {
       std::cout << std::endl << "[particle " << i << "]" << std::endl;
       std::cout << "[BRUTE FORCE] neighbours: ";
       for (int n : neighboursBF[i]) { std::cout << n << " "; }
       std::cout << std::endl << "[CELL LIST] neighbours: ";
       for (int n : neighboursCL[i]) { std::cout << n << " "; }
+      #ifdef _OPENMP
+      std::cout << std::endl << "[PARALLEL NEIGHBOUR LIST] neighbours: ";
+      for (int n : neighboursPC[i]) { std::cout << n << " "; }
+      #endif
       std::cout << std::endl;
       throw std::invalid_argument("Different neighbours.");
     }

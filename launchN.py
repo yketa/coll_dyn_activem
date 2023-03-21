@@ -11,7 +11,7 @@ from coll_dyn_activem.launch0 import v0_AOUP
 from numpy.random import randint
 from numpy import sqrt, pi
 
-from os import path
+from os import path, getcwd
 from subprocess import Popen, DEVNULL
 from sys import stderr
 
@@ -74,13 +74,15 @@ _exec_dir = path.join(path.dirname(path.realpath(__file__)), 'build')   # defaul
 _exec_name = ['simulationN%s', 'simulationN%s_cell_list']               # default executable name without and with a cell list
 _exec_type = {'ABP': '', 'AOUP': 'OU'}                                  # default suffixes associtated to active particles' types
 
-_out_dir = _exec_dir    # default simulation output directory
+_out_dir = getcwd() # default simulation output directory
 
 # SCRIPT
 
 if __name__ == '__main__':
 
     # VARIABLE DEFINITIONS
+
+    confinement = get_env('CONFINEMENT', default=False, vartype=bool)   # simulation in circular confinement
 
     # INPUT FILE PARAMETERS
     inputFilename = get_env('INPUT_FILENAME', default='', vartype=str)  # input file from which to copy data
@@ -164,6 +166,7 @@ if __name__ == '__main__':
     out_dir = get_env('OUT_DIR', default=_out_dir, vartype=str) # simulation output directory
     out_file = filename(N, epsilon, v0, D, Dr, phi, launch)     # simulation output file name
     if period != None: out_file += '.linear'
+    if confinement: out_file = out_file.replace('.datN', '.datC')
 
     # LAUNCH
 
@@ -175,6 +178,7 @@ if __name__ == '__main__':
     proc = Popen(
         ['{ %s; }' % str(' ').join(['setsid', path.join(exec_dir, exec_name)])],
         stdout=DEVNULL, shell=True, env={
+            'CONFINEMENT': '1' if confinement else '0',
             'N': str(N), 'EPSILON': str(epsilon), 'V0': str(v0), 'D': str(D),
                 'DR': str(Dr), 'PHI': str(phi), 'I': str(I),
             'INPUT_FILENAME': str(inputFilename),

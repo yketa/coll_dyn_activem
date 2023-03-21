@@ -449,6 +449,162 @@ int DatN::getFrameIndex(int const& frame) {
 
 
 /********
+ * DATM *
+ ********/
+
+// CONSTRUCTORS
+
+DatM::DatM(std::string filename, bool loadWork, bool corruption) :
+  numberParticles(), potentialParameter(), propulsionVelocity(),
+    transDiffusivity(), rotDiffusivity(), persistenceLength(),
+    packingFraction(), systemSize(), systemSizes(), randomSeed(), timeStep(),
+  initialTimes(), lagTimes(), frames(),
+  input(filename) {
+
+  // HEADER INFORMATION
+  input.read<const int>(&numberParticles);
+  input.read<const double>(&potentialParameter);
+  input.read<const double>(&propulsionVelocity);
+  input.read<const double>(&transDiffusivity);
+  input.read<const double>(&rotDiffusivity);
+  input.read<const double>(&persistenceLength);
+  input.read<const double>(&packingFraction);
+  input.read<const double>(&systemSize);
+  input.read<const int>(&randomSeed);
+  input.read<const double>(&timeStep);
+
+  // FRAMES
+  input.read<const int>(&initialTimes);
+  int t0;
+  for (int i=0; i < initialTimes; i++) {
+    input.read<int>(&t0);
+    time0.push_back(t0);
+  }
+  input.read<const int>(&lagTimes);
+  int t;
+  for (int i=0; i < lagTimes; i++) {
+    input.read<int>(&t);
+    time0.push_back(t);
+  }
+  input.read<const int>(&frames);
+  frameIndices.push_back(0);
+  int frame;
+  for (int i=0; i < frames; i++) {
+    input.read<int>(&frame);
+    frameIndices.push_back(frame);
+  }
+
+  // DIAMETERS
+  double diameter;
+  for (int i=0; i < numberParticles; i++) {
+    input.read<double>(&diameter);
+    diameters.push_back(diameter);
+  }
+
+  // SYSTEM SIZE
+  input.read<const double>(&systemSizes[0]);
+  input.read<const double>(&systemSizes[1]);
+
+  // FILE PARTS LENGTHS
+  headerLength = input.tellg();
+  particleLength = 9*sizeof(double);
+  frameLength = numberParticles*particleLength;
+
+  // FILE CORRUPTION CHECK
+  if ( !corruption && input.getFileSize() !=
+    headerLength + (frames + 1)*frameLength ) {
+    throw std::invalid_argument("Invalid file size.");
+  }
+}
+
+// DESTRUCTORS
+
+DatM::~DatM() {}
+
+// METHODS
+
+Read* DatM::getInput() { return &input; }
+
+int DatM::getNumberParticles() const { return numberParticles; }
+double DatM::getPotentialParameter() const { return potentialParameter; }
+double DatM::getPropulsionVelocity() const { return propulsionVelocity; }
+double DatM::getTransDiffusivity() const { return transDiffusivity; }
+double DatM::getRotDiffusivity() const { return rotDiffusivity; }
+double DatM::getPersistenceLength() const { return persistenceLength; }
+double DatM::getPackingFraction() const { return packingFraction; }
+double DatM::getSystemSize() const { return systemSize; }
+const double* DatM::getSystemSizes() { return &systemSizes[0]; }
+int DatM::getRandomSeed() const { return randomSeed; }
+double DatM::getTimeStep() const { return timeStep; }
+
+std::vector<int>* DatM::getTime0() { return &time0; }
+std::vector<int>* DatM::getDt() { return &dt; }
+std::vector<int>* DatM::getFrames() { return &frameIndices; }
+
+std::vector<double> DatM::getDiameters() const { return diameters; }
+
+double DatM::getPosition(
+  int const& frame, int const& particle, int const& dimension,
+  bool const& unfolded) {
+  // Returns position of a given particle at a given frame.
+
+  return input.read<double>(
+    headerLength                                     // header
+    + getFrameIndex(frame)*frameLength               // other frames
+    + particle*particleLength                        // other particles
+    + 7*unfolded*sizeof(double)                      // unfolded positions
+    + dimension*sizeof(double));                     // dimension
+}
+
+double DatM::getOrientation(int const& frame, int const& particle){
+  // Returns orientation of a given particle at a given frame.
+
+  return input.read<double>(
+    headerLength                                     // header
+    + getFrameIndex(frame)*frameLength               // other frames
+    + particle*particleLength                        // other particles
+    + 2*sizeof(double));                             // positions
+}
+
+double DatM::getVelocity(
+  int const& frame, int const& particle, int const& dimension) {
+  // Returns velocity of a given particle at a given frame.
+
+  return input.read<double>(
+    headerLength                                     // header
+    + getFrameIndex(frame)*frameLength               // other frames
+    + particle*particleLength                        // other particles
+    + 3*sizeof(double)                               // positions and orientation
+    + dimension*sizeof(double));                     // dimension
+}
+
+double DatM::getPropulsion(
+  int const& frame, int const& particle, int const& dimension) {
+  // Returns self-propulsion vector of a given particle at a given frame.
+
+  return input.read<double>(
+    headerLength                                     // header
+    + getFrameIndex(frame)*frameLength               // other frames
+    + particle*particleLength                        // other particles
+    + 5*sizeof(double)                               // positions, orientation, and velocities
+    + dimension*sizeof(double));                     // dimension
+}
+
+int DatM::getFrameIndex(int const& frame) {
+  // Returns index of frame in file.
+
+  if ( ! isInSortedVec(&frameIndices, frame) ) {
+    throw std::invalid_argument(
+      "Frame " + std::to_string(frame) + " not in file.");
+  }
+
+  return (int) std::distance(
+    frameIndices.begin(),
+    std::lower_bound(frameIndices.begin(), frameIndices.end(), frame));
+}
+
+
+/********
  * DATR *
  ********/
 

@@ -250,8 +250,6 @@ def cooperativity(array):
     Return ratio of squared mean and squared mean values of `array' treated
     as 1D-vectors.
 
-    (see https://yketa.github.io/PhD_Wiki/#Field%20correlation)
-
     Parameters
     ----------
     values : (*, **)  float array-like
@@ -394,6 +392,7 @@ def angle(dx, dy):
     """
 
     norm = np.sqrt(dx**2 + dy**2)
+    if norm == 0: return 0
     return math.atan2(dy/norm, dx/norm)
 
 def angles(*vec):
@@ -488,6 +487,56 @@ def gaussian_smooth_1D(X, Y, sigma, *x):
             np.sum(Y*smoothing_coefficients)/np.sum(smoothing_coefficients)
 
     return smoothedY
+
+def hl_envelopes_idx(s, dmin=1, dmax=1, split=False):
+    """
+    Compute high and low envelope of a signal.
+
+    https://stackoverflow.com/questions/34235530/
+
+    Parameters
+    ----------
+    s : (*,) array-like
+        Data signal from which to extract high and low envelopes.
+    dmin : int
+        Minimum size of chunks. Use this if the size of the input signal is too
+        big. (default: 1)
+    dmax : int
+        Maximum size of chunks. Use this if the size of the input signal is too
+        big. (default: 1)
+    split: bool
+        Split the signal in half along its mean, might help to generate the
+        envelope in some cases. (default: False)
+
+    Returns
+    -------
+    lmax : (*,) numpy int array
+        Indices of the data point forming the high envelope of the signal.
+    lmin : (*,) numpy int array
+        Indices of the data point forming the low envelope of the signal..
+    """
+
+    # locals min
+    lmin = (np.diff(np.sign(np.diff(s))) > 0).nonzero()[0] + 1
+    # locals max
+    lmax = (np.diff(np.sign(np.diff(s))) < 0).nonzero()[0] + 1
+
+
+    if split:
+        # s_mid is zero if s centered around x-axis or more generally mean of signal
+        s_mid = np.mean(s)
+        # pre-sorting of locals min based on relative position with respect to s_mid
+        lmin = lmin[s[lmin]<s_mid]
+        # pre-sorting of local max based on relative position with respect to s_mid
+        lmax = lmax[s[lmax]>s_mid]
+
+
+    # global max of dmax-chunks of locals max
+    lmin = lmin[[i+np.argmin(s[lmin[i:i+dmin]]) for i in range(0,len(lmin),dmin)]]
+    # global min of dmin-chunks of locals min
+    lmax = lmax[[i+np.argmax(s[lmax[i:i+dmax]]) for i in range(0,len(lmax),dmax)]]
+
+    return lmax, lmin
 
 class CurveFit:
     """
@@ -1181,7 +1230,14 @@ class Histogram:
 
         binned_values = np.sum(self.hist)
         if binned_values == 0: return self.hist # no binned value
-        elif not(occupation): self.hist /= np.sum(self.hist)
+        elif not(occupation):
+            # self.hist /= self.hist.sum()
+            self.hist /= (
+                self.hist*np.diff(self.bins.tolist() + [self.vmax])).sum()
+            self.hist *= (
+                self.values[
+                    (self.values >= self.vmin)*(self.values < self.vmax)].size
+                /self.values.size)
         return self.hist
 
 class Histogram3D:
@@ -1348,7 +1404,12 @@ def wave_vectors_dq(L, q, dq=0.1):
 
     wv = []
     for nx in range(1, nmax + 1):   # remove (0, n) so it is not redundant with (n, 0)
-        for ny in range(0, nmax + 1):
+        for ny in range(
+            0 if nx > (L/(2*np.pi))*(q - dq/2)
+                else math.floor(np.sqrt(((L/(2*np.pi))*(q - dq/2))**2 - nx**2)),
+            1 if nx > (L/(2*np.pi))*(q + dq/2)
+                else math.floor(np.sqrt(((L/(2*np.pi))*(q + dq/2))**2 - nx**2))
+                    + 1):
             if np.abs(q - qn(nx, ny)) <= dq/2:
                 wv += [[nx, ny], [-ny, nx]]
 

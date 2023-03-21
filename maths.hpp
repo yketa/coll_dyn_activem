@@ -10,8 +10,9 @@
 // CLASSES //
 /////////////
 
+#define RNDG std::mt19937 // Mersenne Twister
 class Random {
-  /*  This simple rnd class is a wrapper for the built-in c++ random number
+  /*  This simple Random class is a wrapper for the built-in c++ random number
    *  generator.
    *  (adapted from RLJ)
    */
@@ -22,7 +23,7 @@ class Random {
 
     Random(int const& seed = 0, double const& g_co = 3) :
       g_cutoff(g_co) { generator.seed(seed); }
-    Random(std::default_random_engine rndeng, double const& g_co = 3) :
+    Random(RNDG rndeng, double const& g_co = 3) :
       generator(rndeng), g_cutoff(g_co) {;}
 
     // DESTRUCTORS
@@ -32,8 +33,9 @@ class Random {
     // METHODS
 
     // random number engine class (e.g. for saving purposes)
-    std::default_random_engine getGenerator() { return generator; }
-    void setGenerator(std::default_random_engine rndeng) { generator = rndeng; }
+    RNDG getGenerator() { return generator; }
+    void setGenerator(RNDG rndeng) { generator = rndeng; }
+    std::normal_distribution<double>* getNormal() { return normal; }
 
     // member functions for generating random double in [0,1] and random integer in [0,max-1]
     double random01() { return (*real01)(generator); }
@@ -61,7 +63,8 @@ class Random {
 
     // ATTRIBUTES
 
-    std::default_random_engine generator;
+    RNDG generator;
+    // std::default_random_engine generator; // (old) period = 1,686,629,820
     int max = 0x7fffffff;
 
     std::uniform_int_distribution<int>* intmax

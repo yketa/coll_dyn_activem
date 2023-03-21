@@ -36,5 +36,5 @@ double dist2DPeriod(double* pos0, double* pos1, double const& length,
   diff[0] = algDistPeriod(pos0[0], pos1[0], length); // separation in x position
   diff[1] = algDistPeriod(pos0[1], pos1[1], length); // separation in x position
 
-  return sqrt(pow(diff[0], 2) + pow(diff[1], 2));
+  return sqrt(diff[0]*diff[0] + diff[1]*diff[1]);
 }

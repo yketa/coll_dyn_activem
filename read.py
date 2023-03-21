@@ -12,8 +12,8 @@ from operator import itemgetter
 
 from coll_dyn_activem.init import get_env
 from coll_dyn_activem.maths import wo_mean, pycpp, relative_positions, angle,\
-    cooperativity
-from coll_dyn_activem._pycpp import getVelocityVorticity
+    cooperativity, wave_vectors_dq, normalise1D
+from coll_dyn_activem._pycpp import getVelocityVorticity, getRadialCorrelations
 
 class _Read:
     """
@@ -152,6 +152,7 @@ class Dat(_Read):
                 self.lp = self._read('d')               # persistence length
                 self.phi = self._read('d')              # packing fraction
                 self.L = self._read('d')                # system size
+                self.Lxy = np.array([self.L, self.L])   # system size in each direction
                 self.rho = self.N/(self.L**2)           # particle density
                 self.g = self._read('d')                # torque parameter
                 self.seed = self._read('i')             # random seed
@@ -215,6 +216,7 @@ class Dat(_Read):
                 self.lp = self._read('d')               # persistence length
                 self.phi = self._read('d')              # packing fraction
                 self.L = self._read('d')                # system size
+                self.Lxy = np.array([self.L, self.L])   # system size in each direction
                 self.rho = self.N/(self.L**2)           # particle density
                 self.seed = self._read('i')             # random seed
                 self.dt = self._read('d')               # time step
@@ -279,6 +281,7 @@ class Dat(_Read):
                 self.lp = self._read('d')               # persistence length
                 self.phi = self._read('d')              # packing fraction
                 self.L = self._read('d')                # system size
+                self.Lxy = np.array([self.L, self.L])   # system size in each direction
                 self.rho = self.N/(self.L**2)           # particle density
                 self.seed = self._read('i')             # random seed
                 self.dt = self._read('d')               # time step
@@ -316,6 +319,79 @@ class Dat(_Read):
 
                 # FILE CORRUPTION CHECK
                 if self.corruption != 'datN' and self.fileSize != (
+                    self.headerLength                   # header
+                    + self.frames*self.frameLength):    # frames
+                    del self._type
+                    raise ValueError(
+                        "Invalid data file size ('%s')." % self.filename)
+
+                return
+
+            except:
+
+                if get_env('FORCE_DATN', default=False, vartype=bool):
+                    raise ValueError(
+                        "Invalid data file size ('%s')." % self.filename)
+
+            try:
+
+                #########
+                # .DATM #
+                #########
+                self._type = 'datM'
+
+                # FILE
+                _Read.__init__(self, filename)
+
+                # HEADER INFORMATION
+                self.N = self._read('i')                # number of particles
+                self.epsilon = self._read('d')          # coefficient parameter of potential
+                self.v0 = self._read('d')               # self-propulsion velocity
+                self.D = self._read('d')                # translational diffusivity
+                self.Dr = self._read('d')               # rotational diffusivity
+                self.lp = self._read('d')               # persistence length
+                self.phi = self._read('d')              # packing fraction
+                self.L = self._read('d')                # system size
+                self.rho = self.N/(self.L**2)           # particle density
+                self.seed = self._read('i')             # random seed
+                self.dt = self._read('d')               # time step
+                self.framesWork = 1                     # number of frames on which to sum the active work before dumping (here set as 0 to avoid crash of some functions)
+                self.dumpParticles = True               # dump positions and orientations to output file
+                self.dumpPeriod = 1                     # period of dumping of positions and orientations in number of frames
+
+                # FRAMES
+                self.time0 = []                                         # initial frames
+                self.initialFrames = self._read('i')                    # number of initial frames
+                for _ in range(self.initialFrames):
+                    self.time0 += [self._read('i')]
+                self.time0 = np.array(self.time0)
+                self.deltat = []                                        # lag times
+                self.lagTimes = self._read('i')                         # number of lag times
+                for _ in range(self.lagTimes):
+                    self.deltat += [self._read('i')]
+                self.deltat = np.array(self.deltat)
+                self.frames = self._read('i')                           # number of frames
+                self.frameIndices = []                                  # frame indices which were saved
+                for _ in range(self.frames):
+                    self.frameIndices += [self._read('i')]
+                self.frames += 1                                        # count frame 0
+                self.frameIndices = np.array([0] + self.frameIndices)   # count frame 0
+
+                # DIAMETERS
+                self.diameters = np.empty((self.N,))    # array of diameters
+                for i in range(self.N): self.diameters[i] = self._read('d')
+
+                # SYSTEM SIZE
+                self.Lxy = np.array([self._read('d'), self._read('d')]) # system size in each direction
+
+                # FILE PARTS LENGTHS
+                self.headerLength = self.file.tell()                        # length of header in bytes
+                self.particleLength = 9*self._bpe('d')                      # length the data of a single particle takes in a frame
+                self.frameLength = self.N*self.particleLength               # length the data of a single frame takes in a file
+                self.workLength = 0*self._bpe('d')                          # length the data of a single work and order parameter dump takes in a file
+
+                # FILE CORRUPTION CHECK
+                if self.corruption != 'datM' and self.fileSize != (
                     self.headerLength                   # header
                     + self.frames*self.frameLength):    # frames
                     del self._type
@@ -436,7 +512,8 @@ class Dat(_Read):
             Displacements between `time0' and `time1'.
         """
 
-        if particle == (): particle = range(self.N)
+        particle0 = range(self.N) if particle == () else np.copy(particle)
+        if particle == () or remove_cm: particle = range(self.N)
         time0 = int(time0)
         time1 = int(time1)
 
@@ -470,6 +547,7 @@ class Dat(_Read):
                     particle))))
 
         if remove_cm: displacements = wo_mean(displacements, axis=-2)
+        displacements = np.array(itemgetter(*particle0)(displacements))
         if norm: return np.sqrt(np.sum(displacements**2, axis=-1))
         return displacements
 
@@ -889,7 +967,7 @@ class Dat(_Read):
         Computes radial correlations of field `array' (and `array2') associated
         to particles at `time'.
 
-        (see coll_dyn_activem.pycpp.getRadialCorrelations)
+        (see coll_dyn_activem._pycpp.getRadialCorrelations)
 
         Parameters
         ----------
@@ -925,15 +1003,16 @@ class Dat(_Read):
         """
 
         return (
-            pycpp.getRadialCorrelations(
-                self.getPositions(time), self.L, array, nBins,
-                min=0 if min == None else min,
-                max=self.L/2 if max == None else max,
-                rescale_pair_distribution=rescale_pair_distribution,
-                values2=array2),
+            getRadialCorrelations(
+                self.getPositions(time), self.L, array,
+                array if type(array2) == type(None) else array2,
+                nBins,
+                rmin=0 if min == None else min,
+                rmax=self.L/2 if max == None else max,
+                rescale_pair_distribution=rescale_pair_distribution).real,
             cooperativity(array))
 
-    def getVelocityVorticity(self, time, nBoxes=None, sigma=None):
+    def getVelocityVorticity(self, time, nBoxes=None, sigma=None, centre=None):
         """
         Compute Gaussian-smoothed velocitiy field and vorticity field.
 
@@ -949,6 +1028,8 @@ class Dat(_Read):
             Standard deviation of the Gaussian with which to convolute.
             (default: None)
             NOTE: if sigma==None, then sigma = mean(self.diameters).
+        centre : (2,) float array-like or float
+            Return position relative to `centre'. (default: None)
 
         Returns
         -------
@@ -958,14 +1039,65 @@ class Dat(_Read):
             Gaussian-smoothed velocities.
         vor : (nBoxes, nBoxes) float numpy array
             Vorticities from Gaussian-smoothed velocities.
+        vel_p : (*, 2) float numpy array
+            Gaussian-smoothed velocities at particle positions.
+        vor_p : (*,) float numpy array
+            Vorticities from Gaussian-smoothed velocities at particle
+            positions.
+        """
+
+        if type(nBoxes) == type(None): nBoxes = int(np.sqrt(self.N))
+        if type(sigma) == type(None): sigma = self.diameters.mean()
+        if type(centre) == type(None): centre = (self.L/2, self.L/2)
+
+        return getVelocityVorticity(
+            self.getPositions(time),
+            self.getVelocities(time, remove_cm=True),
+            self.L,
+            nBoxes,
+            sigma,
+            centre=centre)
+
+    def getDisplacementVorticity(self, time0, time1, nBoxes=None, sigma=None):
+        """
+        Compute Gaussian-smoothed displacement field and vorticity field.
+
+        Parameters
+        ----------
+        time0 : int
+            Initial frame index.
+        time1 : int
+            Final frame index.
+        nBoxes : int or None
+            Number of boxes in each direction of the computed grid.
+            (default: None)
+            NOTE: if nBoxes==None, then nBoxes = int(sqrt(self.N)).
+        sigma : float or None
+            Standard deviation of the Gaussian with which to convolute.
+            (default: None)
+            NOTE: if sigma==None, then sigma = mean(self.diameters).
+
+        Returns
+        -------
+        pos : (nBoxes, nBoxes, 2) float numpy array
+            Grid positions.
+        disp : (nBoxes, nBoxes, 2) float numpy array
+            Gaussian-smoothed displacements.
+        vor : (nBoxes, nBoxes) float numpy array
+            Vorticities from Gaussian-smoothed displacements.
+        disp_p : (*, 2) float numpy array
+            Gaussian-smoothed displacements at particle positions.
+        vor_p : (*,) float numpy array
+            Vorticities from Gaussian-smoothed displacements at particle
+            positions.
         """
 
         if type(nBoxes) == type(None): nBoxes = int(np.sqrt(self.N))
         if type(sigma) == type(None): sigma = self.diameters.mean()
 
         return getVelocityVorticity(
-            self.getPositions(time),
-            self.getVelocities(time, remove_cm=True),
+            self.getPositions(time0),
+            self.getDisplacements(time0, time1, remove_cm=True),
             self.L,
             nBoxes,
             sigma)
@@ -992,7 +1124,7 @@ class Dat(_Read):
             NOTE: if loadWork=='r', force re-extract dumps from data file.
         """
 
-        if not(load) or self._type == 'datN': return
+        if not(load) or self._type in ('datN', 'datM'): return
 
         # ACTIVE WORK
 
@@ -1289,7 +1421,7 @@ class Dat(_Read):
             Self-propulsion vector of `particle' at `time'.
         """
 
-        if not(self._type in ('dat0', 'datN')):
+        if not(self._type in ('dat0', 'datN', 'datM')):
             return self.getDirections(time, particle)[0]
 
         time = self._getFrameIndex(time)
@@ -1319,7 +1451,7 @@ class Dat(_Read):
             Position of `particle' at `time'.
         """
 
-        if not(self._type in ('dat0', 'datN')):
+        if not(self._type in ('dat0', 'datN', 'datM')):
             raise AttributeError(
                 'Unfolded positions are not available for .%s files.'
                 % self._type)

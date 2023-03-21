@@ -27,10 +27,10 @@ template<class SystemClass> void FIRE_WCA(
   // (see https://yketa.github.io/DAMTP_MSC_2019_Wiki/#FIRE%20algorithm)
 
   #ifdef DEBUG
-  std::cout << "##FIRE minimisation algorithm" << std::endl;
-  std::cout << "#Emin: " << Emin << " iterMax: " << iterMax;
-  std::cout << " dtmin: " << dtmin << " Nmin: " << Nmin;
-  std::cout << std::endl;
+  std::cerr << "##FIRE minimisation algorithm" << std::endl;
+  std::cerr << "#Emin: " << Emin << " iterMax: " << iterMax;
+  std::cerr << " dtmin: " << dtmin << " Nmin: " << Nmin;
+  std::cerr << std::endl;
   #endif
 
   // INITIALISATION
@@ -43,10 +43,10 @@ template<class SystemClass> void FIRE_WCA(
   if ( dt0 <= 0 ) dt0 = system->getTimeStep(); // initial time step
   if ( dtmax <= 0 ) dtmax = 10*dt0; // maximum time step
   #ifdef DEBUG
-  std::cout << "#dt0: " << dt0 << " dtmax: " << dtmax;
-  std::cout << " finc: " << finc << " fdec: " << fdec << std::endl;
-  std::cout << "#alpha0: " << alpha0 << " falpha: " << falpha << std::endl;
-  std::cout << std::endl;
+  std::cerr << "#dt0: " << dt0 << " dtmax: " << dtmax;
+  std::cerr << " finc: " << finc << " fdec: " << fdec << std::endl;
+  std::cerr << "#alpha0: " << alpha0 << " falpha: " << falpha << std::endl;
+  std::cerr << std::endl;
   #endif
 
   long double dt = dt0; // time step
@@ -60,7 +60,7 @@ template<class SystemClass> void FIRE_WCA(
   while ( potential > Emin && iter < iterMax && dt > dtmin ) { // while energy is not minimised and time step is still big for a maximum of iterMax iterations
     iter++;
     #ifdef DEBUG
-    std::cout << "#iter: " << iter << " E: " << potential << std::endl;
+    std::cerr << "#iter: " << iter << " E: " << potential << std::endl;
     #endif
 
     // COMPUTE FORCES
@@ -79,13 +79,13 @@ template<class SystemClass> void FIRE_WCA(
       }
     }
     #ifdef DEBUG
-    std::cout << "#power: " << power << std::endl;
+    std::cerr << "#power: " << power << std::endl;
     #endif
 
     // P > 0
     if ( power > 0 ) {
       #ifdef DEBUG
-      std::cout << "## P > 0" << std::endl;
+      std::cerr << "## P > 0" << std::endl;
       #endif
       NPpos++;
       for (int i = 0; i < system->getNumberParticles(); i++) {
@@ -128,7 +128,7 @@ template<class SystemClass> void FIRE_WCA(
     // P <= 0
     else {
       #ifdef DEBUG
-      std::cout << "## P <= 0" << std::endl;
+      std::cerr << "## P <= 0" << std::endl;
       #endif
       NPpos = 0;
 
@@ -138,7 +138,7 @@ template<class SystemClass> void FIRE_WCA(
     }
 
     #ifdef DEBUG
-    std::cout << "#dt: " << dt << " alpha: " << alpha << std::endl << std::endl;
+    std::cerr << "#dt: " << dt << " alpha: " << alpha << std::endl << std::endl;
     #endif
 
     // INTEGRATION TO NEXT TIME STEP [EULER EXPLICIT METHOD]

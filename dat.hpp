@@ -289,6 +289,95 @@ class DatN {
 };
 
 
+/*  DATM
+ *  ----
+ *  Read files as defined by the IterationMixture class (see mixture_pa.hpp).
+ */
+
+class DatM {
+
+  public:
+
+    // CONSTRUCTORS
+
+    DatM(std::string filename, bool loadWork = true, bool corruption = false);
+
+    // DESTRUCTORS
+
+    ~DatM();
+
+    // METHODS
+
+    Read* getInput(); // returns pointer to input class
+
+    int getNumberParticles() const; // returns number of particles
+    double getPotentialParameter() const; // returns coefficient parameter of potential
+    double getPropulsionVelocity() const; // returns self-propulsion velocity
+    double getTransDiffusivity() const; // returns translational diffusivity
+    double getRotDiffusivity() const; // returns rotational diffusivity
+    double getPersistenceLength() const; // returns persistence length
+    double getPackingFraction() const; // returns packing fraction
+    double getSystemSize() const; // returns system size
+    const double* getSystemSizes(); // returns pointer to system size in each direction
+    int getRandomSeed() const; // returns random seed
+    double getTimeStep() const; // returns time step
+
+    std::vector<int>* getTime0(); // returns pointer to vector of initial frames
+    std::vector<int>* getDt(); // returns pointer to vector of lag times
+    std::vector<int>* getFrames(); // returns pointer to vector of frames which were saved
+
+    std::vector<double> getDiameters() const; // returns vector of diameters
+
+    double getPosition(
+      int const& frame, int const& particle, int const& dimension,
+      bool const& unfolded = false);
+      // Returns position of a given particle at a given frame.
+    double getOrientation(int const& frame, int const& particle);
+      // Returns orientation of a given particle at a given frame.
+    double getVelocity(
+      int const& frame, int const& particle, int const& dimension);
+      // Returns velocity of a given particle at a given frame.
+    double getPropulsion(
+      int const& frame, int const& particle, int const& dimension);
+      // Returns self-propulsion vector of a given particle at a given frame.
+
+    int getFrameIndex(int const& frame);
+      // Returns index of frame in file.
+
+  private:
+
+    // ATTRIBUTES
+
+    int const numberParticles; // number of particles
+    double const potentialParameter; // coefficient parameter of potential
+    double const propulsionVelocity; // self-propulsion velocity
+    double const transDiffusivity; // translational diffusivity
+    double const rotDiffusivity; // rotational diffusivity
+    double const persistenceLength; // persistence length
+    double const packingFraction; // packing fraction
+    double const systemSize; // size of the system
+    double const systemSizes[2]; // size of the system in each direction
+    int const randomSeed; // random seed
+    double const timeStep; // time step
+
+    int const initialTimes; // number of initial times
+    std::vector<int> time0; // vector of initial frames
+    int const lagTimes; // number of lag times
+    std::vector<int> dt; // vector of lag times
+    int const frames; // number of frames (minus 0)
+    std::vector<int> frameIndices; // vector of frames which were saved (including frame 0)
+
+    Read input; // input class
+
+    long int headerLength; // length of header in input file
+    long int particleLength; // length the data of a single particle takes in a frame
+    long int frameLength; // length the data of a single frame takes in a file
+
+    std::vector<double> diameters; // array of diameters
+
+};
+
+
 /*  DATR
  *  ----
  *  Read files as defined by the Rotors class (see particle.hpp).

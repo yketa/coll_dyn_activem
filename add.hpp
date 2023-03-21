@@ -57,6 +57,11 @@ class ADD {
       dtMD(timeStepMD), dtMDmin(dtMD/4),
       iterMaxMD(100*numberParticles/dtMD),
       dEp(0)
+      //////////////////////
+      // DUMP PLASTIC EVENTS
+      // ,
+      // out_plastic(getOuput()->getOutputFile() + ".p_events")
+      //////////////////////
       /////////////////////
       // DUMP DISPLACEMENTS
       // ,
@@ -677,6 +682,30 @@ class ADD {
       //   }
       // }
       /////////////////////
+      //////////////////////
+      // DUMP PLASTIC EVENTS
+      // if ( dEp > 0 ) { // only for plastic events
+      //   out_plastic.write<int>(system.getDump()[0]);
+      //   for (double r : r0) { out_plastic.write<double>(r); }
+      //   std::vector<double> disp = difference(&(r0[0]));
+      //   for (double dr : disp) { out_plastic.write<double>(dr); }
+      //   std::vector<double> d_prop(2*numberParticles, 0);
+      //   double av_prop[2] = {0, 0};
+      //   double av_prop0[2] = {0, 0};
+      //   for (int dim = 0; dim < 2; dim++) {
+      //     for (int i=0; i < numberParticles; i++) {
+      //       d_prop[2*i + dim] =
+      //         propulsions[2*i + dim] - propulsions0[2*i + dim];
+      //       av_prop[dim] += propulsions[2*i + dim]/numberParticles;
+      //       av_prop0[dim] += propulsions0[2*i + dim]/numberParticles;
+      //     }
+      //     for (int i=0; i < numberParticles; i++) {
+      //       d_prop[2*i + dim] -= av_prop[dim] - av_prop0[dim];
+      //     }
+      //   }
+      //   for (double dp : d_prop) { out_plastic.write<double>(dp); }
+      // }
+      //////////////////////
     }
 
     void iteratePropulsion() {
@@ -693,149 +722,6 @@ class ADD {
     }
 
     double const getEnergyDrop() { return dEp; } // returns energy drop
-
-    void minimiseUeff_harmonic(int const& iter = 0) {
-      // Minimises harmonic approximation to effective potential with respect to
-      // positions.
-
-      // parameters
-      CellList* cl = &cellList;
-      std::vector<double> const* sigma = &diameters;
-      std::vector<double> r0 = positions; // positions at beginning of step
-      std::vector<double*> rPTR = getPositions();
-      std::vector<double>* prop0 = &propulsions0;
-      std::vector<double>* prop = &propulsions;
-      int const N = numberParticles;
-      double const L = systemSize;
-      double const A = a;
-      double const C0 = c0;
-      double const C1 = c1;
-      double const C2 = c2;
-      double const RCUT = rcut;
-      double const potential0 = potential();
-      double potential1;
-      double dms;
-      bool dEpFlag = true;
-      std::vector<double> gradUeff; // gradient of effective potential
-      double gradUeff2; // squared gradient of effective potential
-
-      auto potential_force =
-        [&cl, &sigma, &r0, &rPTR, &prop0, &prop, &N, &L, &A, &C0, &C1, &C2, &RCUT]
-        (double* r, double* U, double* gradU) {
-          // positions
-          for (int i=0; i < N; i++) {
-            for (int dim=0; dim < 2; dim++) {
-              rPTR[i][dim] = r[2*i + dim]; // `rPTR' should already point to `positions'
-            }
-          }
-          cl->listConstructor<double*>(rPTR);
-          // propulsion part
-          U[0] = 0;
-          double av_prop0[2] = {0, 0};
-          double av_prop[2] = {0, 0};
-          for (int dim=0; dim < 2; dim++) {
-            for (int i=0; i < N; i++) {
-              U[0] += -(prop->at(2*i + dim) - prop0->at(2*i + dim))
-                *algDistPeriod(r0[2*i + dim], rPTR[i][dim], L);
-              gradU[2*i + dim] = -(prop->at(2*i + dim) - prop0->at(2*i + dim)); // actual gradient of propulsion
-              av_prop0[dim] += prop0->at(2*i + dim)/N; // average propulsion
-              av_prop[dim] += prop->at(2*i + dim)/N; // average propulsion
-            }
-            for (int i=0; i < N; i++) {
-              U[0] += (av_prop[dim] - av_prop0[dim])
-                *algDistPeriod(r0[2*i + dim], rPTR[i][dim], L); // correction to potential from average propulsion
-              gradU[2*i + dim] += (av_prop[dim] - av_prop0[dim]); // correction to gradient from average propulsion
-            }
-          }
-          // repulsive part
-          cl->pairs(
-            [&U, &gradU, &sigma, &r0, &rPTR, &L, &A, &C0, &C1, &C2, &RCUT]
-            (int const& index1, int const& index2) { // do for each individual pair
-              // rescaled diameter
-              double sigmaij = (sigma->at(index1) + sigma->at(index2))/2
-                *(1 - 0.2*fabs(sigma->at(index1) - sigma->at(index2)));
-              // distance
-              double diff[2];
-              double r =
-                dist2DPeriod(&r0[2*index1], &r0[2*index2], L, &diff[0])/sigmaij;
-              // potential
-              if ( r < RCUT ) {
-                double uijp = -A/pow(r, A + 1) + 2*C1*r + 4*C2*r*r*r;
-                double uijpp = A*(A + 1)/pow(r, A + 2) + 2*C1 + 12*C2*r*r;
-                // std::cerr << "uijp = " << uijp << "; uijpp = " << uijpp << std::endl;
-                double hessian, force;
-                for (int alpha=0; alpha < 2; alpha++) {
-                  for (int beta=0; beta < 2; beta++) {
-                    hessian =
-                      (alpha == beta ? uijp/(sigmaij*sigmaij*r) : 0)
-                      + (
-                          (
-                            algDistPeriod(
-                              r0[2*index2 + alpha], r0[2*index1 + alpha], L)
-                            *algDistPeriod(
-                              r0[2*index2 + beta], r0[2*index1 + beta], L))
-                          /(sigmaij*sigmaij*sigmaij*sigmaij))
-                      *(uijpp/(r*r) - uijp/(r*r*r));
-                    U[0] += (1./2.)*hessian
-                      *(algDistPeriod(
-                        r0[2*index1 + alpha], rPTR[index1][alpha], L)
-                      - algDistPeriod(
-                        r0[2*index2 + alpha], rPTR[index2][alpha], L))
-                      *(algDistPeriod(
-                        r0[2*index1 + beta], rPTR[index1][beta], L)
-                      - algDistPeriod(
-                        r0[2*index2 + beta], rPTR[index2][beta], L));
-                    force = hessian*
-                      (algDistPeriod(
-                        r0[2*index1 + beta], rPTR[index1][beta], L)
-                      - algDistPeriod(
-                        r0[2*index2 + beta], rPTR[index2][beta], L))
-                      *(alpha == beta ? 2 : 1)/2;
-                    gradU[2*index1 + alpha] += force;
-                    gradU[2*index2 + alpha] += -force;
-                  }
-                }
-              }
-            });
-      };
-      // minimisation
-      alglib::mincgreport report;
-      CGMinimiser Uminimiser(potential_force, 2*numberParticles,
-        pow(gradMax, 2)/numberParticles, 0, 0, iter > 0 ? iter : iterMax);
-      report = Uminimiser.minimise(&positions[0]);
-      int termination = report.terminationtype;
-      int iterations = report.iterationscount;
-      gradUeff = gradientUeff();
-      gradUeff2 = gradientUeff2(gradUeff);
-      energyDrop(r0, potential0, &potential1, &dms, &dEpFlag); // compute potential and energy drop
-      // failures
-      if ( termination == 5 ) {
-        throw std::invalid_argument(
-          "Maximum number of iterations ("
-            + std::to_string(iterMax) + ") reached.");
-      }
-      // else if ( sqrt(gradUeff2/numberParticles) > gradMax ) {
-      //   throw std::invalid_argument(
-      //     "Maximum scaled gradient of effective potential"
-      //       + std::string("((|\\nabla U_eff|^2/N)^{1/2} = ")
-      //       + std::to_string(gradMax) + ") exceeded.");
-      // }
-      else if ( termination == 7 ) {
-        throw std::invalid_argument(
-          "Minimisation failed. (error code: 7)");
-      }
-      // measurements
-      if ( dEpFlag ) { // re-compute potential and energy drop in case it should be
-        energyDrop(r0, potential0, &potential1, &dms, &dEpFlag);
-      }
-      // output
-      output.write<int>(termination);
-      output.write<int>(iterations);
-      output.write<double>(potential1/numberParticles);
-      output.write<double>(gradUeff2);
-      output.write<double>(dEp);
-      output.write<double>(sqrt(dms));
-    }
 
   private:
 
@@ -885,6 +771,10 @@ class ADD {
     // std::vector<double> disp_p;
     // Write out_disp_p;
     /////////////////////
+    //////////////////////
+    // DUMP PLASTIC EVENTS
+    // Write out_plastic;
+    //////////////////////
 
 };
 

@@ -9,7 +9,7 @@ OB=$(BU)/objects
 
 CC=g++
 CFLAGS=-std=gnu++11 -O3 -Wall
-LDFLAGS=
+LDFLAGS=-lalglib
 MPIFLAGS=
 
 # CUSTOM DEFINITIONS
@@ -22,6 +22,7 @@ ifeq ($(TEST),yes)
 	EXEC=$(BU)/test
 	CPP=test.cpp
 	# compile with openMP
+	CFLAGS+=`python -m pybind11 --includes`
 	LDFLAGS+=-fopenmp
 	MPIFLAGS+=-fopenmp
 else
@@ -87,10 +88,19 @@ ifeq ($(ROTORS),yes)
 	CPP=mainR.cpp
 else
 
+# MIXTURE
+ifeq ($(MIXTURE),yes)
+	CPP=mixture_pa.cpp
+	EXEC=$(BU)/mixture_pa
+	CFLAGS+=-DUSE_CELL_LIST
+	LDFLAGS+=-lalglib
+else
+
 # ADD
 ifeq ($(ADD),yes)
 	CPP=add.cpp
 	EXEC=$(BU)/add
+	LDFLAGS+=-lalglib
 ifeq ($(ADD_MD),yes)
 	CFLAGS+=-DADD_MD
 	EXEC:=$(EXEC)_md
@@ -106,8 +116,8 @@ ifeq ($(ADD_NO_LIMIT),yes)
 	EXEC:=$(EXEC)0
 endif
 ifeq ($(ADD_NEXT_PROPULSION),yes)
-CFLAGS+=-DADD_NEXT_PROPULSION
-EXEC:=$(EXEC)-1
+	CFLAGS+=-DADD_NEXT_PROPULSION
+	EXEC:=$(EXEC)-1
 endif
 else
 
@@ -141,6 +151,7 @@ endif
 endif
 endif
 endif
+endif
 
 # DEBUGGING OUTPUT
 ifeq ($(DEBUG),yes)
@@ -163,13 +174,9 @@ ifneq ($(EXEC_NAME),)
 	EXEC=$(BU)/$(EXEC_NAME)
 endif
 
-MAIN=add.cpp main.cpp main0.cpp mainN.cpp mainR.cpp cloning.cpp cloningR.cpp test.cpp																			# files with main()
+MAIN=add.cpp main.cpp main0.cpp mainN.cpp mainR.cpp cloning.cpp cloningR.cpp mixture_pa.cpp test.cpp					# files with main()
 SRC=$(filter-out $(filter-out $(CPP), $(MAIN) pycpp.cpp), $(filter-out $(wildcard __* old*), $(wildcard *.cpp)))	# compile all files but the ones with wrong main()
-
 OBJ=$(addprefix $(OB)/, $(SRC:.cpp=.o))
-ifneq ($(ADD),yes)
-SRC:=$(filter-out alglib.cpp, $(SRC))
-endif
 
 .PHONY: all memcheck massif clean mrproper
 
@@ -186,58 +193,62 @@ $(EXEC): $(OBJ)
 
 #### DEPENDENCIES ####
 
-$(OB)/alglib.o: alglib.cpp alglib.hpp
-	$(CC) -o $(OB)/alglib.o -c alglib.cpp $(CFLAGS)
+$(OB)/alglib.o: alglib.cpp alglib.hpp maths.hpp
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 $(OB)/dat.o: dat.cpp dat.hpp readwrite.hpp
-	$(CC) -o $(OB)/dat.o -c dat.cpp $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 $(OB)/env.o: env.cpp env.hpp
-	$(CC) -o $(OB)/env.o -c env.cpp $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 $(OB)/iteration.o: iteration.cpp iteration.hpp particle.hpp
-	$(CC) -o $(OB)/iteration.o -c iteration.cpp $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 $(OB)/maths.o: maths.cpp maths.hpp
-	$(CC) -o $(OB)/maths.o -c maths.cpp $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 $(OB)/particle.o: particle.cpp particle.hpp maths.hpp readwrite.hpp
-	$(CC) -o $(OB)/particle.o -c particle.cpp $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 ##
 
 $(OB)/add.o: add.cpp add.hpp alglib.hpp dat.hpp env.hpp maths.hpp particle.hpp readwrite.hpp
-	$(CC) -o $(OB)/add.o -c add.cpp $(CFLAGS) $(MPIFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 $(OB)/cloning.o: cloning.cpp cloningserial.hpp env.hpp particle.hpp readwrite.hpp
-	$(CC) -o $(OB)/cloning.o -c cloning.cpp $(CFLAGS) $(MPIFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS) $(MPIFLAGS)
 
 $(OB)/cloningR.o: cloningR.cpp cloningserial.hpp env.hpp particle.hpp readwrite.hpp
-	$(CC) -o $(OB)/cloningR.o -c cloningR.cpp $(CFLAGS) $(MPIFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS) $(MPIFLAGS)
 
 $(OB)/main.o: main.cpp env.hpp iteration.hpp particle.hpp
-	$(CC) -o $(OB)/main.o -c main.cpp $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 $(OB)/main0.o: main0.cpp env.hpp fire.hpp iteration.hpp maths.hpp particle.hpp
-	$(CC) -o $(OB)/main0.o -c main0.cpp $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 $(OB)/mainN.o: mainN.cpp env.hpp fire.hpp iteration.hpp maths.hpp particle.hpp
-	$(CC) -o $(OB)/mainN.o -c mainN.cpp $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 $(OB)/mainR.o: mainR.cpp env.hpp iteration.hpp particle.hpp
-	$(CC) -o $(OB)/mainR.o -c mainR.cpp $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS)
+
+$(OB)/mixture_pa.o: mixture_pa.cpp alglib.hpp env.hpp maths.hpp particle.hpp readwrite.hpp
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 $(OB)/test.o: test.cpp
-	$(CC) -o $(OB)/test.o -c test.cpp $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS)
 
 ##
 
-$(OB)/pycpp.o: dir pycpp.cpp pycpp.hpp maths.hpp
+$(OB)/pycpp.o: dir pycpp.cpp pycpp.hpp maths.hpp particle.hpp
 	$(CC) -o $(OB)/pycpp.o -c pycpp.cpp $(CFLAGS)
 
 _pycpp.so: CFLAGS+=-fPIC `python -m pybind11 --includes`
-_pycpp.so: $(OB)/pycpp.o $(OB)/dat.o $(OB)/maths.o
-	$(CC) -o _pycpp.so -shared $(OB)/pycpp.o $(OB)/dat.o $(OB)/maths.o $(LDFLAGS)
+_pycpp.so: LDFLAGS+=-lgsl -lgslcblas -lm
+_pycpp.so: $(OB)/pycpp.o $(OB)/dat.o $(OB)/maths.o $(OB)/particle.o
+	$(CC) -o $@ -shared $^ $(LDFLAGS)
 
 #### GPROF ####
 

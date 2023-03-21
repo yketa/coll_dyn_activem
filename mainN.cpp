@@ -45,6 +45,7 @@ int main() {
   std::vector<int> time0;
   std::vector<int> deltat;
   std::string inputFilename = getEnvString("INPUT_FILENAME", ""); // input file from which to copy data
+  bool conf = getEnvBool("CONFINEMENT", false); // confinement simulation
   if ( inputFilename == "" ) { // set parameters from environment variables
 
     // physical parameters
@@ -65,13 +66,14 @@ int main() {
     double I = getEnvDouble("I", 0); // polydispersity index
     std::vector<double> diameters = getDiametersI(N, I, seed); // diameters
 
-    Parameters parameters(N, epsilon, v0, D, Dr, phi, diameters, dt); // class of simulation parameters
+    Parameters parameters(N, epsilon, v0, D, Dr, phi, diameters, dt, conf); // class of simulation parameters
 
     // system
     SystemN system(
       init, Niter, dtMin, &dtMax, nMax, intMax,
         &time0, &deltat,
-      &parameters, diameters, seed, filename); // define system
+      &parameters, diameters, seed, filename,
+      conf); // define system
     FIRE_WCA<SystemN>(&system, // FIRE minimisation algorithm
       getEnvDouble("EMIN", 1),
       getEnvInt("ITERMAX", (int) 100.0/dt),
@@ -111,7 +113,7 @@ int main() {
       // change diameters
       std::vector<double> diameters = getDiametersI(N, I, seed);
       Parameters parameters(
-        N, epsilon, v0, D, Dr, phi, diameters, dt); // class of simulation parameters
+        N, epsilon, v0, D, Dr, phi, diameters, dt, conf); // class of simulation parameters
 
       // system
       SystemN system(
@@ -119,7 +121,8 @@ int main() {
           &time0, &deltat,
         inputFilename, inputFrame, &parameters,
           diameters,
-        seed, filename); // define system
+        seed, filename,
+        conf); // define system
       simulate(&system);
     }
     else {
@@ -131,14 +134,15 @@ int main() {
         diameters[i] = inputDiameters[i%inputDat.getNumberParticles()];
       }
       Parameters parameters(
-        N, epsilon, v0, D, Dr, phi, diameters, dt); // class of simulation parameters
+        N, epsilon, v0, D, Dr, phi, diameters, dt, conf); // class of simulation parameters
 
       // system
       SystemN system(
         init, Niter, dtMin, &dtMax, nMax, intMax,
           &time0, &deltat,
         inputFilename, inputFrame, &parameters,
-        seed, filename); // define system
+        seed, filename,
+        conf); // define system
       simulate(&system);
     }
   }

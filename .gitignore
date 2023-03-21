@@ -5,3 +5,5 @@ old*
 *.so
 _analysis
 **/__*
+*.sif
+*~

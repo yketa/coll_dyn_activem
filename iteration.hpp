@@ -5,9 +5,39 @@
 #include <math.h>
 #include <vector>
 
+#include "maths.hpp"
 #include "particle.hpp"
 
 // FUNCTIONS
+
+template<class SystemClass> void confinement_WCA(SystemClass* system) {
+  // Compute interactions with WCA circular walls.
+
+  if ( ! system->isConfined() ) { return; }
+
+  double coeff = (system->getParameters())->getPotentialParameter();
+  double r[2];
+  double rn, dr;
+  for (int i=0; i < system->getNumberParticles(); i++) {
+    for (int dim=0; dim < 2; dim++) {
+      r[dim] = algDistPeriod(
+        system->getSystemSize()/2, (system->getParticle(i))->position()[dim],
+        system->getSystemSize());
+    }
+    rn = sqrt(r[0]*r[0] + r[1]*r[1]);
+    dr = 2*((system->getParameters())->getConfiningLength()/2 - rn)
+      /(system->getParticle(i))->diameter();
+    if ( dr < pow(2., 1./6.) ) {
+      for (int dim=0; dim < 2; dim++) {
+        std::cerr << "init: " << (system->getParticle(i))->force()[dim] << std::endl;
+        (system->getParticle(i))->force()[dim] +=
+          -(coeff/(system->getParticle(i))->diameter())
+            *(192/pow(1/dr, 13) - 96/pow(1/dr, 7))*(r[dim]/rn);
+        std::cerr << (system->getParticle(i))->force()[dim] << std::endl << std::endl;
+      }
+    }
+  }
+}
 
 template<class SystemClass> void system_WCA(SystemClass* system) {
   // Compute interactions with WCA potentials between all particles of the
@@ -15,11 +45,12 @@ template<class SystemClass> void system_WCA(SystemClass* system) {
 
   double force[2];
   double diff[2];
-  pairs_system<SystemClass>(system,
+  pairs_system<SystemClass>(system, // pairwise interaction forces
     [&system, &force, &diff](int index1, int index2)
       { add_WCA_force<SystemClass>(system, index1, index2,
           &force[0], &diff[0]);
         });
+  confinement_WCA<SystemClass>(system); // confining forces
 }
 
 template<class SystemClass, typename F, typename G> void aligningTorque(
@@ -342,7 +373,6 @@ template<class SystemClass> void iterate_AOUP_WCA(
 void iterate_rotors(Rotors* rotors, int Niter);
   // Updates system to next step according to the dynamics of interacting
   // Brownian rotors.
-
 
 
 #endif

@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <assert.h>
 
 #include "dat.hpp"
 #include "particle.hpp"
@@ -54,6 +55,16 @@ double* Particle::forcep() { return &fp[0]; }; // returns pointer to force appli
 double* Particle::torque() { return &gamma; } // returns pointer to aligning torque (ABP)
 
 
+/************
+ * CELLLIST *
+ ************/
+
+#ifdef _OPENMP
+int CellList::tid = 0;
+int CellList::numth = 0;
+#endif
+
+
 /**************
  * PARAMETERS *
  **************/
@@ -64,8 +75,9 @@ Parameters::Parameters() :
   numberParticles(0), potentialParameter(0), propulsionVelocity(0),
     transDiffusivity(0), rotDiffusivity(0),
     persistenceLength(0),
-    packingFraction(0), systemSize(0),
+    packingFraction(0),
     confiningLength(0),
+    systemSize(0),
     torqueParameter(0),
     timeStep(0) {}
 
@@ -73,20 +85,29 @@ Parameters::Parameters(int N, double lp, double phi, double dt, double g) :
   numberParticles(N), potentialParameter(1.0), propulsionVelocity(1.0),
     transDiffusivity(1.0/(3.0*lp)), rotDiffusivity(1.0/lp),
     persistenceLength(lp),
-    packingFraction(phi), systemSize(getL_WCA(phi, N, 1.0)),
+    packingFraction(phi),
     confiningLength(0),
+    systemSize(getL_WCA(phi, N, 1.0)),
     torqueParameter(g),
     timeStep(dt) {}
 
 Parameters::Parameters(
   int N, double epsilon, double v0, double D, double Dr,
     double phi, std::vector<double> const& diameters,
-  double dt) :
+  double dt, bool conf) :
   numberParticles(N), potentialParameter(epsilon), propulsionVelocity(v0),
     transDiffusivity(D), rotDiffusivity(Dr),
     persistenceLength(v0/Dr),
-    packingFraction(phi), systemSize(getL_WCA(phi, diameters)),
-    confiningLength(0),
+    packingFraction(phi),
+    confiningLength(
+      conf
+        ? getLc_WCA(phi, diameters)
+        : 0),
+    systemSize(
+      conf
+        ? confiningLength +
+          2*pow(2, 1/6)*(*std::max_element(diameters.begin(), diameters.end()))
+        : getL_WCA(phi, diameters)),
     torqueParameter(0),
     timeStep(dt) {}
 
@@ -97,20 +118,9 @@ Parameters::Parameters(
   numberParticles(N), potentialParameter(epsilon), propulsionVelocity(v0),
     transDiffusivity(D), rotDiffusivity(Dr),
     persistenceLength(lp),
-    packingFraction(phi), systemSize(L),
-    confiningLength(Lc),
-    torqueParameter(0),
-    timeStep(dt) {}
-
-Parameters::Parameters(
-  int N, double epsilon, double v0, double D, double Dr,
-    double phi, double Lc, std::vector<double> const& diameters,
-  double dt) :
-  numberParticles(N), potentialParameter(epsilon), propulsionVelocity(v0),
-    transDiffusivity(D), rotDiffusivity(Dr),
-    persistenceLength(v0/Dr),
     packingFraction(phi),
-    systemSize(pow(getL_WCA(phi, diameters), 2)/Lc), confiningLength(Lc),
+    confiningLength(Lc),
+    systemSize(L),
     torqueParameter(0),
     timeStep(dt) {}
 
@@ -122,8 +132,8 @@ Parameters::Parameters(Parameters const& parameters) :
   rotDiffusivity(parameters.getRotDiffusivity()),
   persistenceLength(parameters.getPersistenceLength()),
   packingFraction(parameters.getPackingFraction()),
-  systemSize(parameters.getSystemSize()),
   confiningLength(parameters.getConfiningLength()),
+  systemSize(parameters.getSystemSize()),
   torqueParameter(parameters.getTorqueParameter()),
   timeStep(parameters.getTimeStep()) {}
 
@@ -135,8 +145,8 @@ Parameters::Parameters(Parameters* parameters) :
   rotDiffusivity(parameters->getRotDiffusivity()),
   persistenceLength(parameters->getPersistenceLength()),
   packingFraction(parameters->getPackingFraction()),
-  systemSize(parameters->getSystemSize()),
   confiningLength(parameters->getConfiningLength()),
+  systemSize(parameters->getSystemSize()),
   torqueParameter(parameters->getTorqueParameter()),
   timeStep(parameters->getTimeStep()) {}
 
@@ -149,8 +159,8 @@ double Parameters::getTransDiffusivity() const { return transDiffusivity; }
 double Parameters::getRotDiffusivity() const { return rotDiffusivity; }
 double Parameters::getPersistenceLength() const { return persistenceLength; }
 double Parameters::getPackingFraction() const {return packingFraction; }
-double Parameters::getSystemSize() const { return systemSize; }
 double Parameters::getConfiningLength() const { return confiningLength; }
+double Parameters::getSystemSize() const { return systemSize; }
 double Parameters::getTorqueParameter() const { return torqueParameter; }
 double Parameters::getTimeStep() const { return timeStep; }
 
@@ -347,7 +357,7 @@ double System::getTimeStep() const {
 
 int System::getRandomSeed() const { return randomSeed; }
 Random* System::getRandomGenerator() { return &randomGenerator; }
-void System::setGenerator(std::default_random_engine rndeng) {
+void System::setGenerator(RNDG rndeng) {
   randomGenerator.setGenerator(rndeng);
 }
 
@@ -1297,6 +1307,7 @@ void System0::saveNewState(std::vector<Particle>& newParticles) {
 SystemN::SystemN() :
   frameIndices(),
   param(new Parameters()),
+  confined(false),
   randomSeed(0), randomGenerator(),
   particles(0),
   cellList(),
@@ -1306,10 +1317,12 @@ SystemN::SystemN() :
 SystemN::SystemN(
   int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
     std::vector<int>* time0, std::vector<int>* deltat,
-  Parameters* parameters, int seed, std::string filename) :
+  Parameters* parameters, int seed, std::string filename,
+  bool conf) :
   frameIndices(
     getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
   param(parameters),
+  confined(conf),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
   cellList(),
@@ -1360,6 +1373,26 @@ SystemN::SystemN(
     // position on the grid
     particles[i].position()[0] = ((i%gridSize) + 0.5*(i/gridSize))*gridSpacing;
     particles[i].position()[1] = (i/gridSize)*gridSpacing;
+    for (int dim=0; dim < 2; dim++) {
+      particles[i].position()[dim] -= wrapCoordinate<SystemN>(this,
+        particles[i].position()[dim])*getSystemSize();
+    }
+    if ( isConfined() ) {
+      std::vector<double> diameters = getDiameters();
+      for (int dim=0; dim < 2; dim++) {
+        particles[i].position()[dim] /=
+          getSystemSize()
+            /((1./sqrt(2))*(
+              param.getConfiningLength()
+              - 2*pow(2., 1./6.)*
+                (*std::max_element(diameters.begin(), diameters.end()))));
+        particles[i].position()[dim] +=
+          (1./sqrt(2))*(
+            getSystemSize()/2 - param.getConfiningLength()/2
+            + 3*pow(2., 1./6.)*
+              (*std::max_element(diameters.begin(), diameters.end())));
+      }
+    }
     // random orientation
     particles[i].orientation()[0] = 2*M_PI*randomGenerator.random01();
     // self-propulsion vector
@@ -1377,10 +1410,12 @@ SystemN::SystemN(
   int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
     std::vector<int>* time0, std::vector<int>* deltat,
   Parameters* parameters, std::vector<double>& diameters, int seed,
-  std::string filename) :
+  std::string filename,
+  bool conf) :
   frameIndices(
     getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
   param(parameters),
+  confined(conf),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
   cellList(),
@@ -1431,6 +1466,26 @@ SystemN::SystemN(
     // position on the grid
     particles[i].position()[0] = ((i%gridSize) + 0.5*(i/gridSize))*gridSpacing;
     particles[i].position()[1] = (i/gridSize)*gridSpacing;
+    for (int dim=0; dim < 2; dim++) {
+      particles[i].position()[dim] -= wrapCoordinate<SystemN>(this,
+        particles[i].position()[dim])*getSystemSize();
+    }
+    if ( isConfined() ) {
+      std::vector<double> diameters = getDiameters();
+      for (int dim=0; dim < 2; dim++) {
+        particles[i].position()[dim] /=
+          getSystemSize()
+            /((1./sqrt(2))*(
+              param.getConfiningLength()
+              - 2*pow(2., 1./6.)*
+                (*std::max_element(diameters.begin(), diameters.end()))));
+        particles[i].position()[dim] +=
+          (1./sqrt(2))*(
+            getSystemSize()/2 - param.getConfiningLength()/2
+            + 3*pow(2., 1./6.)*
+              (*std::max_element(diameters.begin(), diameters.end())));
+      }
+    }
     // random orientation
     particles[i].orientation()[0] = 2*M_PI*randomGenerator.random01();
     // self-propulsion vector
@@ -1447,10 +1502,12 @@ SystemN::SystemN(
 SystemN::SystemN(
   int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
     std::vector<int>* time0, std::vector<int>* deltat,
-  SystemN* system, int seed, std::string filename) :
+  SystemN* system, int seed, std::string filename,
+  bool conf) :
   frameIndices(
     getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
   param(system->getParameters()),
+  confined(conf),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
   cellList(),
@@ -1507,10 +1564,12 @@ SystemN::SystemN(
   int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
     std::vector<int>* time0, std::vector<int>* deltat,
   SystemN* system, std::vector<double>& diameters, int seed,
-  std::string filename) :
+  std::string filename,
+  bool conf) :
   frameIndices(
     getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
   param(system->getParameters()),
+  confined(conf),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
   cellList(),
@@ -1566,10 +1625,12 @@ SystemN::SystemN(
   int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
     std::vector<int>* time0, std::vector<int>* deltat,
   std::string inputFilename, int inputFrame, double dt,
-  int seed, std::string filename) :
+  int seed, std::string filename,
+  bool conf) :
   frameIndices(
     getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
-  param(DatN(inputFilename, false), dt),
+  param(DatN(inputFilename, false), dt, conf),
+  confined(conf),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
   cellList(),
@@ -1643,10 +1704,12 @@ SystemN::SystemN(
   int init, int Niter, int dtMin, int* dtMax, int nMax, int intMax,
     std::vector<int>* time0, std::vector<int>* deltat,
   std::string inputFilename, int inputFrame, Parameters* parameters,
-  int seed, std::string filename) :
+  int seed, std::string filename,
+  bool conf) :
   frameIndices(
     getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
   param(parameters),
+  confined(conf),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
   cellList(),
@@ -1750,10 +1813,12 @@ SystemN::SystemN(
     std::vector<int>* time0, std::vector<int>* deltat,
   std::string inputFilename, int inputFrame, Parameters* parameters,
     std::vector<double> const diameters,
-  int seed, std::string filename) :
+  int seed, std::string filename,
+  bool conf) :
   frameIndices(
     getLogFrames(init, Niter, dtMin, dtMax, nMax, intMax, time0, deltat)),
   param(parameters),
+  confined(conf),
   randomSeed(seed), randomGenerator(randomSeed),
   particles(0),
   cellList(),
@@ -1895,6 +1960,13 @@ Random* SystemN::getRandomGenerator() { return &randomGenerator; }
 
 Particle* SystemN::getParticle(int const& index) { return &(particles[index]); }
 std::vector<Particle> SystemN::getParticles() { return particles; }
+std::vector<double*> SystemN::getPositions() {
+  std::vector<double*> positions(0);
+  for (int i=0; i < getNumberParticles(); i++) {
+    positions.push_back(particles[i].position());
+  }
+  return positions;
+}
 
 CellList* SystemN::getCellList() { return &cellList; }
 void SystemN::initialiseCellList(double const& cutOff) {
@@ -1905,15 +1977,16 @@ void SystemN::initialiseCellList(double const& cutOff) {
   updateCellList();
 }
 void SystemN::updateCellList() {
-  std::vector<double*> positions(0);
-  for (int i=0; i < getNumberParticles(); i++) {
-    positions.push_back(particles[i].position());
-  }
-  cellList.listConstructor<double*>(positions);
+  cellList.listConstructor<double*>(getPositions());
 }
 
 void SystemN::flushOutputFile() { output.flush(); }
 std::string SystemN::getOutputFile() const { return output.getOutputFile(); }
+
+Write* SystemN::getOutput()
+  { return &output; }
+std::vector<long int>* SystemN::getVelocitiesDumps()
+  { return &velocitiesDumps; }
 
 int* SystemN::getDump() { return &dumpFrame; }
 
@@ -2082,7 +2155,6 @@ void SystemN::saveNewState(std::vector<Particle>& newParticles) {
 
   copyState(newParticles);
 }
-
 
 /**********
  * ROTORS *
@@ -2367,6 +2439,18 @@ double getL_WCA(double phi, int N, double diameter) {
   return getL_WCA(phi, std::vector<double>(N, diameter));
 }
 
+double getLc_WCA(double phi, std::vector<double> const& diameters) {
+  // Returns the diameter of a circular system with packing fraction `phi'
+  // containing particles with `diameters', considering the actual diameter
+  // as the WCA diameter of interaction.
+
+  double sumSigma2 = 0.;
+  for (auto i = diameters.begin(); i != diameters.end(); i++) {
+    sumSigma2 += pow((*i)*pow(2., 1./6.), 2);
+  }
+  return sqrt(sumSigma2/phi);
+}
+
 std::vector<double> getDiametersI(int N, double I, int seed) {
   // Returns vector of `N' uniformly distributed diameters with polydispersity
   // index `I'.
@@ -2464,7 +2548,7 @@ std::vector<int> getLogFrames(
     if ( Niter % dtMax[0] != 0 ) {
       throw std::invalid_argument(
         "No integer multiple of " + std::to_string(dtMax[0])
-        + "in a total of " + std::to_string(Niter) + ".");
+        + " in a total of " + std::to_string(Niter) + ".");
     }
 
     time0->clear();

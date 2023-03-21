@@ -1,0 +1,52 @@
+Bootstrap: debootstrap
+MirrorURL: http://deb.debian.org/debian
+OSVersion: testing
+
+%files
+
+	# coll_dyn_activem source files
+	alglib.cpp /opt/coll_dyn_activem/
+	alglib.hpp /opt/coll_dyn_activem/
+	dat.cpp /opt/coll_dyn_activem/
+	dat.hpp /opt/coll_dyn_activem/
+	env.cpp /opt/coll_dyn_activem/
+	env.hpp /opt/coll_dyn_activem/
+	iteration.cpp /opt/coll_dyn_activem/
+	iteration.hpp /opt/coll_dyn_activem/
+	maths.cpp /opt/coll_dyn_activem/
+	maths.hpp /opt/coll_dyn_activem/
+	mixture_pa.cpp /opt/coll_dyn_activem/
+	particle.cpp /opt/coll_dyn_activem/
+	particle.hpp /opt/coll_dyn_activem/
+	readwrite.hpp /opt/coll_dyn_activem/
+
+%post
+
+	apt -y install wget g++ unzip
+
+	# compile alglib
+	wget -P /opt https://www.alglib.net/translator/re/alglib-3.18.0.cpp.gpl.zip
+	cd /opt
+	unzip alglib-3.18.0.cpp.gpl.zip
+	cd alglib-cpp/src
+	g++ -c *.cpp -std=gnu++11 -O3 -Wall
+	ar rcs libalglib.a *.o
+	ln -s /opt/alglib-cpp/src/libalglib.a /usr/local/lib
+	ln -s /opt/alglib-cpp/src /usr/local/include/alglib
+
+	# compile coll_dyn_activem
+	cd /opt/coll_dyn_activem
+	mkdir -p build/objects
+	g++ -o build/objects/mixture_pa.o -c mixture_pa.cpp -std=gnu++11 -O3 -Wall -DUSE_CELL_LIST -DHEUN 
+	g++ -o build/objects/alglib.o -c alglib.cpp -std=gnu++11 -O3 -Wall -DUSE_CELL_LIST -DHEUN 
+	g++ -o build/objects/env.o -c env.cpp -std=gnu++11 -O3 -Wall -DUSE_CELL_LIST -DHEUN 
+	g++ -o build/objects/particle.o -c particle.cpp -std=gnu++11 -O3 -Wall -DUSE_CELL_LIST -DHEUN 
+	g++ -o build/objects/dat.o -c dat.cpp -std=gnu++11 -O3 -Wall -DUSE_CELL_LIST -DHEUN 
+	g++ -o build/objects/maths.o -c maths.cpp -std=gnu++11 -O3 -Wall -DUSE_CELL_LIST -DHEUN 
+	g++ -o build/mixture_pa build/objects/mixture_pa.o build/objects/alglib.o build/objects/env.o build/objects/particle.o build/objects/dat.o build/objects/maths.o -lalglib
+	ln -s /opt/coll_dyn_activem/build/mixture_pa /usr/local/bin
+
+%runscript
+
+	mixture_pa
+

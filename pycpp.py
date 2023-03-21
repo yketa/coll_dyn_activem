@@ -35,7 +35,7 @@ def pointerArray(array):
     """
 
     return (ctypes.POINTER(ctypes.c_double)*len(array))(
-        *[np.ctypeslib.as_ctypes(value) for value in array])
+        *[np.ctypeslib.as_ctypes(value) for value in array.astype(np.double)])
 
 # HISTOGRAMS
 
@@ -970,90 +970,6 @@ def g2Dto1Dgridhist(g2D, grid, nBins, vmin=None, vmax=None):
         axis=-1)
 
 # CORRELATIONS
-
-def getRadialCorrelations(positions, L, values, nBins, min=None, max=None,
-    rescale_pair_distribution=False, values2=None):
-    """
-    Compute radial correlations between `values' (and `values2') associated to
-    each of the `positions' of a system of size `L'.
-
-    Parameters
-    ----------
-    positions : (*, 2) float array-like
-        Positions of the particles.
-    L : float
-        Size of the system box.
-    values : (*, **)  float array-like
-        Values to compute the correlations of.
-        NOTE: if these values are 1D arrays, the sum of the correlation on each
-              axis is returned.
-    nBins : int
-        Number of intervals of distances on which to compute the correlations.
-    min : float or None
-        Minimum distance (included) at which to compute the correlations.
-        (default: None)
-        NOTE: if min == None then min = 0.
-    max : float or None
-        Maximum distance (excluded) at which to compute the correlations.
-        (default: None)
-        NOTE: if max == None then max = L/2.
-    rescale_pair_distribution : bool
-        Rescale correlations by pair distribution function. (default: False)
-    values2 : None or (*, **)  float array-like
-        Values to compute the correlations of `values' with.
-        NOTE: if values2 == None then the autocorrelations of `values' are
-              computed.
-
-    Returns
-    -------
-    correlations : (nBins, 2) float Numpy array
-        Array of (r, C(r)) where r is the lower bound of the bin and C(r) the
-        radial correlation computed for this bin.
-    """
-
-    positions = np.array(positions, dtype=np.double)
-    N = len(positions)
-    assert positions.shape == (N, 2)
-    assert values.shape[0] == N
-    assert values.ndim <= 2
-    if values.ndim == 1: values = values.reshape(values.shape + (1,))
-    if type(values2) == type(None): values2 = values
-    if values2.ndim == 1: values2 = values2.reshape(values2.shape + (1,))
-    assert values.shape == values2.shape
-    nBins = int(nBins)
-    min = 0 if min == None else min
-    max = L/2 if max == None else max
-    correlations = np.empty((nBins,), dtype=np.double)
-
-    _pycpp.getRadialCorrelations.argtypes = [
-        ctypes.c_int,
-        ctypes.c_double,
-        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
-        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
-        ctypes.c_int,
-        ctypes.POINTER(ctypes.POINTER(ctypes.c_double)),
-        ctypes.POINTER(ctypes.POINTER(ctypes.c_double)),
-        ctypes.c_int,
-        ctypes.c_double,
-        ctypes.c_double,
-        np.ctypeslib.ndpointer(dtype=np.double, ndim=1, flags='C_CONTIGUOUS'),
-        ctypes.c_bool]
-    _pycpp.getRadialCorrelations(
-        N,
-        L,
-        np.ascontiguousarray(positions[:, 0]),
-        np.ascontiguousarray(positions[:, 1]),
-        values.shape[1],
-        pointerArray(values),
-        pointerArray(values2),
-        nBins,
-        min,
-        max,
-        np.ascontiguousarray(correlations),
-        rescale_pair_distribution)
-
-    return np.array([[min + bin*(max - min)/nBins, correlations[bin]]
-        for bin in range(nBins)])
 
 def getVelocitiesOriCor(positions, L, velocities, sigma=1):
     """
