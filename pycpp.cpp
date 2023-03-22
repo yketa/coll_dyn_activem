@@ -601,8 +601,8 @@ std::tuple<pybind11::array_t<double>, std::vector<pybind11::array_t<double>>>
     std::string const& filename, double const& frame,
     int const& nBins, double const& rmin=0, double rmax=0,
     bool const& remove_cm=true) {
-  // Compute velocity difference for particles whose distance is in a certain
-  // range.
+  // Compute velocity difference in the radial direction for particles whose
+  // distance is in a certain range.
 
   // INPUT
   DatN dat(filename); // input file
@@ -635,22 +635,19 @@ std::tuple<pybind11::array_t<double>, std::vector<pybind11::array_t<double>>>
   }
 
   // DIFFERENCES
-  std::vector<std::vector<std::vector<double>>> diff
-    (nBins, std::vector<std::vector<double>>(0));
+  std::vector<std::vector<double>> diffvijl (nBins, std::vector<double>(0));
   int bin;
   const double dbin = (rmax - rmin)/nBins;
   double dist;
+  double diff[2];
   for (int i=0; i < N; i++) {
     for (int j=i + 1; j < N; j++) {
-      dist = getDistance(
-        positions[i][0], positions[i][1],
-        positions[j][0], positions[j][1],
-        L);
-      if ( dist < rmin || dist >= rmax ) { continue; }
+      dist = dist2DPeriod(&(positions[i][0]), &(positions[j][0]), L, &diff[0]);
+      if ( dist < rmin || dist >= rmax || dist == 0 ) { continue; }
       bin = (dist - rmin)/dbin;
-      diff[bin].push_back(
-        {velocities[j][0] - velocities[i][0],
-          velocities[j][1] - velocities[i][1]});
+      diffvijl[bin].push_back(
+        (velocities[j][0] - velocities[i][0])*diff[0]/dist
+        + (velocities[j][1] - velocities[i][1])*diff[1]/dist);
     }
   }
 
@@ -659,12 +656,10 @@ std::tuple<pybind11::array_t<double>, std::vector<pybind11::array_t<double>>>
   double* d;
   for (int bin=0; bin < nBins; bin++) {
     differences.push_back(
-      pybind11::array_t<double>({(int) diff[bin].size(), 2}));
+      pybind11::array_t<double>({(int) diffvijl[bin].size()}));
     d = (double*) differences[bin].request().ptr;
-    for (int p=0; p < (int) diff[bin].size(); p++) {
-      for (int dim=0; dim < 2; dim++) {
-        d[2*p + dim] = diff[bin][p][dim];
-      }
+    for (int p=0; p < (int) diffvijl[bin].size(); p++) {
+      d[p] = diffvijl[bin][p];
     }
   }
   return
@@ -2579,8 +2574,8 @@ PYBIND11_MODULE(_pycpp, m) {
     pybind11::arg("Heun")=true);
 
   m.def("getVelocityDifference", &getVelocityDifference,
-    "Compute velocity difference for particles whose distance is in a certain\n"
-    "range.\n"
+    "Compute velocity difference in the radial direction for particles whose\n"
+    "distance is in a certain range.\n"
     "\n"
     "Parameters\n"
     "----------\n"
@@ -2602,7 +2597,7 @@ PYBIND11_MODULE(_pycpp, m) {
     "-------\n"
     "bins : (nBins,) float numpy array\n"
     "    Distance ranges.\n"
-    "differences : (nBins,) tuple of (*, 2) float numpy array\n"
+    "differences : (nBins,) tuple of (*,) float numpy array\n"
     "    Velocity differences at each distance range.",
     pybind11::arg("filename"),
     pybind11::arg("frame"),

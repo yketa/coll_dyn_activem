@@ -101,8 +101,8 @@ std::tuple<pybind11::array_t<double>, std::vector<pybind11::array_t<double>>>
     std::string const& filename, double const& frame,
     int const& nBins, double const& rmin, double rmax,
     bool const& remove_cm);
-  // Compute velocity difference for particles whose distance is in a certain
-  // range.
+  // Compute velocity difference in the radial direction for particles whose
+  // distance is in a certain range.
 
 std::tuple<std::vector<pybind11::array_t<double>>, pybind11::array_t<double>>
   selfIntScattFunc(
