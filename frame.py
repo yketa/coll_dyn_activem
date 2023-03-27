@@ -1999,7 +1999,7 @@ class Vorticity(_Frame):
     """
 
     def __init__(self, dat, frame, box_size, centre,
-        a=1, **kwargs):
+        a=1, pad=_colormap_label_pad, **kwargs):
         """
         Initialises and plots figure.
 
