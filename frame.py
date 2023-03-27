@@ -142,10 +142,11 @@ class _Frame:
         self.positions = self.dat.getPositions(frame)
         if 'remove_cm' in kwargs:
             if kwargs['remove_cm'] != None:
+                self.remove_cm = kwargs['remove_cm']
                 # self.ax.set_xlabel(r'$\Delta^{\mathrm{CM}} x$')
                 # self.ax.set_ylabel(r'$\Delta^{\mathrm{CM}} y$')
                 self.positions -= self.dat.getDisplacements(
-                    kwargs['remove_cm'], frame).mean(axis=0, keepdims=True)
+                    self.remove_cm, frame).mean(axis=0, keepdims=True)
                 self.positions -= (self.positions//self.dat.Lxy)*self.dat.Lxy
         self.positions = relative_positions(self.positions, centre,
                 self.dat.Lxy)                                                   # particles' positions at frame frame with centre as centre of frame
@@ -1992,6 +1993,86 @@ class Pvelocity(_Frame):
                 self.draw_arrow(particle,
                     *normalise1D(velocity)*0.75*self.diameters[particle])   # draw velocity direction arrow
 
+class Vorticity(_Frame):
+    """
+    Plotting class specific to 'vorticity' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        a=1, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        a : float
+            Scale on which to coarse-grain the velocity field. (default: 1)
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
+        vmin : float
+            Minimum value of the colorbar.
+        vmax : float
+            Maximum value of the colorbar.
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            **kwargs)   # initialise superclass
+
+        try:
+            centre = (centre
+                + self.dat.getDisplacements(self.remove_cm, frame,
+                    remove_cm=False).mean(axis=0))
+        except AttributeError:
+            pass
+        self.p, self.s, self.w, _, _ = self.dat.getVelocityVorticity(
+            frame, nBoxes=None, sigma=a, centre=centre)
+        self.p -= self.dat.L/2
+        self.w /= np.abs(self.w).max()
+
+        self.vmin, self.vmax = -0.25, 0.25
+        try:
+            self.vmin = float(kwargs['vmin'])
+        except (KeyError, AttributeError, TypeError): pass  # 'vmin' not in keyword arguments or None
+        try:
+            self.vmax = float(kwargs['vmax'])
+        except (KeyError, AttributeError, TypeError): pass  # 'vmax' not in keyword arguments or None
+
+        self.colorbar(self.vmin, self.vmax) # add colorbar to figure
+        self.colormap.set_label(            # colorbar
+            r'$\omega/\mathrm{max}(|\omega|)$',
+            labelpad=pad)
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        self.ax.imshow(self.w.T[::-1],                              # vorticity field
+            vmin=self.vmin, vmax=self.vmax,
+            extent=(
+                self.p[:, :, 0].min(), self.p[:, :, 0].max(),
+                self.p[:, :, 1].min(), self.p[:, :, 1].max()),
+            cmap=self.cmap,
+            rasterized=self.rasterized)
+        self.ax.streamplot(self.p[:, :, 0].T, self.p[:, :, 1].T,    # stream lines
+            self.s[:, :, 0].T, self.s[:, :, 1].T,
+            color='black', density=5, linewidth=self.linewidth)
+
 class Kinetic(_Frame):
     """
     Plotting class specific to 'kinetic' mode.
@@ -2636,7 +2717,7 @@ class FRAPc(_Frame):
     Plotting class specific to 'frapc' mode.
     """
 
-    def __init__(self, dat, frame, box_size, centre, dt=1,
+    def __init__(self, dat, frame, box_size, centre, dt=1, n=1,
         label=False, **kwargs):
         """
         Initialises and plots figure.
@@ -2653,6 +2734,8 @@ class FRAPc(_Frame):
             Centre of the box to render.
         dt : int
             Lag time for displacement. (default: 1)
+        n : int
+            Number of rainbows. (default: 1)
         label : bool
             Write indexes of particles in circles. (default: False)
 
@@ -2663,10 +2746,10 @@ class FRAPc(_Frame):
 
         super().__init__(dat, frame, box_size, centre, **kwargs)    # initialise superclass
 
-        self.cmap_norm = ColorsNormalise(vmin=0, vmax=self.dat.L)
+        self.cmap_norm = ColorsNormalise(vmin=0, vmax=self.dat.L/n)
         self.scalarMap = ScalarMappable(norm=self.cmap_norm, cmap=plt.cm.hsv)
         self.colors = np.array(list(map(
-            lambda position: self.scalarMap.to_rgba(position[1]),
+            lambda position: self.scalarMap.to_rgba(position[0]%(self.dat.L/n)),
             self.dat.getPositions(frame + dt))))
         # positions = relative_positions(
         #     self.dat.getPositions(frame + dt), centre, self.dat.Lxy)
@@ -2751,6 +2834,8 @@ if __name__ == '__main__':  # executing as script
         plotting_object = Orivelocity
     elif mode == 'pvelocity':
         plotting_object = Pvelocity
+    elif mode == 'vorticity':
+        plotting_object = Vorticity
     elif mode == 'kinetic':
         plotting_object = Kinetic
     elif mode == 'interaction':
