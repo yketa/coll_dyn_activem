@@ -1749,12 +1749,12 @@ std::vector<pybind11::array_t<double>> getVelocityVorticity(
     for (int cx=0; cx < nBoxes; cx++) {
       for (int cy=0; cy < nBoxes; cy++) {
         dx = algDistPeriod( // x - x_i
-          input_pos[2*i + 0], // x-coordinate of particle i
-          xmin + pos[cx*nBoxes*2 + cy*2 + 0], // x-coordinate of grid point (cx, cy)
+          std::remainder(input_pos[2*i + 0], L), // x-coordinate of particle i
+          std::remainder(xmin + pos[cx*nBoxes*2 + cy*2 + 0], L), // x-coordinate of grid point (cx, cy)
           L);
         dy = algDistPeriod( // y - y_i
-          input_pos[2*i + 1], // y-coordinate of particle i
-          ymin + pos[cx*nBoxes*2 + cy*2 + 1], // y-coordinate of grid point (cx, cy)
+          std::remainder(input_pos[2*i + 1], L), // y-coordinate of particle i
+          std::remainder(ymin + pos[cx*nBoxes*2 + cy*2 + 1], L), // y-coordinate of grid point (cx, cy)
           L);
         gaussian = exp(-(dx*dx + dy*dy))*norm; // Gaussian factor
         for (int dim=0; dim < 2; dim++) {
@@ -1766,12 +1766,12 @@ std::vector<pybind11::array_t<double>> getVelocityVorticity(
     }
     for (int j=0; j < N; j++) {
       dx = algDistPeriod( // x - x_i
-        input_pos[2*i + 0], // x-coordinate of particle i
-        input_pos[2*j + 0], // x-coordinate of particle j
+        std::remainder(input_pos[2*i + 0], L), // x-coordinate of particle i
+        std::remainder(input_pos[2*j + 0], L), // x-coordinate of particle j
         L);
       dy = algDistPeriod( // y - y_i
-        input_pos[2*i + 1], // y-coordinate of particle i
-        input_pos[2*j + 1], // y-coordinate of particle j
+        std::remainder(input_pos[2*i + 1], L), // y-coordinate of particle i
+        std::remainder(input_pos[2*j + 1], L), // y-coordinate of particle j
         L);
       gaussian = exp(-(dx*dx + dy*dy))*norm; // Gaussian factor
       for (int dim=0; dim < 2; dim++) {
