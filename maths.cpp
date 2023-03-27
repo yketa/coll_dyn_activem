@@ -20,6 +20,7 @@ double getAngleVector(double x, double y) {
 double algDistPeriod(double const& x1, double const& x2, double const& length) {
   // Returns algebraic distance from `x1' to `x2' on a line of length `L' taking
   // into account periodic boundary condition.
+  // WARNING: should only work for `x1', `x2' in [0, `length'].
 
   double diff = x2 - x1;
   double absDiff = fabs(diff);
