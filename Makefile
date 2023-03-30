@@ -245,8 +245,8 @@ $(OB)/test.o: test.cpp
 $(OB)/pycpp.o: dir pycpp.cpp pycpp.hpp maths.hpp particle.hpp
 	$(CC) -o $(OB)/pycpp.o -c pycpp.cpp $(CFLAGS)
 
-_pycpp.so: CFLAGS+=-fPIC `python -m pybind11 --includes`
-_pycpp.so: LDFLAGS+=-lgsl -lgslcblas -lm
+_pycpp.so: CFLAGS+=-fPIC `python -m pybind11 --includes` -fopenmp
+_pycpp.so: LDFLAGS+=-lgsl -lgslcblas -lm -fopenmp
 _pycpp.so: $(OB)/pycpp.o $(OB)/dat.o $(OB)/maths.o $(OB)/particle.o
 	$(CC) -o $@ -shared $^ $(LDFLAGS)
 
