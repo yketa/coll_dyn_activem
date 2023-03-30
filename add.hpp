@@ -716,7 +716,7 @@ class ADD {
         for (int dim=0; dim < 2; dim++) {
           propulsions0[2*i + dim] = propulsions[2*i + dim];
           propulsions[2*i + dim] = (1 - timeStep)*propulsions[2*i + dim]
-            + velocity*sqrt(2*timeStep)*randomGenerator.gauss_cutoff();
+            + velocity*sqrt(2*timeStep)*randomGenerator.gauss();
         }
       }
     }

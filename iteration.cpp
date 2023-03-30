@@ -62,7 +62,7 @@ template<> void iterate_ABP_WCA(
         newParticles[i].position()[dim] +=
           parameters->getTimeStep()*selfPropulsion;
         // add noise
-        noise = (system->getRandomGenerator())->gauss_cutoff();
+        noise = (system->getRandomGenerator())->gauss();
         (system->getParticle(i))->velocity()[dim] +=
           sqrt(2.0/3.0/parameters->getPersistenceLength())
           *noise;
@@ -81,7 +81,7 @@ template<> void iterate_ABP_WCA(
       // add noise
       newParticles[i].orientation()[0] +=
         sqrt(parameters->getTimeStep()*2.0/parameters->getPersistenceLength())
-          *(system->getRandomGenerator())->gauss_cutoff();
+          *(system->getRandomGenerator())->gauss();
       if ( considerTorque ) {
         // initialise torque
         (system->getParticle(i))->torque()[0] = 0.0;
@@ -241,7 +241,7 @@ void iterate_rotors(Rotors* rotors, int Niter) {
       // add noise
       newOrientations[i] +=
         sqrt(2.0*rotors->getRotDiffusivity()*rotors->getTimeStep())
-        *(rotors->getRandomGenerator())->gauss_cutoff();
+        *(rotors->getRandomGenerator())->gauss();
     }
     // compute aligning torques
     if ( considerTorque ) {

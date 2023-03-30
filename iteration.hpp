@@ -120,7 +120,7 @@ template<class SystemClass> void iterate_ABP_WCA(
         newParticles[i].position()[dim] +=
           parameters->getTimeStep()*selfPropulsion;
         // add noise
-        noise = (system->getRandomGenerator())->gauss_cutoff();
+        noise = (system->getRandomGenerator())->gauss();
         (system->getParticle(i))->velocity()[dim] +=
           sqrt(2.0*parameters->getTransDiffusivity())
           *noise;
@@ -139,7 +139,7 @@ template<class SystemClass> void iterate_ABP_WCA(
       // add noise
       newParticles[i].orientation()[0] +=
         sqrt(parameters->getTimeStep()*2.0*parameters->getRotDiffusivity())
-          *(system->getRandomGenerator())->gauss_cutoff();
+          *(system->getRandomGenerator())->gauss();
     }
 
     // FORCES
@@ -281,7 +281,7 @@ template<class SystemClass> void iterate_AOUP_WCA(
           sqrt(2.0*parameters->getTimeStep()
             *pow(parameters->getRotDiffusivity(), 2.0)
             *parameters->getTransDiffusivity())
-          *(system->getRandomGenerator())->gauss_cutoff();
+          *(system->getRandomGenerator())->gauss();
       }
     }
 
