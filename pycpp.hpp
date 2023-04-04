@@ -8,6 +8,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
+#include <Python.h>
 
 ////////////////
 // PROTOTYPES //
@@ -131,6 +132,11 @@ extern "C" int pairIndex(int i, int j, int N);
   // For `N' particles, return a unique pair index for the couples (`i', `j')
   // and (`j', `i') in {0, ..., `N'(`N' + 1)/2 - 1}.
   // (adapted from Paul Mangold)
+
+std::tuple<long int, long int> invPairIndex
+  (long int const& index, long int const& N);
+  // For `N' particles, return the pair (`i', `j') corresponding to the unique
+  // pair index `index'.
 
 extern "C" void getDifferences(
   int N, double L, double* x, double* y, double *diameters,
@@ -320,12 +326,18 @@ pybind11::array_t<int> getPolarCharge(pybind11::array_t<double> grid);
 
 // CORRELATIONS
 
+std::vector<std::vector<std::tuple<int, int>>> getRadialCorrelationsPairs(
+  pybind11::array_t<double> positions, double L,
+  int nBins, double rmin, double rmax);
+  // Return pairs of indices used for radial correlations.
+
 pybind11::array_t<std::complex<double>> getRadialCorrelations(
   pybind11::array_t<double> positions, double L,
   pybind11::array_t<std::complex<double>> values1,
   pybind11::array_t<std::complex<double>> values2,
   int nBins, double rmin, double rmax,
   bool rescale_pair_distribution);
+  // Return radial correlations of `values1' and `values2'.
 
 std::vector<pybind11::array_t<std::complex<double>>>
   getRadialDirectonCorrelations(

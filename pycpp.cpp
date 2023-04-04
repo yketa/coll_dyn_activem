@@ -6,9 +6,12 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
+#include <Python.h>
 #include <gsl/gsl_linalg.h>
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
+#include <algorithm>
+#include <omp.h>
 
 #include "add.hpp"
 #include "dat.hpp"
@@ -16,6 +19,29 @@
 #include "particle.hpp"
 #include "pycpp.hpp"
 #include "readwrite.hpp"
+
+// user-declared reduction
+// https://stackoverflow.com/questions/43168661/
+#ifdef _OPENMP
+#pragma omp declare\
+  reduction(vec_double_plus : std::vector<double> :\
+    std::transform(\
+      omp_out.begin(), omp_out.end(), omp_in.begin(), omp_out.begin(),\
+      std::plus<double>()))\
+  initializer(omp_priv = decltype(omp_orig)(omp_orig.size()))
+#pragma omp declare\
+  reduction(vec_complex_double_plus : std::vector<std::complex<double>> :\
+    std::transform(\
+      omp_out.begin(), omp_out.end(), omp_in.begin(), omp_out.begin(),\
+      std::plus<std::complex<double>>()))\
+  initializer(omp_priv = decltype(omp_orig)(omp_orig.size()))
+#pragma omp declare\
+  reduction(vec_int_plus : std::vector<int> :\
+    std::transform(\
+      omp_out.begin(), omp_out.end(), omp_in.begin(), omp_out.begin(),\
+      std::plus<int>()))\
+  initializer(omp_priv = decltype(omp_orig)(omp_orig.size()))
+#endif
 
 // HISTOGRAMS
 
@@ -826,6 +852,16 @@ extern "C" int pairIndex(int i, int j, int N) {
   int max = std::max(i, j);
 
   return (min + N - 1 - max)*(min + N - max)/2 + min;
+}
+
+std::tuple<long int, long int> invPairIndex
+  (long int const& index, long int const& N) {
+  // For `N' particles, return the pair (`i', `j') corresponding to the unique
+  // pair index `index'.
+
+  long int row = std::floor(sqrt(2*index + 1./4.) - 1./2.);
+  return std::make_tuple<long int, long int>
+    (index - row*(row + 1)/2, N - 1 + index - row*(row + 3)/2);
 }
 
 extern "C" void getDifferences(
@@ -1645,40 +1681,6 @@ pybind11::array_t<double> getRAHessian(
   return hessian;
 }
 
-// std::vector<pybind11::array_t<double>> phononOrderParameter(
-//   pybind11::array_t<double> positions, double L,
-//   pybind11::array_t<double> eigenvectors) {
-//   // Compute phonon order parameter for eigenvectors `ev'.
-//
-//   auto r = positions.unchecked<2>();
-//   auto e = eigenvectors.unchecked<3>();
-//   if ( r.shape(0) != e.shape(1) || r.shape(1) != 2 || e.shape(2) != 2 ) {
-//     throw std::invalid_argument("Arrays' sizes are not consistent.");
-//   }
-//   int N = r.shape(0);
-//
-//   pybind11::ok<double> ok({e.shape(0)});
-//   auto o = correlations.mutable_unchecked<1>();
-//
-//   // PHONONS
-//
-//   double q[2], norm;
-//   std::vector<double> amp(N, 0);
-//   std::vector<std::vector<double>> phonons(0);
-//   for (int k=1; k <= (int) sqrt(N); k++) {
-//     for (int l=1; l <= (int) sqrt(N); l++) {
-//       if ( k*k + l*l <= N ) {
-//         // wave-vector
-//         q[0] = 2*M_PI/L*k;
-//         q[1] = 2*M_PI/L*l;
-//         norm = sqrt(q[0]*q[0] + q[1]*q[1]);
-//         // amplitude
-//       }
-//     }
-//   }
-//
-// }
-
 // VELOCITIES
 
 std::vector<pybind11::array_t<double>> getVelocityVorticity(
@@ -1756,7 +1758,7 @@ std::vector<pybind11::array_t<double>> getVelocityVorticity(
           std::remainder(input_pos[2*i + 1], L), // y-coordinate of particle i
           std::remainder(ymin + pos[cx*nBoxes*2 + cy*2 + 1], L), // y-coordinate of grid point (cx, cy)
           L);
-        gaussian = exp(-(dx*dx + dy*dy))*norm; // Gaussian factor
+        gaussian = exp(-(dx*dx + dy*dy)/2/sigma2)*norm; // Gaussian factor
         for (int dim=0; dim < 2; dim++) {
           term = gaussian*input_vel[2*i + dim];
           vel[cx*nBoxes*2 + cy*2 + dim] += term;
@@ -1765,15 +1767,15 @@ std::vector<pybind11::array_t<double>> getVelocityVorticity(
       }
     }
     for (int j=0; j < N; j++) {
-      dx = algDistPeriod( // x - x_i
+      dx = algDistPeriod( // x_j - x_i
         std::remainder(input_pos[2*i + 0], L), // x-coordinate of particle i
         std::remainder(input_pos[2*j + 0], L), // x-coordinate of particle j
         L);
-      dy = algDistPeriod( // y - y_i
+      dy = algDistPeriod( // y_i - y_i
         std::remainder(input_pos[2*i + 1], L), // y-coordinate of particle i
         std::remainder(input_pos[2*j + 1], L), // y-coordinate of particle j
         L);
-      gaussian = exp(-(dx*dx + dy*dy))*norm; // Gaussian factor
+      gaussian = exp(-(dx*dx + dy*dy)/2/sigma2)*norm; // Gaussian factor
       for (int dim=0; dim < 2; dim++) {
         term = gaussian*input_vel[2*i + dim];
         veli[2*i + dim] += term;
@@ -1930,12 +1932,41 @@ pybind11::array_t<int> getPolarCharge(pybind11::array_t<double> grid) {
 
 // CORRELATIONS
 
+std::vector<std::vector<std::tuple<int, int>>> getRadialCorrelationsPairs(
+  pybind11::array_t<double> positions, double L,
+  int nBins, double rmin=0, double rmax=0) {
+  // Return pairs of indices used for radial correlations.
+
+  if ( rmax == 0 ) { rmax = L/2; }
+
+  std::vector<std::vector<std::tuple<int, int>>>
+    pairs(nBins, std::vector<std::tuple<int, int>>(0));
+
+  auto r = positions.unchecked<2>();
+
+  int bin;
+  double dbin = (rmax - rmin)/nBins;
+  double dist;
+  for (int i=0; i < r.shape(0); i++) {
+    for (int j=i; j < r.shape(0); j++) {
+      dist = getDistance(r(i, 0), r(i, 1), r(j, 0), r(j, 1), L);
+      if ( dist < rmin || dist >= rmax ) { continue; }
+      bin = (dist - rmin)/dbin;
+      pairs[bin]
+        .push_back(std::make_tuple<int, int>(std::move(i), std::move(j)));
+    }
+  }
+
+  return pairs;
+}
+
 pybind11::array_t<std::complex<double>> getRadialCorrelations(
   pybind11::array_t<double> positions, double L,
   pybind11::array_t<std::complex<double>> values1,
   pybind11::array_t<std::complex<double>> values2,
   int nBins, double rmin=0, double rmax=0,
   bool rescale_pair_distribution=false) {
+  // Return radial correlations of `values1' and `values2'.
 
   if ( rmax == 0 ) { rmax = L/2; }
 
@@ -2640,6 +2671,25 @@ PYBIND11_MODULE(_pycpp, m) {
     pybind11::arg("dq")=0.1,
     pybind11::arg("remove_cm")=true);
 
+  m.def("invPairIndex", &invPairIndex,
+    "Return the pair (`i', `j') corresponding to the unique `index'.\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "index : int\n"
+    "    Unique pair index.\n"
+    "N : int\n"
+    "    Number of elements in the ensemble from which pairs are formed.\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "i : int\n"
+    "    First index in the pair.\n"
+    "j : int\n"
+    "    Second index in the pair.",
+    pybind11::arg("index"),
+    pybind11::arg("N"));
+
   m.def("getBondsBrokenBonds", &getBondsBrokenBonds,
     "Compute number of bonds and broken bonds.\n"
     "\n"
@@ -2723,6 +2773,37 @@ PYBIND11_MODULE(_pycpp, m) {
     "charge : (*, **) int numpy array\n"
     "    Corresponding grid of charges.",
     pybind11::arg("grid"));
+
+  m.def("getRadialCorrelationsPairs", &getRadialCorrelationsPairs,
+    "Compute pairs of particlesused for radial correlations in a system of\n"
+    "size `L'.\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "positions : (*, 2) float array-like\n"
+    "    Positions of the particles.\n"
+    "L : float\n"
+    "    Size of the system box.\n"
+    "nBins : int\n"
+    "    Number of intervals of distances on which to compute the\n"
+    "    correlations.\n"
+    "rmin : float\n"
+    "    Minimum distance (included) at which to compute the correlations.\n"
+    "    (default: 0)\n"
+    "rmax : float\n"
+    "    Maximum distance (excluded) at which to compute the correlations.\n"
+    "    (default: 0)\n"
+    "    NOTE: if max == 0 then max = L/2.\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "pairs : (nBins, *) list of (2,)-uple\n"
+    "    Pairs of particles used for computation of correlations.",
+    pybind11::arg("positions"),
+    pybind11::arg("L"),
+    pybind11::arg("nBins"),
+    pybind11::arg("rmin")=0,
+    pybind11::arg("rmax")=0);
 
   m.def("getRadialCorrelations", &getRadialCorrelations,
     "Compute radial correlations between `values1' (and `values2') associated\n"
