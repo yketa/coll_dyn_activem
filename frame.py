@@ -2038,11 +2038,11 @@ class Vorticity(_Frame):
         except AttributeError:
             pass
         self.p, self.s, self.w, _, _ = self.dat.getVelocityVorticity(
-            frame, nBoxes=None, sigma=a, centre=centre)
+            frame, nBoxes=int(self.dat.L/a), sigma=a, centre=centre)
         self.p -= self.dat.L/2
         self.w /= np.abs(self.w).max()
 
-        self.vmin, self.vmax = -0.25, 0.25
+        self.vmin, self.vmax = -1, 1
         try:
             self.vmin = float(kwargs['vmin'])
         except (KeyError, AttributeError, TypeError): pass  # 'vmin' not in keyword arguments or None
@@ -2050,8 +2050,8 @@ class Vorticity(_Frame):
             self.vmax = float(kwargs['vmax'])
         except (KeyError, AttributeError, TypeError): pass  # 'vmax' not in keyword arguments or None
 
-        self.colorbar(self.vmin, self.vmax) # add colorbar to figure
-        self.colormap.set_label(            # colorbar
+        self.colorbar(self.vmin, self.vmax, cmap=plt.cm.PiYG)   # add colorbar to figure
+        self.colormap.set_label(                                # colorbar
             r'$\omega/\mathrm{max}(|\omega|)$',
             labelpad=pad)
 
@@ -2067,11 +2067,11 @@ class Vorticity(_Frame):
             extent=(
                 self.p[:, :, 0].min(), self.p[:, :, 0].max(),
                 self.p[:, :, 1].min(), self.p[:, :, 1].max()),
-            cmap=self.cmap,
+            cmap=self.cmap, interpolation='nearest',
             rasterized=self.rasterized)
         self.ax.streamplot(self.p[:, :, 0].T, self.p[:, :, 1].T,    # stream lines
             self.s[:, :, 0].T, self.s[:, :, 1].T,
-            color='black', density=5, linewidth=self.linewidth)
+            color='black', density=2, linewidth=self.linewidth)
 
 class Kinetic(_Frame):
     """
