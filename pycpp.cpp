@@ -1729,8 +1729,8 @@ std::vector<pybind11::array_t<double>> getVelocityVorticity(
   // set positions and set grids to 0
   for (int cx=0; cx < nBoxes; cx++) {
     for (int cy=0; cy < nBoxes; cy++) {
-      pos[cx*nBoxes*2 + cy*2 + 0] = L/nBoxes*(cx + 0.5);
-      pos[cx*nBoxes*2 + cy*2 + 1] = L/nBoxes*(cy + 0.5);
+      pos[cx*nBoxes*2 + cy*2 + 0] = L/(nBoxes - 1)*cx;
+      pos[cx*nBoxes*2 + cy*2 + 1] = L/(nBoxes - 1)*cy;
       for (int dim=0; dim < 2; dim++) {
         vel[cx*nBoxes*2 + cy*2 + dim] = 0;
       }
