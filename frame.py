@@ -25,6 +25,7 @@ from math import ceil
 
 import numpy as np
 np.seterr(divide='ignore')
+from scipy import sparse
 
 import matplotlib as mpl
 if get_env('NO_DISPLAY', default=False, vartype=bool): mpl.use('Agg')
@@ -231,19 +232,19 @@ class _Frame:
 
         _draw_circle(self.positions[particle])
 
-        for dim in range(2):
-            if (np.abs(self.positions[particle][dim]) >
-                self.dat.Lxy[dim]/2 - self.diameters[particle]/2):
-                newPosition = self.positions[particle].copy()
-                newPosition[dim] -= (np.sign(self.positions[particle][dim])
-                    *self.dat.Lxy[dim])
-                _draw_circle(newPosition)
-        if (np.abs(self.positions[particle]) >
-            self.dat.Lxy/2 - self.diameters[particle]/2).all():
-            newPosition = self.positions[particle].copy()
-            newPosition -= (np.sign(self.positions[particle])
-                *self.dat.Lxy)
-            _draw_circle(newPosition)
+        # for dim in range(2):
+        #     if (np.abs(self.positions[particle][dim]) >
+        #         self.dat.Lxy[dim]/2 - self.diameters[particle]/2):
+        #         newPosition = self.positions[particle].copy()
+        #         newPosition[dim] -= (np.sign(self.positions[particle][dim])
+        #             *self.dat.Lxy[dim])
+        #         _draw_circle(newPosition)
+        # if (np.abs(self.positions[particle]) >
+        #     self.dat.Lxy/2 - self.diameters[particle]/2).all():
+        #     newPosition = self.positions[particle].copy()
+        #     newPosition -= (np.sign(self.positions[particle])
+        #         *self.dat.Lxy)
+        #     _draw_circle(newPosition)
 
         if label:
             self.ax.annotate(
@@ -1198,8 +1199,13 @@ class Eigenmode(_Frame):
 
         self.arrow_factor = arrow_factor    # displacement arrow dilatation factor
 
-        eval, evec = np.linalg.eig(
-            Force(dat.filename).getRAHessian(frame, a=12, rcut=1.25))
+        eval, evec = sparse.linalg.eigsh(
+            Force(dat.filename).getRAHessian(frame, a=12, rcut=1.25),
+            k=self.n + 1, which='SM')
+        evec = np.reshape(np.transpose(evec), (self.n + 1, self.dat.N, 2))
+        # eval, evec = np.linalg.eig(
+        #     Force(dat.filename).getRAHessian(frame, a=12, rcut=1.25))
+        print(eval[np.argsort(eval)[self.n]])
         self.mode = evec[np.argsort(eval)[self.n]]
         self.mode = np.reshape(self.mode, (dat.N, 2))
         self.mode /= (self.mode**2).sum(axis=-1).mean()*np.sqrt(dat.N)
@@ -2901,6 +2907,10 @@ if __name__ == '__main__':  # executing as script
         vartype=float)  # vertical size of the frame (in inches)
     mpl.rcParams['figure.figsize'] = (frame_hor, frame_ver)
 
+    style = get_env('MATPLOTLIB_STYLE') # set matplotlib style
+    if type(style) != type(None):
+        plt.style.use(style)
+
     # subplot layout
     figure_top = get_env('FIGURE_TOP', vartype=float)
     figure_bottom = get_env('FIGURE_BOTTOM', vartype=float)
@@ -2932,6 +2942,7 @@ if __name__ == '__main__':  # executing as script
 
     display_suptitle = get_env('SUPTITLE', default=True, vartype=bool)      # display suptitle
     time_suptitle = get_env('TIME_SUPTITLE', default=False, vartype=bool)   # display elapsed time since initial frame in suptitle
+    axes_title = get_env('AXES_TITLE', default=False, vartype=bool)         # display title axes title and not figure suptitle
 
     def suptitle(frame, lag_time=None):
         """
@@ -3034,7 +3045,9 @@ if __name__ == '__main__':  # executing as script
             minimum=minimum, n=n, vmin=vmin, vmax=vmax,
             remove_cm=get_env('REMOVE_CM', vartype=int),
             label=get_env('LABEL', default=False, vartype=bool))
-        figure.fig.suptitle(suptitle(init_frame, lag_time=dt))
+        title = suptitle(init_frame, lag_time=dt)
+        if axes_title: figure.ax.set_title(title, pad=pad)
+        else: figure.fig.suptitle(title)
         figure.fig.subplots_adjust(
             top=figure_top, bottom=figure_bottom,
             left=figure_left, right=figure_right)
@@ -3095,7 +3108,9 @@ if __name__ == '__main__':  # executing as script
                 colorbar_label=colorbar_label,
                 remove_cm=remove_cm,
                 label=get_env('LABEL', default=False, vartype=bool))    # plot frame
-            figure.fig.suptitle(suptitle(frame, frame_per))
+            title = suptitle(frame, lag_time=frame_per)
+            if axes_title: figure.ax.set_title(title, pad=pad)
+            else: figure.fig.suptitle(title)
 
             tracer = get_env('TRACER', vartype=int)
             if tracer != None:
