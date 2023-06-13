@@ -3155,7 +3155,7 @@ if __name__ == '__main__':  # executing as script
             '-r', str(get_env('FRAME_RATE', default=5, vartype=int)),
             '-f', 'image2', '-s', '1280x960', '-i',
             joinpath(movie_dir , 'frames', '%10d.png'),
-            '-pix_fmt', 'yuv420p', '-y',
+            '-pix_fmt', 'yuv420p', '-vcodec', 'libx265', '-crf', '28', '-y',
             joinpath(movie_dir, get_env('FIGURE_NAME', default='out.mp4'))
             ])  # generate movie from frames
 
