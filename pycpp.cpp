@@ -393,6 +393,114 @@ std::vector<std::vector<pybind11::array_t<double>>> getSeparationsPair(
   return out;
 }
 
+// std::vector<std::vector<pybind11::array_t<double>>> getSeparationsPairSingle(
+//   std::string const& filename,
+//   pybind11::array_t<int> time0, pybind11::array_t<int> deltat,
+//   double const& a1) {
+//   // Compute differences of positions of closest initially paired particles
+//   // (i.e. closest particle at distance lesser than `a1' mean diameter) from the
+//   // initial times `time0' with the lag times `dt' from the .datN file
+//   // `filename
+//
+//   DatN dat(filename, false, true);
+//   const int N = dat.getNumberParticles();
+//   const double L = dat.getSystemSize();
+//   const std::vector<double> sigma = dat.getDiameters();
+//   std::vector<std::vector<double>> positions(N, std::vector<double>(2, 0));
+//
+//   CellList cellList(N, L, a1*(*std::max_element(sigma.begin(), sigma.end())));
+//
+//   auto t0 = time0.unchecked<1>();
+//   pybind11::buffer_info t0_buf = time0.request();
+//   auto t = deltat.unchecked<1>();
+//   pybind11::buffer_info dt_buf = deltat.request();
+//
+//   std::vector<pybind11::array_t<double>> separationsPair(0);
+//   std::vector<int> closest(N, -1);
+//   std::vector<double> distance(N, 0);
+//   std::vector<std::vector<double>> displacements(N, std::vector<double>(2, 0));
+//   double dist;
+//   double sigmaij;
+//   double diff[2];
+//   for (int it0=0; it0 < t0_buf.shape[0]; it0++) {
+//
+//     // get positions
+//     for (int i=0; i < N; i++) {
+//       for (int dim=0; dim < 2; dim++) {
+//         positions[i][dim] = dat.getPosition(t0(it0), i, dim, false);
+//       }
+//       closest[i] = -1; // closest neighbour of i
+//       distance[i] = 0; // distance to closest neighbour of i
+//     }
+//
+//     // get neighbours
+//     cellList.listConstructor<std::vector<double>>(positions);
+//     cellList.pairs(
+//       [&sigma, &positions, &L, &a1, &dist, &sigmaij, &diff,
+//         &separations, &neighbours, &closest, &distance]
+//       (int const& index1, int const& index2) { // do for each individual pair
+//         // rescaled diameter
+//         sigmaij = (sigma[index1] + sigma[index2])/2;
+//         // distance
+//         dist = dist2DPeriod(
+//           &(positions[index1][0]), &(positions[index2][0]), L, &diff[0]);
+//         if ( dist/sigmaij < a1
+//           && ( closest[index1] == -1 || dist < distance[index1] ) ) { // particles are bonded
+//           closest[index1] = index2;
+//           distances[index1] = dist;
+//         }
+//         if ( dist/sigmaij < a1
+//           && ( closest[index2] == -1 || dist < distance[index2] ) ) { // particles are bonded
+//           closest[index2] = index1;
+//           distances[index2] = dist;
+//         }
+//       });
+//     pairs.push_back(pybind11::array_t<double>(
+//       {(int) neighbours.size(), 2}));
+//     auto p = pairs[it0].mutable_unchecked<2>();
+//     for (int n=0; n < (int) neighbours.size(); n++) {
+//       for (int i=0; i < 2; i++) {
+//         p(n, i) = neighbours[n][i];
+//       }
+//     }
+//     separationsPair.push_back(pybind11::array_t<double>(
+//       {(int) dt_buf.shape[0], (int) neighbours.size(), 2}));
+//     auto sP = separationsPair[it0].mutable_unchecked<3>();
+//
+//     // for each lag time
+//     for (int it=0; it < dt_buf.shape[0]; it++) {
+//
+//       // compute displacements
+//       for (int i=0; i < N; i++) {
+//         for (int dim=0; dim < 2; dim++) {
+//           displacements[i][dim] =
+//             dat.getPosition(t0(it0) + t(it), i, dim, true)
+//             - dat.getPosition(t0(it0), i, dim, true);
+//         }
+//       }
+//       // for each pair
+//       for (int n=0; n < (int) neighbours.size(); n++) {
+//         for (int dim=0; dim < 2; dim++) {
+//           sP(it, n, dim) =
+//             separations[n][dim]
+//             + displacements[neighbours[n][1]][dim]
+//             - displacements[neighbours[n][0]][dim];
+//           if ( scale ) {
+//             sP(it, n, dim) /=
+//               (sigma[neighbours[n][0]] + sigma[neighbours[n][1]])/2;
+//           }
+//         }
+//       }
+//
+//     }
+//   }
+//
+//   std::vector<std::vector<pybind11::array_t<double>>> out(0);
+//   out.push_back(separationsPair);
+//   out.push_back(pairs);
+//   return out;
+// }
+
 std::vector<pybind11::array_t<double>> getVelocityCorrelationPair(
   std::string const& filename,
   pybind11::array_t<int> time0, pybind11::array_t<int> deltat,
@@ -1048,6 +1156,70 @@ std::vector<pybind11::array_t<double>> getBondsBrokenBonds(
     });
 
   return std::vector<pybind11::array_t<double>>({nBonds, nBrokenBonds});
+}
+
+std::vector<pybind11::array_t<int>> getBondsBrokenBondsBis(
+  pybind11::array_t<double> const& positions,
+  pybind11::array_t<double> const& displacements,
+  pybind11::array_t<double> const& diameters,
+  double const& L, double const& A1=1.15, double const& A2=1.25) {
+  // Compute for each of `N' particles the number of other particles which are
+  // at distance relative to their diameter lesser than `A1' in `positions' and
+  // at absolute distance greater than `A2' after `displacements'.
+
+  pybind11::buffer_info pos_buf = positions.request();
+  pybind11::buffer_info dis_buf = displacements.request();
+  pybind11::buffer_info dia_buf = diameters.request();
+  const int N = pos_buf.shape[0];
+  if (dis_buf.shape[0] != N || dia_buf.shape[0] != N) {
+    throw std::runtime_error("Input shapes must match.");
+  }
+  std::vector<double*> r0(N, 0); // initial positions
+  std::vector<std::vector<double>> r1(N, std::vector<double>(2, 0)); // final positions
+  for (int i=0; i < N; i++) {
+    r0[i] = &(((double*) pos_buf.ptr)[2*i]);
+    for (int dim=0; dim < 2; dim++) {
+      r1[i][dim] = r0[i][dim] + ((double*) dis_buf.ptr)[2*i + dim];
+    }
+  }
+  std::vector<double> sigma((double*) dia_buf.ptr, (double*) dia_buf.ptr + N); // diameters
+  double dist, sigmaij;
+  double diff[2];
+
+  pybind11::array_t<int> nBonds({N}); // array of initial number of bonds
+  pybind11::array_t<int> nBrokenBonds({N}); // array of number of broken bonds
+  int* b = (int*) nBonds.request().ptr;
+  int* bb = (int*) nBrokenBonds.request().ptr;
+  for (int i=0; i < N; i++) {
+    // initialise to 0
+    b[i] = 0;
+    bb[i] = 0;
+  }
+
+  CellList cellList(N, L,
+    A1*(*std::max_element(sigma.begin(), sigma.end())));
+  cellList.listConstructor<double*>(r0);
+  cellList.pairs(
+    [&b, &bb, &sigma, &r0, &r1, &L, &A1, &A2, &dist, &sigmaij, &diff]
+    (int const& index1, int const& index2) { // do for each individual pair
+      // rescaled diameter
+      sigmaij = (sigma[index1] + sigma[index2])/2;
+      // distance
+      dist = dist2DPeriod(r0[index1], r0[index2], L, &diff[0]);
+      // initial bond
+      if ( dist/sigmaij < A1 ) { // particles are bonded (RELATIVE DISTANCE)
+        b[index1] += 1;
+        b[index2] += 1;
+        // final bond
+        dist = dist2DPeriod(&(r1[index1][0]), &(r1[index2][0]), L, &diff[0]);
+        if ( dist > A2 ) { // particles are unbonded (ABSOLUTE DISTANCE)
+          bb[index1] += 1;
+          bb[index2] += 1;
+        }
+      }
+    });
+
+  return std::vector<pybind11::array_t<int>>({nBonds, nBrokenBonds});
 }
 
 extern "C" void getVanHoveDistances(
@@ -2709,6 +2881,40 @@ PYBIND11_MODULE(_pycpp, m) {
     "A2 : float\n"
     "    Distance in pair average diameter unit above which particles are\n"
     "    considered unbonded. (default: 1.25)\n"
+    "\n"
+    "Returns\n"
+    "-------\n"
+    "nBonds : (*,) float numpy array\n"
+    "    Array of initial number of bonds.\n"
+    "nBrokenBonds : (*,) float numpy array\n"
+    "    Array of number of broken bonds.",
+    pybind11::arg("positions"),
+    pybind11::arg("displacements"),
+    pybind11::arg("diameters"),
+    pybind11::arg("L"),
+    pybind11::arg("A1")=1.15,
+    pybind11::arg("A2")=1.25);
+
+  m.def("getBondsBrokenBondsBis", &getBondsBrokenBondsBis,
+    "Return the number of initial bonds and broken bonds at (absolute\n"
+    "distance).\n"
+    "\n"
+    "Parameters\n"
+    "----------\n"
+    "positions : (*, 2) float array-like\n"
+    "    Positions.\n"
+    "displacements : (*, 2) float array-like\n"
+    "    Displacements.\n"
+    "diameters : (*,) float array-like\n"
+    "    Diameters.\n"
+    "L : float\n"
+    "    System size.\n"
+    "A1 : float\n"
+    "    Distance in pair average diameter unit under which particles are\n"
+    "    considered bonded. (default: 1.15)\n"
+    "A2 : float\n"
+    "    Distance in absolute unit above which particles are considered\n"
+    "    unbonded. (default: 1.25)\n"
     "\n"
     "Returns\n"
     "-------\n"
