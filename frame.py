@@ -13,7 +13,7 @@ from coll_dyn_activem.flow import Displacements, Velocities
 from coll_dyn_activem.structure import Positions
 from coll_dyn_activem.force import Force
 from coll_dyn_activem.pycpp import pairIndex, invPairIndex
-from coll_dyn_activem._pycpp import getBondsBrokenBonds
+from coll_dyn_activem._pycpp import getBondsBrokenBonds, getBondsBrokenBondsBis
 
 from os import getcwd, cpu_count
 from os import environ as envvar
@@ -37,7 +37,7 @@ from matplotlib.cm import ScalarMappable
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.lines import Line2D
 from matplotlib.collections import PatchCollection
-from matplotlib.patches import Polygon
+from matplotlib.patches import Polygon, FancyArrow
 
 plt.rc('text', usetex=True)
 plt.rc('text.latex', preamble=r'\usepackage{amsmath,amsfonts}')
@@ -1380,7 +1380,7 @@ class Cbond(_Frame):
 
     def __init__(self, dat, frame, box_size, centre,
         pad=_colormap_label_pad, dt=1, a1=1.15, a2=1.5, minimum=0.5,
-        label=False, **kwargs):
+        border=True, label=False, **kwargs):
         """
         Initialises and plots figure.
 
@@ -1408,6 +1408,8 @@ class Cbond(_Frame):
         minimum : float
             Show in red particles with minimum proportion of broken bonds.
             (default: 0.5)
+        border : bool
+            Draw black border of particles. (default: True)
         label : bool
             Write indexes of particles in circles. (default: False)
 
@@ -1440,6 +1442,94 @@ class Cbond(_Frame):
         self.colorbar(0, 1, cmap=cmap.reversed())   # add colorbar to figure
         self.colormap.set_label(                    # colorbar legend
             (r'$C_b^i(t, a_1=%.2f, a_2=%.2f)$'
+                % (self.a1, self.a2)),
+            labelpad=pad)
+
+        self.border = border    # draw borders
+        self.label = label      # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        for particle, ib, bb in zip(
+            self.particles, self.initialBonds, self.brokenBonds):   # for particle and particle's number of initial and broken bonds in rendered box
+            self.draw_circle(particle,
+                color=self.scalarMap.to_rgba(1 - bb/ib if ib != 0 else 0),
+                fill=True,
+                border='black' if self.border else None,
+                label=self.label)               # draw particle circle with color corresponding to number of broken bond
+
+class Cbondbis(_Frame):
+    """
+    Plotting class specific to 'cbondbis' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        pad=_colormap_label_pad, dt=1, a1=1.15, a2=1.5, minimum=0.5,
+        label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        dt : int
+            Lag time for displacement. (default: 1)
+        a1 : float
+            Distance relative to their diameters below which particles are
+            considered bonded. (default: 1.15)
+        a2 : float
+            Absolute distance above which particles are considered unbonded.
+            (default: 1.5)
+        minimum : float
+            Show in red particles with minimum proportion of broken bonds.
+            (default: 0.5)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            **kwargs)   # initialise superclass
+
+        frame, dt = np.min([frame, frame + dt]), np.abs(dt)
+
+        self.a1, self.a2 = a1, a2
+        self.minimum = minimum if minimum > 0 else 0.5
+        self.initialBonds, self.brokenBonds = getBondsBrokenBondsBis(
+            dat.getPositions(frame), dat.getDisplacements(frame, frame + dt),
+            dat.diameters, dat.L, self.a1, self.a2) # number of initial and broken bonds
+        self.initialBonds = np.array(itemgetter(*self.particles)(
+            self.initialBonds))
+        self.brokenBonds = np.array(itemgetter(*self.particles)(
+            self.brokenBonds))
+
+        cvals = [0, self.minimum - 0.05, self.minimum, self.minimum + 0.05, 1]
+        colors = ["blue", "blue", "magenta", "red", "red"]
+        norm = plt.Normalize(min(cvals),max(cvals))
+        tuples = list(zip(map(norm,cvals), colors))
+        cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", tuples)
+
+        self.colorbar(0, 1, cmap=cmap.reversed())   # add colorbar to figure
+        self.colormap.set_label(                    # colorbar legend
+            (r'$\varphi_i(t, a_1=%.2f, a_2=%.2f)$'
                 % (self.a1, self.a2)),
             labelpad=pad)
 
@@ -1627,21 +1717,75 @@ class Velocity(_Frame):
         Plots figure.
         """
 
-        for particle, velocity in zip(
-            self.particles, self.velocities):                               # for particle and particle's velocity in rendered box
-            self.draw_circle(particle,
-                color=self.scalarMap.to_rgba(
-                    np.log10(np.linalg.norm(velocity))),
-                fill=True,
-                border='black' if self.border else None,
-                label=self.label)                                           # draw particle circle with color corresponding to velocity amplitude
-            if self.direction:
-                self.draw_arrow(particle,
-                    *normalise1D(velocity)*0.75*self.diameters[particle])   # draw velocity direction arrow
+        circles = list(map(
+            lambda particle, velocity:
+                plt.Circle(
+                    self.positions[particle], self.diameters[particle]/2,
+                    edgecolor=self.scalarMap.to_rgba(
+                        np.log10(np.linalg.norm(velocity))),
+                    facecolor=self.scalarMap.to_rgba(
+                        np.log10(np.linalg.norm(velocity))),
+                    fill=True,
+                    linewidth=self.linewidth,
+                    zorder=0, rasterized=self.rasterized),
+            *(self.particles, self.velocities)))
+        coll = PatchCollection(
+            circles,
+            edgecolors=list(map(lambda c: c.get_edgecolor(), circles)),
+            facecolors=list(map(lambda c: c.get_facecolor(), circles)),
+            linewidth=self.linewidth,
+            rasterized=self.rasterized)
+        self.ax.add_collection(coll)
+
+        arrows = list(map(
+            lambda particle, velocity:
+                (lambda length:
+                    self.ax.arrow(
+                        *self.positions[particle],
+                        *normalise1D(velocity)*length,
+                        color='black',
+                        width=length*self.arrow_width,
+                        head_width=length*self.arrow_head_width,
+                        head_length=length*self.arrow_head_length,
+                        length_includes_head=True,
+                        zorder=1,
+                        linewidth=self.linewidth,
+                        rasterized=False))
+                    # FancyArrow(
+                    #     *self.positions[particle],
+                    #     *normalise1D(velocity)*length,
+                    #     color='black',
+                    #     width=length*self.arrow_width,
+                    #     head_width=length*self.arrow_head_width,
+                    #     head_length=length*self.arrow_head_length,
+                    #     length_includes_head=False,
+                    #     linewidth=self.linewidth,
+                    #     zorder=1, rasterized=self.rasterized))
+                    (0.75*self.diameters[particle]),
+            *(self.particles, self.velocities)))
+
+        coll = PatchCollection(
+            arrows,
+            edgecolors=list(map(lambda c: 'black', circles)),
+            facecolors=list(map(lambda c: 'black', circles)),
+            rasterized=self.rasterized)
+        self.ax.add_collection(coll)
+
+        # for particle, velocity in zip(
+        #     self.particles, self.velocities):                               # for particle and particle's velocity in rendered box
+        #     self.draw_circle(particle,
+        #         color=self.scalarMap.to_rgba(
+        #             np.log10(np.linalg.norm(velocity))),
+        #         fill=True,
+        #         border='black' if self.border else None,
+        #         label=self.label)                                           # draw particle circle with color corresponding to velocity amplitude
+        #     if self.direction:
+        #         self.draw_arrow(particle,
+        #             *normalise1D(velocity)*0.75*self.diameters[particle])   # draw velocity direction arrow
 
 class Bvelocity(_Frame):
     """
-    Plotting class specific to 'odisplacement' mode.
+    Plotting class specific to 'bvelocity' mode.
     """
 
     def __init__(self, dat, frame, box_size, centre,
@@ -1998,6 +2142,85 @@ class Pvelocity(_Frame):
             if self.direction and order >= self.minimum:
                 self.draw_arrow(particle,
                     *normalise1D(velocity)*0.75*self.diameters[particle])   # draw velocity direction arrow
+
+class Porivelocity(_Frame):
+    """
+    Plotting class specific to 'porivelocity' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        minimum=0,
+        pad=_colormap_label_pad,
+        border=False, label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        border : bool
+            Draw black border of particles. (default: True)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+
+        Optional keyword parameters
+        ---------------------------
+        (see coll_dyn_activem.frame._Frame)
+        vmin : float
+            Minimum value of the colorbar.
+        vmax : float
+            Maximum value of the colorbar.
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            **kwargs)   # initialise superclass
+
+        self.minimum = minimum
+
+        self.order = np.abs(Positions(
+            dat.filename, corruption=dat.corruption).getBondOrderParameter(
+                frame, *self.particles))    # particles' bond order parameter at frame
+
+        self.velocities = dat.getVelocities(frame, remove_cm=True)  # particles' velocities at frame
+        self.orivelocities = np.array(list(map(
+            angle,
+            *np.transpose(itemgetter(*self.particles)(self.velocities)))))
+
+        self.colorbar(-1, 1, cmap=plt.cm.hsv)   # add colorbar to figure
+        self.colormap.set_label(
+            r'$\mathrm{arg}($'
+                + r'$\delta \dot{\boldsymbol{r}}_i(t, t + \Delta t))/\pi$' + ' '
+                    + (r'$(\min |\psi_{6,i}| = %.2f)$' % self.minimum),
+            labelpad=pad)                       # colorbar legend
+
+        self.border = border    # draw borders
+        self.label = label      # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        for particle, order, orivelocity in zip(
+            self.particles, self.order, self.orivelocities):                    # for particle and particle's velocity in rendered box
+            self.draw_circle(particle,
+                color=self.scalarMap.to_rgba(orivelocity/np.pi),
+                fill=(order >= self.minimum),
+                border=(
+                    'black' if (self.border or order < self.minimum) else None),
+                label=self.label)                                           # draw particle circle with color corresponding to velocity amplitude
 
 class Vorticity(_Frame):
     """
@@ -2366,12 +2589,30 @@ class Polar(_Frame):
         Plots figure.
         """
 
-        for particle, polar, order in zip(
-            self.particles, np.angle(self.bond)/np.pi, np.abs(self.bond)):  # for particle and particle's bond orientation real part of the order parameter in rendered box
-            self.draw_circle(particle,
-                color=self.scalarMap.to_rgba(polar),
-                fill=(order >= self.minimum), border='black',
-                label=self.label)                               # draw particle circle with color corresponding to bond orientation order parameter norm
+        circles = list(map(
+            lambda particle, polar, order:
+                plt.Circle(
+                    self.positions[particle], self.diameters[particle]/2,
+                    facecolor=self.scalarMap.to_rgba(polar),
+                    fill=(order >= self.minimum),
+                    edgecolor='black',
+                    linewidth=self.linewidth,
+                    zorder=0, rasterized=self.rasterized),
+            *(self.particles, np.angle(self.bond)/np.pi, np.abs(self.bond))))
+        coll = PatchCollection(
+            circles,
+            edgecolors=list(map(lambda c: c.get_edgecolor(), circles)),
+            facecolors=list(map(lambda c: c.get_facecolor(), circles)),
+            linewidth=self.linewidth,
+            rasterized=self.rasterized)
+        self.ax.add_collection(coll)
+
+        # for particle, polar, order in zip(
+        #     self.particles, np.angle(self.bond)/np.pi, np.abs(self.bond)):  # for particle and particle's bond orientation real part of the order parameter in rendered box
+        #     self.draw_circle(particle,
+        #         color=self.scalarMap.to_rgba(polar),
+        #         fill=(order >= self.minimum), border='black',
+        #         label=self.label)                               # draw particle circle with color corresponding to bond orientation order parameter norm
 
 class Density(_Frame):
     """
@@ -2526,6 +2767,144 @@ class Voronoi(_Frame):
         pc.set_rasterized(self.rasterized)
 
         self.ax.add_collection(pc)
+
+class VoronoiPolar(_Frame):
+    """
+    Plotting class specific to 'voronoipolar' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        pad=_colormap_label_pad,
+        **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            **kwargs)   # initialise superclass
+
+        self.voronoi = Positions(
+            dat.filename, corruption=dat.corruption)._voronoi(
+                frame, centre=centre)   # Voronoi cells
+        self.bond = Positions(
+            dat.filename, corruption=dat.corruption).getBondOrderParameter(
+                frame, arg=False)       # bond order parameter argument
+
+        self.colorbar(-np.pi, np.pi, cmap=plt.cm.hsv)   # add colorbar to figure
+        self.colormap.set_label(                        # colorbar legend
+            r'$\mathrm{arg}(\phi_{6,i})$',
+            labelpad=pad)
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        pc = PatchCollection(
+            [Polygon(poly[:, :2]) for poly in self.voronoi.polytopes],
+            edgecolors='black')
+        pc.set_fc(list(map(self.scalarMap.to_rgba, np.angle(self.bond))))
+        pc.set_alpha(np.abs(self.bond))
+        pc.set_rasterized(self.rasterized)
+
+        self.ax.add_collection(pc)
+
+class VoronoiPolarOrivelocity(_Frame):
+    """
+    Plotting class specific to 'voronoipolarorivelocity' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        pad=_colormap_label_pad,
+        **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            **kwargs)   # initialise superclass
+
+        self.particles = np.array(range(self.dat.N))
+        self.voronoi = Positions(
+            dat.filename, corruption=dat.corruption)._voronoi(
+                frame, centre=centre)   # Voronoi cells
+        self.bond = Positions(
+            dat.filename, corruption=dat.corruption).getBondOrderParameter(
+                frame, arg=False)       # bond order parameter argument
+        self.velocities = dat.getVelocities(
+            frame, remove_cm=True)      # particles' velocities at frame
+
+        self.colorbar(-np.pi, np.pi, cmap=plt.cm.hsv)   # add colorbar to figure
+        self.colormap.set_label(                        # colorbar legend
+            r'$\mathrm{arg}(\phi_{6,i})$',
+            labelpad=pad)
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        pc = PatchCollection(
+            [Polygon(poly[:, :2]) for poly in self.voronoi.polytopes],
+            edgecolors='black')
+        pc.set_fc(list(map(self.scalarMap.to_rgba, np.angle(self.bond))))
+        pc.set_alpha(np.abs(self.bond))
+        pc.set_rasterized(self.rasterized)
+
+        self.ax.add_collection(pc)
+
+        arrows = list(map(
+            lambda particle, velocity:
+                (lambda length:
+                    self.ax.arrow(
+                        *self.positions[particle],
+                        *normalise1D(velocity)*length,
+                        color='black',
+                        width=length*self.arrow_width,
+                        head_width=length*self.arrow_head_width,
+                        head_length=length*self.arrow_head_length,
+                        length_includes_head=True,
+                        zorder=1,
+                        linewidth=self.linewidth,
+                        rasterized=False))
+                    (0.75*self.diameters[particle]),
+            *(self.particles, self.velocities)))
+
+        self.ax.add_collection(PatchCollection(
+            arrows, edgecolors='black', facecolors='black',
+            rasterized=self.rasterized))
 
 class Defects(_Frame):
     """
@@ -2826,6 +3205,8 @@ if __name__ == '__main__':  # executing as script
         plotting_object = Bond
     elif mode == 'cbond':
         plotting_object = Cbond
+    elif mode == 'cbondbis':
+        plotting_object = Cbondbis
     elif mode == 'polar':
         plotting_object = Polar
     elif mode == 'd2min':
@@ -2840,6 +3221,8 @@ if __name__ == '__main__':  # executing as script
         plotting_object = Orivelocity
     elif mode == 'pvelocity':
         plotting_object = Pvelocity
+    elif mode == 'porivelocity':
+        plotting_object = Porivelocity
     elif mode == 'vorticity':
         plotting_object = Vorticity
     elif mode == 'kinetic':
@@ -2852,6 +3235,10 @@ if __name__ == '__main__':  # executing as script
         plotting_object = Density
     elif mode == 'voronoi':
         plotting_object = Voronoi
+    elif mode == 'voronoipolar':
+        plotting_object = VoronoiPolar
+    elif mode == 'voronoipolarorivelocity':
+        plotting_object = VoronoiPolarOrivelocity
     elif mode == 'defects':
         plotting_object = Defects
     elif mode == 'bare':
@@ -2876,7 +3263,7 @@ if __name__ == '__main__':  # executing as script
     a = get_env('A', default=0.3, vartype=float)                    # length scale to compute overlaps or local packing fractions
     a1 = get_env('A1', default=1.15, vartype=float)                 # distance relative to their diameters below which particles are considered bonded
     a2 = get_env('A2', default=1.5, vartype=float)                  # distance relative to their diameters above which particles are considered unbonded
-    minimum = get_env('MINIMUM', default=0, vartype=float)          # minimum squared displacement
+    minimum = get_env('MINIMUM', default=0, vartype=float)          # minimum
     n = get_env('N', default=4, vartype=int)                        # number of checkerboard boxes in each direction
 
     rescale = get_env('RESCALE', default=False, vartype=bool)   # rescale values by root mean square
@@ -3025,8 +3412,8 @@ if __name__ == '__main__':  # executing as script
 
         if mode in (
             'displacement', 'disph', 'odisplacement', 'oridisplacement',
-            'movement', 'lemaitrepatinet', 'overlap', 'bond', 'cbond', 'polar',
-            'd2min', 'frap', 'frapc', 'bvelocity'):
+            'movement', 'lemaitrepatinet', 'overlap', 'bond', 'cbond',
+            'cbondbis', 'polar', 'd2min', 'frap', 'frapc', 'bvelocity'):
             if get_env('NEGATIVE_DT', default=False, vartype=bool): pass
             else:
                 try:
@@ -3088,8 +3475,8 @@ if __name__ == '__main__':  # executing as script
             plot_frame = frame
             lag = frame_per
             if mode in (
-                'displacement', 'disph', 'overlap', 'bond', 'cbond', 'frap',
-                'movement', 'lemaitrepatinet', 'frapc'):
+                'displacement', 'disph', 'overlap', 'bond', 'cbond', 'cbondbis',
+                'frap', 'movement', 'lemaitrepatinet', 'frapc'):
                 if get_env('MOVE', default=True, vartype=bool):
                     remove_cm = init_frame
                     plot_frame = frame
