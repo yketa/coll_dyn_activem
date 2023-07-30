@@ -1783,6 +1783,118 @@ class Velocity(_Frame):
         #         self.draw_arrow(particle,
         #             *normalise1D(velocity)*0.75*self.diameters[particle])   # draw velocity direction arrow
 
+class VelocityThreshold(_Frame):
+    """
+    Plotting class specific to 'velocitythreshold' mode.
+    """
+
+    def __init__(self, dat, frame, box_size, centre,
+        direction=True, minimum=0,
+        arrow_width=_arrow_width,
+        arrow_head_width=_arrow_head_width,
+        arrow_head_length=_arrow_head_length,
+        pad=_colormap_label_pad,
+        border=False, label=False, **kwargs):
+        """
+        Initialises and plots figure.
+
+        Parameters
+        ----------
+        dat : coll_dyn_activem.read.Dat
+            Data object.
+        frame : int
+            Frame to render.
+        box_size : float
+            Length of the square box to render.
+        centre : 2-uple like
+            Centre of the box to render.
+        direction : bool
+            Draw arrow in the direction of the velocity. (default: True)
+        minimum : float
+            Threshold for the norms of velocities in number of standard
+            deviation. (default: 0)
+        arrow_width : float
+            Width of the arrows.
+        arrow_head_width : float
+            Width of the arrows' head.
+        arrow_head_length : float
+            Length of the arrows' head.
+        pad : float
+            Separation between label and colormap.
+            (default: coll_dyn_activem.frame._colormap_label_pad)
+        border : bool
+            Draw black border of particles. (default: True)
+        label : bool
+            Write indexes of particles in circles. (default: False)
+        """
+
+        super().__init__(dat, frame, box_size, centre,
+            arrow_width=arrow_width,
+            arrow_head_width=arrow_head_width,
+            arrow_head_length=arrow_head_length,
+            **kwargs)   # initialise superclass
+
+        self.direction = direction
+
+        self.velocities = dat.getVelocities(
+            frame, *self.particles, remove_cm=True) # particles' velocities at frame
+        self.minimum = minimum*np.sqrt(
+            dat.getVelocities(frame, remove_cm=True).var(axis=0).sum())
+
+        self.border = border    # draw borders
+        self.label = label      # write labels
+
+        self.draw()
+
+    def draw(self):
+        """
+        Plots figure.
+        """
+
+        colors = ['red', 'blue']
+
+        circles = list(map(
+            lambda particle, velocity:
+                plt.Circle(
+                    self.positions[particle], self.diameters[particle]/2,
+                    edgecolor=colors[int(velocity < self.minimum)],
+                    facecolor=colors[int(velocity < self.minimum)],
+                    fill=True,
+                    linewidth=self.linewidth,
+                    zorder=0, rasterized=self.rasterized),
+            *(self.particles, np.sqrt((self.velocities**2).sum(axis=-1)))))
+        coll = PatchCollection(
+            circles,
+            edgecolors=list(map(lambda c: c.get_edgecolor(), circles)),
+            facecolors=list(map(lambda c: c.get_facecolor(), circles)),
+            linewidth=self.linewidth,
+            rasterized=self.rasterized)
+        self.ax.add_collection(coll)
+
+        arrows = list(map(
+            lambda particle, velocity:
+                (lambda length:
+                    self.ax.arrow(
+                        *self.positions[particle],
+                        *normalise1D(velocity)*length,
+                        color='black',
+                        width=length*self.arrow_width,
+                        head_width=length*self.arrow_head_width,
+                        head_length=length*self.arrow_head_length,
+                        length_includes_head=True,
+                        zorder=1,
+                        linewidth=self.linewidth,
+                        rasterized=False))
+                    (0.75*self.diameters[particle]),
+            *(self.particles, self.velocities)))
+
+        coll = PatchCollection(
+            arrows,
+            edgecolors=list(map(lambda c: 'black', circles)),
+            facecolors=list(map(lambda c: 'black', circles)),
+            rasterized=self.rasterized)
+        self.ax.add_collection(coll)
+
 class Bvelocity(_Frame):
     """
     Plotting class specific to 'bvelocity' mode.
@@ -2854,15 +2966,14 @@ class VoronoiPolarOrivelocity(_Frame):
         super().__init__(dat, frame, box_size, centre,
             **kwargs)   # initialise superclass
 
-        self.particles = np.array(range(self.dat.N))
         self.voronoi = Positions(
             dat.filename, corruption=dat.corruption)._voronoi(
-                frame, centre=centre)   # Voronoi cells
+                frame, centre=centre)               # Voronoi cells
         self.bond = Positions(
             dat.filename, corruption=dat.corruption).getBondOrderParameter(
-                frame, arg=False)       # bond order parameter argument
+                frame, arg=False)                   # bond order parameter argument
         self.velocities = dat.getVelocities(
-            frame, remove_cm=True)      # particles' velocities at frame
+            frame, *self.particles, remove_cm=True) # particles' velocities at frame
 
         self.colorbar(-np.pi, np.pi, cmap=plt.cm.hsv)   # add colorbar to figure
         self.colormap.set_label(                        # colorbar legend
@@ -3213,6 +3324,8 @@ if __name__ == '__main__':  # executing as script
         plotting_object = D2min
     elif mode == 'velocity':
         plotting_object = Velocity
+    elif mode == 'velocitythreshold':
+        plotting_object = VelocityThreshold
     elif mode == 'bvelocity':
         plotting_object = Bvelocity
     elif mode == 'ovelocity':
